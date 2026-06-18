@@ -46,7 +46,9 @@ import {
   searchItems,
   searchMemories,
   updateItem,
-  updateMemory
+  updateMemory,
+  checkEnv,
+  installEnv
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import type {
@@ -140,6 +142,97 @@ const themeLabels: Record<ThemeMode, string> = {
   dark: "夜晚"
 };
 
+interface Skill {
+  id: string;
+  name: string;
+  provider: string;
+  description: string;
+  enabled: boolean;
+  parameters: Record<string, string>;
+  docUrl: string;
+}
+
+const defaultSkills: Skill[] = [
+  {
+    id: "text_editor",
+    name: "Text Editor (str_replace_editor)",
+    provider: "Anthropic",
+    description: "专为大模型优化设计的文本编辑器，支持查看文件、搜索内容、以及精确替换文件内代码块。",
+    enabled: true,
+    parameters: {
+      workspace_root: "C:\\Users\\13439\\Desktop"
+    },
+    docUrl: "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use"
+  },
+  {
+    id: "bash_tool",
+    name: "Bash Tool",
+    provider: "Anthropic",
+    description: "允许 AI 助手在本地受控制的安全终端中执行 shell 命令行与自动化脚本。",
+    enabled: true,
+    parameters: {
+      shell_path: "powershell.exe",
+      allowed_prefixes: "git,npm,node,cargo,tsc"
+    },
+    docUrl: "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use"
+  },
+  {
+    id: "document_creator",
+    name: "Document Creator",
+    provider: "Anthropic",
+    description: "利用自动化引擎生成和处理 Word、Excel、PowerPoint、PDF 等格式的工作文档与报表。",
+    enabled: true,
+    parameters: {
+      output_dir: "C:\\Users\\13439\\Desktop"
+    },
+    docUrl: "https://github.com/anthropics/skills"
+  },
+  {
+    id: "frontend_designer",
+    name: "Frontend Designer",
+    provider: "Anthropic",
+    description: "生成符合现代 UI 规范的 HTML、CSS 以及 React 组件原型，提供完整的交互式前端设计方案。",
+    enabled: true,
+    parameters: {
+      framework: "React + Vite"
+    },
+    docUrl: "https://github.com/anthropics/skills"
+  },
+  {
+    id: "algorithmic_art",
+    name: "Algorithmic Art Creator",
+    provider: "Anthropic",
+    description: "通过 SVG 路径、Canvas API 等编程算法，生成高度自定义的数字艺术图形与矢量艺术资产。",
+    enabled: true,
+    parameters: {
+      canvas_format: "SVG"
+    },
+    docUrl: "https://github.com/anthropics/skills"
+  },
+  {
+    id: "skill_creator",
+    name: "Skill Creator",
+    provider: "Anthropic",
+    description: "通过与 AI 进行自然语言交互，动态生成、设计并自动打包一个新的 Agent 技能（Skill）。",
+    enabled: true,
+    parameters: {
+      skills_root: "C:\\Users\\13439\\Desktop\\NanoAgent\\.agents\\skills"
+    },
+    docUrl: "https://github.com/anthropics/skills"
+  },
+  {
+    id: "web_search",
+    name: "Web Search",
+    provider: "NanoAgent",
+    description: "通过内置的搜索引擎模块获取网页的实时新闻与技术内容。",
+    enabled: false,
+    parameters: {
+      engine: "DuckDuckGo"
+    },
+    docUrl: "https://github.com/google-deepmind/antigravity"
+  }
+];
+
 function App() {
   const listRequestRef = useRef(0);
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -164,15 +257,69 @@ function App() {
   const [activeModelId, setActiveModelId] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
+  const [previewArchivedId, setPreviewArchivedId] = useState("");
+  const [previewMessages, setPreviewMessages] = useState<PersistedMessage[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
   const [messages, setMessages] = useState<PersistedMessage[]>([]);
   const [messageReasoning, setMessageReasoning] = useState<Record<string, string>>({});
   const [chatInput, setChatInput] = useState("");
+  const [promptSuggestions, setPromptSuggestions] = useState<Item[]>([]);
+  const [selectedPromptIndex, setSelectedPromptIndex] = useState(0);
+  const [promptTriggerIndex, setPromptTriggerIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("task");
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [skills, setSkills] = useState<Skill[]>(() => {
+    const saved = localStorage.getItem("nano-agent-skills");
+    if (saved) {
+      try {
+        return JSON.parse(saved) as Skill[];
+      } catch (e) {
+        console.error("Failed to parse skills from localStorage", e);
+      }
+    }
+    return defaultSkills;
+  });
+  const [selectedSkillId, setSelectedSkillId] = useState<string>("text_editor");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isAddingSkill, setIsAddingSkill] = useState(false);
+  const [newSkillDraft, setNewSkillDraft] = useState<{
+    id: string;
+    name: string;
+    provider: string;
+    description: string;
+    docUrl: string;
+    paramsText: string;
+  }>({
+    id: "",
+    name: "",
+    provider: "Custom",
+    description: "",
+    docUrl: "",
+    paramsText: ""
+  });
+  const [nodePath, setNodePath] = useState(() => localStorage.getItem("nano-agent-node-path") || "");
+  const [pythonPath, setPythonPath] = useState(() => localStorage.getItem("nano-agent-python-path") || "");
+  const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({ node: true, python: true });
+  const [showCustomPaths, setShowCustomPaths] = useState(false);
+  const [showEnvPrompt, setShowEnvPrompt] = useState(false);
+  const [isCheckingEnv, setIsCheckingEnv] = useState(false);
+  const [isInstallingEnv, setIsInstallingEnv] = useState(false);
+  const [envInstallProgress, setEnvInstallProgress] = useState("");
+  const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
+    const saved = localStorage.getItem("nano-agent-skills");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Skill[];
+        const webSearch = parsed.find((s) => s.id === "web_search");
+        if (webSearch) return webSearch.enabled;
+      } catch (e) {
+        // ignore
+      }
+    }
+    return false;
+  });
   const [pendingReminder, setPendingReminder] = useState<ReminderDraft | null>(null);
   const [activeReminder, setActiveReminder] = useState<Item | null>(null);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
@@ -192,6 +339,49 @@ function App() {
 
   useEffect(() => {
     void loadAll();
+    
+    // Check if skills contain "computer_use" and clean it up
+    const saved = localStorage.getItem("nano-agent-skills");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Skill[];
+        if (parsed.some((s) => s.id === "computer_use")) {
+          localStorage.removeItem("nano-agent-skills");
+          setSkills(defaultSkills);
+          setSelectedSkillId("text_editor");
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // First-time skills sync from GitHub
+    const synced = localStorage.getItem("nano-agent-skills-synced");
+    if (!synced) {
+      void syncGitHubSkills();
+    }
+
+    // First-time environment check
+    const isEnvChecked = localStorage.getItem("nano-agent-env-checked") === "true";
+    const currentNodePath = localStorage.getItem("nano-agent-node-path") || "";
+    const currentPythonPath = localStorage.getItem("nano-agent-python-path") || "";
+    
+    setIsCheckingEnv(true);
+    checkEnv(currentNodePath, currentPythonPath)
+      .then((status) => {
+        setEnvStatus(status);
+        if (!isEnvChecked && (!status.node || !status.python)) {
+          setShowEnvPrompt(true);
+        } else if (!isEnvChecked) {
+          localStorage.setItem("nano-agent-env-checked", "true");
+        }
+      })
+      .catch((e) => {
+        console.error("Failed to run startup environment check:", e);
+      })
+      .finally(() => {
+        setIsCheckingEnv(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -212,6 +402,13 @@ function App() {
     media.addEventListener("change", applyTheme);
     return () => media.removeEventListener("change", applyTheme);
   }, [themeMode]);
+
+  useEffect(() => {
+    if (!showModelConfig || activeSettingsTab !== "archive") {
+      setPreviewArchivedId("");
+      setPreviewMessages([]);
+    }
+  }, [showModelConfig, activeSettingsTab]);
 
   useEffect(() => {
     if (!selectedItem) {
@@ -294,6 +491,407 @@ function App() {
     } catch (error) {
       setNotice(String(error));
     }
+  }
+
+  async function loadArchivedPreview(conversationId: string) {
+    setPreviewArchivedId(conversationId);
+    try {
+      setPreviewMessages(await listMessages(conversationId));
+    } catch (error) {
+      setNotice(String(error));
+      setPreviewMessages([]);
+    }
+  }
+
+  async function handleInputChange(value: string, cursorIndex: number) {
+    setChatInput(value);
+
+    const textBeforeCursor = value.substring(0, cursorIndex);
+    const lastHashIndex = textBeforeCursor.lastIndexOf("#");
+
+    if (lastHashIndex !== -1) {
+      const charBeforeHash = lastHashIndex > 0 ? textBeforeCursor[lastHashIndex - 1] : "";
+      const isWordStart = lastHashIndex === 0 || /\s/.test(charBeforeHash);
+      const textAfterHash = textBeforeCursor.substring(lastHashIndex + 1);
+
+      if (isWordStart && !/\s/.test(textAfterHash)) {
+        setPromptTriggerIndex(lastHashIndex);
+        try {
+          const allPrompts = await listItems("prompt");
+          const search = textAfterHash.toLowerCase();
+          const filtered = allPrompts.filter((p) =>
+            p.title.toLowerCase().includes(search) ||
+            p.body.toLowerCase().includes(search)
+          );
+          setPromptSuggestions(filtered);
+          setSelectedPromptIndex(0);
+        } catch (e) {
+          console.error("Failed to list prompts", e);
+        }
+        return;
+      }
+    }
+
+    setPromptSuggestions([]);
+    setPromptTriggerIndex(-1);
+  }
+
+  function insertPrompt(prompt: Item) {
+    if (promptTriggerIndex === -1) return;
+
+    const textarea = document.querySelector(".chat-input textarea") as HTMLTextAreaElement | null;
+    if (!textarea) return;
+
+    const selectionStart = textarea.selectionStart;
+    const value = chatInput;
+
+    const before = value.substring(0, promptTriggerIndex);
+    const after = value.substring(selectionStart);
+    const newValue = before + prompt.body + after;
+
+    setChatInput(newValue);
+    setPromptSuggestions([]);
+    setPromptTriggerIndex(-1);
+
+    const newCursorIndex = promptTriggerIndex + prompt.body.length;
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursorIndex, newCursorIndex);
+    }, 0);
+  }
+
+  function handleInputKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (promptSuggestions.length > 0) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        const nextIndex = (selectedPromptIndex + 1) % promptSuggestions.length;
+        setSelectedPromptIndex(nextIndex);
+        setTimeout(() => {
+          const activeEl = document.querySelector(".prompt-suggestion-item.selected");
+          if (activeEl) {
+            activeEl.scrollIntoView({ block: "nearest" });
+          }
+        }, 0);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        const nextIndex = (selectedPromptIndex - 1 + promptSuggestions.length) % promptSuggestions.length;
+        setSelectedPromptIndex(nextIndex);
+        setTimeout(() => {
+          const activeEl = document.querySelector(".prompt-suggestion-item.selected");
+          if (activeEl) {
+            activeEl.scrollIntoView({ block: "nearest" });
+          }
+        }, 0);
+      } else if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        const selected = promptSuggestions[selectedPromptIndex];
+        if (selected) {
+          insertPrompt(selected);
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setPromptSuggestions([]);
+        setPromptTriggerIndex(-1);
+      }
+    }
+  }
+
+  function handleParamChange(skillId: string, paramKey: string, value: string) {
+    setSkills((current) =>
+      current.map((s) =>
+        s.id === skillId
+          ? { ...s, parameters: { ...s.parameters, [paramKey]: value } }
+          : s
+      )
+    );
+  }
+
+  function handleSaveSkillConfig(skill: Skill) {
+    localStorage.setItem("nano-agent-skills", JSON.stringify(skills));
+    setNotice(`Skill "${skill.name}" 配置已保存！`);
+    setTimeout(() => setNotice(""), 3000);
+  }
+
+  function handleToggleSkill(id: string, enabled: boolean) {
+    const nextSkills = skills.map((s) =>
+      s.id === id ? { ...s, enabled } : s
+    );
+    setSkills(nextSkills);
+    localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
+    if (id === "web_search") {
+      setWebSearchEnabled(enabled);
+    }
+  }
+
+  function handleToggleWebSearch() {
+    setWebSearchEnabled((prev) => {
+      const next = !prev;
+      const nextSkills = skills.map((s) =>
+        s.id === "web_search" ? { ...s, enabled: next } : s
+      );
+      setSkills(nextSkills);
+      localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
+      return next;
+    });
+  }
+
+  async function syncGitHubSkills() {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const response = await fetch("https://api.github.com/repos/anthropics/skills/contents/skills");
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      const data = await response.json() as { name: string; type: string }[];
+      const folders = data.filter((item) => item.type === "dir").map((item) => item.name);
+
+      setSkills((current) => {
+        const skillMap = new Map(current.map((s) => [s.id, s]));
+
+        folders.forEach((name) => {
+          const id = `github_${name}`;
+          if (!skillMap.has(id)) {
+            skillMap.set(id, {
+              id,
+              name: name.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+              provider: "Anthropic (GitHub)",
+              description: `来自 Anthropic 官方仓库的 "${name}" 技能。正在从 GitHub 加载详细的 SKILL.md 文档说明...`,
+              enabled: false,
+              parameters: {},
+              docUrl: `https://github.com/anthropics/skills/tree/main/skills/${name}`
+            });
+            void fetchSkillMarkdownDetails(id, name);
+          }
+        });
+
+        const merged = Array.from(skillMap.values());
+        localStorage.setItem("nano-agent-skills", JSON.stringify(merged));
+        return merged;
+      });
+
+      localStorage.setItem("nano-agent-skills-synced", "true");
+      setNotice("已成功同步 Anthropic 官方技能库！");
+      setTimeout(() => setNotice(""), 3000);
+    } catch (error) {
+      console.error("Failed to sync GitHub skills:", error);
+      setNotice(`同步失败: ${String(error)}，请检查网络后重试。`);
+      setTimeout(() => setNotice(""), 5000);
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  function parseFrontmatter(markdown: string): { name?: string; description?: string } {
+    const match = markdown.match(/^---\r?\n([\s\S]+?)\r?\n---/);
+    if (!match) return {};
+    const yaml = match[1];
+    const result: { name?: string; description?: string } = {};
+
+    yaml.split("\n").forEach((line) => {
+      const colon = line.indexOf(":");
+      if (colon !== -1) {
+        const key = line.substring(0, colon).trim();
+        let val = line.substring(colon + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.substring(1, val.length - 1);
+        }
+        if (key === "name") {
+          result.name = val;
+        } else if (key === "description") {
+          result.description = val;
+        }
+      }
+    });
+    return result;
+  }
+
+  async function fetchSkillMarkdownDetails(id: string, name: string) {
+    try {
+      const response = await fetch(`https://raw.githubusercontent.com/anthropics/skills/main/skills/${name}/SKILL.md`);
+      if (!response.ok) return;
+      const markdown = await response.text();
+      const info = parseFrontmatter(markdown);
+
+      setSkills((current) => {
+        const next = current.map((s) => {
+          if (s.id === id) {
+            const defaultParams: Record<string, string> = {};
+            if (name.includes("docx") || name.includes("pdf") || name.includes("pptx") || name.includes("xlsx") || name.includes("doc")) {
+              defaultParams.output_dir = "C:\\Users\\13439\\Desktop";
+            } else if (name.includes("art") || name.includes("design")) {
+              defaultParams.output_format = "SVG";
+            } else {
+              defaultParams.workspace_root = "C:\\Users\\13439\\Desktop";
+            }
+
+            return {
+              ...s,
+              name: info.name || s.name,
+              description: info.description || s.description,
+              parameters: defaultParams
+            };
+          }
+          return s;
+        });
+        localStorage.setItem("nano-agent-skills", JSON.stringify(next));
+        return next;
+      });
+    } catch (e) {
+      console.error(`Failed to fetch markdown details for ${name}:`, e);
+    }
+  }
+
+  async function runEnvCheck() {
+    setIsCheckingEnv(true);
+    try {
+      const status = await checkEnv(nodePath, pythonPath);
+      setEnvStatus(status);
+      return status;
+    } catch (e) {
+      console.error("Failed to check environment:", e);
+      return { node: false, python: false };
+    } finally {
+      setIsCheckingEnv(false);
+    }
+  }
+
+  async function handleAutoInstallMissing() {
+    setIsInstallingEnv(true);
+    setEnvInstallProgress("正在准备安装环境...");
+    try {
+      const status = await checkEnv(nodePath, pythonPath);
+      if (!status.node) {
+        setEnvInstallProgress("正在静默安装 Node.js，这可能需要 1-3 分钟，请稍候...");
+        const ok = await installEnv("node");
+        if (!ok) {
+          throw new Error("Node.js 安装失败");
+        }
+      }
+      if (!status.python) {
+        setEnvInstallProgress("正在静默安装 Python 3，这可能需要 1-3 分钟，请稍候...");
+        const ok = await installEnv("python");
+        if (!ok) {
+          throw new Error("Python 3 安装失败");
+        }
+      }
+      
+      setEnvInstallProgress("安装完成！正在验证环境...");
+      const finalStatus = await checkEnv(nodePath, pythonPath);
+      setEnvStatus(finalStatus);
+      
+      if (finalStatus.node && finalStatus.python) {
+        setNotice("环境自动配置成功！");
+        localStorage.setItem("nano-agent-env-checked", "true");
+        setShowEnvPrompt(false);
+      } else {
+        let errMsg = "部分环境未成功配置：";
+        if (!finalStatus.node) errMsg += "Node.js ";
+        if (!finalStatus.python) errMsg += "Python ";
+        setNotice(errMsg + "。您也可以选择配置已有路径。");
+      }
+    } catch (e) {
+      console.error("Environment installation failed:", e);
+      setNotice(`环境自动安装失败: ${String(e)}。请尝试手动配置已有路径。`);
+    } finally {
+      setIsInstallingEnv(false);
+      setEnvInstallProgress("");
+      setTimeout(() => setNotice(""), 5000);
+    }
+  }
+
+  async function handleSaveCustomPaths() {
+    localStorage.setItem("nano-agent-node-path", nodePath);
+    localStorage.setItem("nano-agent-python-path", pythonPath);
+    
+    setIsCheckingEnv(true);
+    try {
+      const status = await checkEnv(nodePath, pythonPath);
+      setEnvStatus(status);
+      if (status.node && status.python) {
+        localStorage.setItem("nano-agent-env-checked", "true");
+        setShowEnvPrompt(false);
+        setNotice("环境路径验证通过并保存成功！");
+      } else {
+        let msg = "已保存，但检测到：";
+        if (!status.node) msg += "Node.js 路径无效或未找到；";
+        if (!status.python) msg += "Python 路径无效或未找到；";
+        setNotice(msg + "请重新确认路径。");
+      }
+    } catch (e) {
+      setNotice(`路径检测失败: ${String(e)}`);
+    } finally {
+      setIsCheckingEnv(false);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  }
+
+  function handleDeleteSkill(id: string) {
+    if (confirm("确定要删除该技能吗？")) {
+      const nextSkills = skills.filter((s) => s.id !== id);
+      setSkills(nextSkills);
+      localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
+      if (selectedSkillId === id) {
+        setSelectedSkillId(nextSkills.length > 0 ? nextSkills[0].id : "");
+      }
+      setNotice("技能已成功删除！");
+      setTimeout(() => setNotice(""), 3000);
+    }
+  }
+
+  function handleSaveNewSkill() {
+    if (!newSkillDraft.id || !newSkillDraft.name) {
+      alert("请填写技能ID和技能名称！");
+      return;
+    }
+    
+    if (skills.some((s) => s.id === newSkillDraft.id)) {
+      alert("该技能ID已存在，请使用其他ID！");
+      return;
+    }
+
+    const parameters: Record<string, string> = {};
+    if (newSkillDraft.paramsText) {
+      newSkillDraft.paramsText.split("\n").forEach((line) => {
+        const eq = line.indexOf("=");
+        if (eq !== -1) {
+          const k = line.substring(0, eq).trim();
+          const v = line.substring(eq + 1).trim();
+          if (k) {
+            parameters[k] = v;
+          }
+        }
+      });
+    }
+
+    const newSkill: Skill = {
+      id: newSkillDraft.id,
+      name: newSkillDraft.name,
+      provider: "Custom",
+      description: newSkillDraft.description || "自定义导入的技能工具。",
+      enabled: true,
+      parameters,
+      docUrl: newSkillDraft.docUrl
+    };
+
+    const nextSkills = [...skills, newSkill];
+    setSkills(nextSkills);
+    localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
+    
+    setIsAddingSkill(false);
+    setSelectedSkillId(newSkill.id);
+    
+    setNewSkillDraft({
+      id: "",
+      name: "",
+      provider: "Custom",
+      description: "",
+      docUrl: "",
+      paramsText: ""
+    });
+
+    setNotice("自定义技能添加成功！");
+    setTimeout(() => setNotice(""), 3000);
   }
 
   async function refreshConversations(selectId?: string) {
@@ -636,6 +1234,10 @@ function App() {
     if (activeConversationId === id) {
       setActiveConversationId("");
       setMessages([]);
+    }
+    if (previewArchivedId === id) {
+      setPreviewArchivedId("");
+      setPreviewMessages([]);
     }
   }
 
@@ -1200,32 +1802,77 @@ function App() {
                   <div className="settings-tab-content archive-tab-content">
                     <h3>归档列表</h3>
                     <p className="description">在此查看和恢复您曾经归档的对话历史。</p>
-                    <div className="archived-list">
-                      {archivedConversations.map((conversation) => (
-                        <div key={conversation.id} className="archived-row">
-                          <button onClick={() => handleRestoreConversation(conversation)}>
-                            <strong>{conversation.title}</strong>
-                            <span>{conversation.archived_at || conversation.updated_at}</span>
-                          </button>
-                          <button
-                            className="icon"
-                            aria-label="恢复并回复"
-                            title="恢复并回复"
-                            onClick={() => handleRestoreConversation(conversation)}
-                          >
-                            <RotateCcw size={15} />
-                          </button>
-                          <button
-                            className="icon danger"
-                            aria-label="删除归档对话"
-                            title="删除归档对话"
-                            onClick={() => handleDeleteArchivedConversation(conversation.id)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                    <div className="archive-split-layout">
+                      <div className="archived-list-column">
+                        <div className="archived-list">
+                          {archivedConversations.map((conversation) => (
+                            <div key={conversation.id} className={`archived-row ${previewArchivedId === conversation.id ? "active" : ""}`}>
+                              <button onClick={() => void loadArchivedPreview(conversation.id)}>
+                                <strong>{conversation.title}</strong>
+                                <span>{conversation.archived_at || conversation.updated_at}</span>
+                              </button>
+                              <button
+                                className="icon"
+                                aria-label="恢复并回复"
+                                title="恢复并回复"
+                                onClick={() => void handleRestoreConversation(conversation)}
+                              >
+                                <RotateCcw size={15} />
+                              </button>
+                              <button
+                                className="icon danger"
+                                aria-label="删除归档对话"
+                                title="删除归档对话"
+                                onClick={() => void handleDeleteArchivedConversation(conversation.id)}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          ))}
+                          {archivedConversations.length === 0 && <div className="empty">暂无归档对话</div>}
                         </div>
-                      ))}
-                      {archivedConversations.length === 0 && <div className="empty">暂无归档对话</div>}
+                      </div>
+                      <div className="archived-preview-column">
+                        {previewArchivedId ? (
+                          <>
+                            <div className="archive-preview-header">
+                              <div className="archive-preview-title-container">
+                                <h4>{archivedConversations.find((c) => c.id === previewArchivedId)?.title || "对话预览"}</h4>
+                                <span className="archive-preview-date">
+                                  {archivedConversations.find((c) => c.id === previewArchivedId)?.archived_at || ""}
+                                </span>
+                              </div>
+                              <button
+                                className="primary compact-btn"
+                                onClick={() => {
+                                  const conversation = archivedConversations.find((c) => c.id === previewArchivedId);
+                                  if (conversation) {
+                                    void handleRestoreConversation(conversation);
+                                  }
+                                }}
+                              >
+                                <RotateCcw size={14} />
+                                <span>恢复该对话</span>
+                              </button>
+                            </div>
+                            <div className="archive-preview-messages-container">
+                              <div className="chat-log">
+                                {previewMessages.map((message) => (
+                                  <div key={message.id} className={`chat-message ${message.role}`}>
+                                    <MarkdownMessage content={message.content} />
+                                  </div>
+                                ))}
+                                {previewMessages.length === 0 && <div className="empty">该对话无消息记录</div>}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="archive-preview-placeholder">
+                            <Archive size={48} className="placeholder-icon" />
+                            <p>选择一个归档的对话以预览其内容</p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1296,34 +1943,312 @@ function App() {
                 )}
 
                 {activeSettingsTab === "skills" && (
-                  <div className="settings-tab-content placeholder-tab-content">
-                    <h3>Skills 管理</h3>
-                    <p className="description">配置并扩展 AI 助手的工具与自动化能力（例如执行脚本、文件读写、网页检索等）。</p>
-                    <div className="skills-mockup-list">
-                      <div className="skills-mockup-item">
-                        <div className="skills-item-header">
-                          <strong className="skills-item-title">Terminal Execution (命令行执行)</strong>
-                          <span className="skills-status-badge">已启用</span>
-                        </div>
-                        <span className="skills-item-desc">允许 AI 助手在本地安全终端中运行受控的命令与脚本。</span>
-                      </div>
-                      <div className="skills-mockup-item">
-                        <div className="skills-item-header">
-                          <strong className="skills-item-title">File System Reader (文件读取器)</strong>
-                          <span className="skills-status-badge">已启用</span>
-                        </div>
-                        <span className="skills-item-desc">支持 AI 检索和读取指定项目目录中的代码与文档。</span>
-                      </div>
-                      <div className="skills-mockup-item">
-                        <div className="skills-item-header">
-                          <strong className="skills-item-title">Web Browser Agent (网页浏览器)</strong>
-                          <span className="skills-status-badge disabled">未启用</span>
-                        </div>
-                        <span className="skills-item-desc">支持 AI 启动无头浏览器，提取复杂动态网页内容。</span>
+                  <div className="settings-tab-content skills-tab-content" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", gap: "16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div>
+                        <h3>Skills 管理</h3>
+                        <p className="description" style={{ margin: 0 }}>配置并扩展 AI 助手的工具与自动化能力（例如内置 Anthropic 官方的 Text Editor、Bash Tool 等）。</p>
                       </div>
                     </div>
-                    <div className="coming-soon-banner">
-                      <span>✨ Skills 管理功能即将在下个版本上线，敬请期待！</span>
+
+                    {/* Environment status and manual/auto configuration block */}
+                    <div className="env-status-banner" style={{
+                      backgroundColor: "var(--bg-main)",
+                      borderRadius: "8px",
+                      border: "1px solid var(--border-color)",
+                      padding: "12px 16px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "10px"
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <strong style={{ fontSize: "0.9rem" }}>环境与依赖配置</strong>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button 
+                            className="secondary" 
+                            onClick={runEnvCheck} 
+                            disabled={isCheckingEnv || isInstallingEnv} 
+                            style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
+                            type="button"
+                          >
+                            {isCheckingEnv ? "正在检测..." : "重新检测环境"}
+                          </button>
+                          <button 
+                            className="primary" 
+                            onClick={handleAutoInstallMissing} 
+                            disabled={isCheckingEnv || isInstallingEnv} 
+                            style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
+                            type="button"
+                          >
+                            {isInstallingEnv ? "正在安装..." : "自动配置/安装 (winget)"}
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "24px", fontSize: "0.85rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span>Node.js 环境:</span>
+                          <span style={{ color: envStatus.node ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
+                            {envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span>Python 环境:</span>
+                          <span style={{ color: envStatus.python ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
+                            {envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
+                          </span>
+                        </div>
+                      </div>
+                      {envStatus.node && envStatus.python && (
+                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                          <button
+                            type="button"
+                            onClick={() => setShowCustomPaths(!showCustomPaths)}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: "var(--accent-cyan)",
+                              fontSize: "0.8rem",
+                              cursor: "pointer",
+                              padding: 0,
+                              textDecoration: "underline"
+                            }}
+                          >
+                            {showCustomPaths ? "隐藏自定义配置" : "配置自定义路径"}
+                          </button>
+                        </div>
+                      )}
+                      {(!envStatus.node || !envStatus.python || showCustomPaths) && (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Node.js 自定义路径:</label>
+                              <input
+                                value={nodePath}
+                                onChange={(e) => setNodePath(e.target.value)}
+                                placeholder="系统默认 PATH / 点击保存"
+                                onBlur={handleSaveCustomPaths}
+                                style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                              />
+                            </div>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Python 自定义路径:</label>
+                              <input
+                                value={pythonPath}
+                                onChange={(e) => setPythonPath(e.target.value)}
+                                placeholder="系统默认 PATH / 点击保存"
+                                onBlur={handleSaveCustomPaths}
+                                style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                              />
+                            </div>
+                          </div>
+                          {isInstallingEnv && (
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span className="spinner">⏳</span> {envInstallProgress}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    <div className="skills-config-grid" style={{ flex: 1, overflow: "hidden" }}>
+                      <aside className="skills-config-list" style={{ display: "flex", flexDirection: "column", gap: "8px", overflow: "hidden" }}>
+                        <div style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
+                          <button 
+                            className="secondary" 
+                            style={{ flex: 1, padding: "6px 8px", fontSize: "0.8rem", height: "auto" }} 
+                            onClick={syncGitHubSkills}
+                            disabled={isSyncing}
+                            type="button"
+                          >
+                            {isSyncing ? "同步中..." : "同步官方技能"}
+                          </button>
+                          <button 
+                            className="secondary" 
+                            style={{ flex: 1, padding: "6px 8px", fontSize: "0.8rem", height: "auto" }} 
+                            onClick={() => {
+                              setIsAddingSkill(true);
+                              setSelectedSkillId("");
+                            }}
+                            type="button"
+                          >
+                            添加自定义
+                          </button>
+                        </div>
+                        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+                          {skills.map((skill) => (
+                            <button
+                              key={skill.id}
+                              className={!isAddingSkill && skill.id === selectedSkillId ? "skills-config-row active" : "skills-config-row"}
+                              onClick={() => {
+                                setIsAddingSkill(false);
+                                setSelectedSkillId(skill.id);
+                              }}
+                              type="button"
+                            >
+                              <div className="skills-config-row-header">
+                                <strong>{skill.name}</strong>
+                                <span className={`skills-indicator-badge ${skill.enabled ? "enabled" : "disabled"}`}>
+                                  {skill.enabled ? "已启用" : "未启用"}
+                                </span>
+                              </div>
+                              <span>{skill.provider}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </aside>
+
+                      <div className="skills-config-form" style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
+                        {isAddingSkill ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "12px", height: "100%" }}>
+                            <h4 style={{ margin: 0 }}>添加自定义技能</h4>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem" }}>唯一标识符 (ID):</label>
+                              <input
+                                value={newSkillDraft.id}
+                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, id: e.target.value.trim().toLowerCase() }))}
+                                placeholder="例如: custom_file_helper"
+                              />
+                            </div>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem" }}>技能名称 (Name):</label>
+                              <input
+                                value={newSkillDraft.name}
+                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="例如: 自定义文件助手"
+                              />
+                            </div>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem" }}>文档/项目链接 (Doc URL):</label>
+                              <input
+                                value={newSkillDraft.docUrl}
+                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, docUrl: e.target.value }))}
+                                placeholder="https://..."
+                              />
+                            </div>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem" }}>技能描述 (Description):</label>
+                              <textarea
+                                value={newSkillDraft.description}
+                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, description: e.target.value }))}
+                                placeholder="描述该技能的作用以及模型如何调用它..."
+                                rows={2}
+                                style={{ width: "100%", boxSizing: "border-box", borderRadius: "4px", border: "1px solid var(--border-color)", padding: "8px", backgroundColor: "var(--bg-main)", color: "var(--text-main)", resize: "vertical", fontSize: "0.85rem" }}
+                              />
+                            </div>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem" }}>配置参数 (一行为一个参数，格式为 Key=Value):</label>
+                              <textarea
+                                value={newSkillDraft.paramsText}
+                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, paramsText: e.target.value }))}
+                                placeholder="例如:&#10;api_key=your_key&#10;timeout=30"
+                                rows={3}
+                                style={{ width: "100%", boxSizing: "border-box", borderRadius: "4px", border: "1px solid var(--border-color)", padding: "8px", backgroundColor: "var(--bg-main)", color: "var(--text-main)", resize: "vertical", fontSize: "0.85rem" }}
+                              />
+                            </div>
+                            <div style={{ marginTop: "auto", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                              <button className="secondary" onClick={() => {
+                                setIsAddingSkill(false);
+                                if (skills.length > 0) {
+                                  setSelectedSkillId(skills[0].id);
+                                }
+                              }} type="button">
+                                取消
+                              </button>
+                              <button className="primary" onClick={handleSaveNewSkill} type="button">
+                                <Save size={15} /> 确认添加
+                              </button>
+                            </div>
+                          </div>
+                        ) : (() => {
+                          const skill = skills.find((s) => s.id === selectedSkillId);
+                          if (!skill) return <div className="empty">选择一个 Skill 以查看详情</div>;
+
+                          return (
+                            <>
+                              <div className="skills-form-header">
+                                <div className="skills-form-title-row">
+                                  <h4>{skill.name}</h4>
+                                  <span className="skills-provider-tag">{skill.provider}</span>
+                                </div>
+                                <p style={{ fontSize: "0.85rem" }}>{skill.description}</p>
+                                {skill.docUrl && (
+                                  <a
+                                    href={skill.docUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="skills-doc-link"
+                                    style={{ fontSize: "0.8rem" }}
+                                  >
+                                    查看官方文档说明 ↗
+                                  </a>
+                                )}
+                              </div>
+
+                              <div className="skills-form-section" style={{ marginTop: "12px" }}>
+                                <h5>启用状态</h5>
+                                <div className="skills-switch-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <span style={{ fontSize: "0.85rem" }}>{skill.enabled ? "该技能当前已激活，模型将在合适的时候自动调用" : "该技能当前已禁用"}</span>
+                                  <button
+                                    className={skill.enabled ? "danger" : "primary"}
+                                    onClick={() => handleToggleSkill(skill.id, !skill.enabled)}
+                                    type="button"
+                                    style={{ padding: "6px 12px", fontSize: "0.85rem", height: "auto" }}
+                                  >
+                                    {skill.enabled ? "禁用技能" : "启用技能"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {Object.keys(skill.parameters).length > 0 && (
+                                <div className="skills-form-section" style={{ marginTop: "12px" }}>
+                                  <h5>技能参数配置</h5>
+                                  <div className="skills-params-group">
+                                    {Object.entries(skill.parameters).map(([key, val]) => {
+                                      const labelMap: Record<string, string> = {
+                                        workspace_root: "工作区根目录 (Workspace Root Path)",
+                                        shell_path: "终端 Shell 路径 (Shell Executable)",
+                                        allowed_prefixes: "允许运行的命令前缀 (Allowed Commands)",
+                                        output_dir: "输出文件目录 (Output Directory)",
+                                        framework: "前端组件框架 (Frontend Framework)",
+                                        canvas_format: "画布生成格式 (Canvas Format)",
+                                        skills_root: "本地技能根目录 (Skills Root Directory)",
+                                        engine: "搜索引擎引擎 (Search Engine)"
+                                      };
+                                      return (
+                                        <div key={key} className="skills-param-field" style={{ margin: "6px 0" }}>
+                                          <label style={{ fontSize: "0.8rem" }}>{labelMap[key] || key}</label>
+                                          <input
+                                            value={val}
+                                            onChange={(e) => handleParamChange(skill.id, key, e.target.value)}
+                                            placeholder={`请输入 ${key}...`}
+                                            style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div style={{ marginTop: "auto", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                                <button className="primary" onClick={() => handleSaveSkillConfig(skill)} type="button">
+                                  <Save size={15} /> 保存配置
+                                </button>
+                                {skill.id !== "text_editor" && skill.id !== "bash_tool" && (
+                                  <button 
+                                    className="danger" 
+                                    onClick={() => handleDeleteSkill(skill.id)} 
+                                    type="button" 
+                                    style={{ backgroundColor: "var(--accent-red)", color: "white", padding: "8px 12px", fontSize: "0.85rem", height: "auto" }}
+                                  >
+                                    删除技能
+                                  </button>
+                                )}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1406,16 +2331,32 @@ function App() {
         </div>
 
         <div className="chat-input">
+          {promptSuggestions.length > 0 && (
+            <div className="prompt-suggestions-dropdown">
+              {promptSuggestions.map((prompt, index) => (
+                <button
+                  key={prompt.id}
+                  className={index === selectedPromptIndex ? "prompt-suggestion-item selected" : "prompt-suggestion-item"}
+                  onClick={() => insertPrompt(prompt)}
+                  type="button"
+                >
+                  <strong>#{prompt.title}</strong>
+                  <span>{prompt.body}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             value={chatInput}
-            onChange={(event) => setChatInput(event.target.value)}
+            onChange={(event) => void handleInputChange(event.target.value, event.target.selectionStart)}
+            onKeyDown={handleInputKeyDown}
             placeholder="问点什么，或者梳理当前的思绪..."
           />
           <div className="chat-input-footer">
             <div className="chat-input-left">
               <button
                 className={webSearchEnabled ? "web-toggle active" : "web-toggle"}
-                onClick={() => setWebSearchEnabled((enabled) => !enabled)}
+                onClick={handleToggleWebSearch}
                 type="button"
                 title="联网检索"
               >
@@ -1470,6 +2411,116 @@ function App() {
                 setShowModelConfig(true);
                 setActiveSettingsTab("task");
               }}>查看</button>
+            </div>
+          </div>
+        )}
+        {showEnvPrompt && (
+          <div className="env-setup-backdrop" style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            backdropFilter: "blur(4px)"
+          }}>
+            <div className="env-setup-modal" style={{
+              backgroundColor: "var(--bg-card)",
+              borderRadius: "12px",
+              border: "1px solid var(--border-color)",
+              padding: "24px",
+              width: "500px",
+              maxWidth: "90%",
+              boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              color: "var(--text-main)"
+            }}>
+              <h3 style={{ margin: 0, fontSize: "1.2rem", display: "flex", alignItems: "center", gap: "8px" }}>
+                🛠️ 初始化环境配置
+              </h3>
+              <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-secondary)", lineHeight: "1.5" }}>
+                运行智能技能（Skills）依赖 <strong>Node.js</strong> 和 <strong>Python</strong> 环境。检测到您的系统当前缺少所需环境。
+              </p>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "12px", backgroundColor: "var(--bg-main)", borderRadius: "8px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Node.js 环境:</span>
+                  <span style={{ color: envStatus.node ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
+                    {envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>Python 环境:</span>
+                  <span style={{ color: envStatus.python ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
+                    {envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                <h4 style={{ margin: "4px 0", fontSize: "0.95rem" }}>配置已有路径（若已安装）：</h4>
+                <div className="skills-param-field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Node.js 可执行文件路径:</label>
+                  <input
+                    value={nodePath}
+                    onChange={(e) => setNodePath(e.target.value)}
+                    placeholder="例如: C:\Program Files\nodejs\node.exe 或直接输入 node"
+                    style={{ width: "100%", boxSizing: "border-box" }}
+                  />
+                </div>
+                <div className="skills-param-field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Python 可执行文件路径:</label>
+                  <input
+                    value={pythonPath}
+                    onChange={(e) => setPythonPath(e.target.value)}
+                    placeholder="例如: C:\Users\...\python.exe 或直接输入 python"
+                    style={{ width: "100%", boxSizing: "border-box" }}
+                  />
+                </div>
+              </div>
+
+              {isInstallingEnv && (
+                <div style={{ padding: "10px", backgroundColor: "var(--bg-main)", borderRadius: "6px", fontSize: "0.85rem", borderLeft: "4px solid var(--accent-blue)" }}>
+                  <span className="spinner" style={{ marginRight: "8px" }}>⌛</span>
+                  {envInstallProgress}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "8px", justifyContent: "flex-end" }}>
+                <button 
+                  className="secondary" 
+                  onClick={() => {
+                    localStorage.setItem("nano-agent-env-checked", "true");
+                    setShowEnvPrompt(false);
+                  }}
+                  disabled={isInstallingEnv || isCheckingEnv}
+                  type="button"
+                >
+                  稍后提醒
+                </button>
+                <button 
+                  className="secondary" 
+                  onClick={handleSaveCustomPaths}
+                  disabled={isInstallingEnv || isCheckingEnv}
+                  type="button"
+                >
+                  保存已有路径
+                </button>
+                <button 
+                  className="primary" 
+                  onClick={handleAutoInstallMissing}
+                  disabled={isInstallingEnv || isCheckingEnv}
+                  type="button"
+                >
+                  {isInstallingEnv ? "正在配置..." : "自动配置 (winget)"}
+                </button>
+              </div>
             </div>
           </div>
         )}

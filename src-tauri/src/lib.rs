@@ -169,9 +169,83 @@ async fn chat_stream(
     send_chat_completion_stream(app, config, request).await
 }
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+fn check_cmd_exists(cmd: &str) -> bool {
+    let mut c = std::process::Command::new(cmd);
+    c.arg("--version");
+    #[cfg(target_os = "windows")]
+    c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    c.output().is_ok()
+}
+
+fn check_python_exists() -> bool {
+    check_cmd_exists("python") || check_cmd_exists("py")
+}
+
+#[tauri::command]
+async fn check_env(
+    node_path: Option<String>,
+    python_path: Option<String>,
+) -> AppResult<std::collections::HashMap<String, bool>> {
+    let mut status = std::collections::HashMap::new();
+
+    let node_ok = if let Some(ref path) = node_path {
+        if !path.trim().is_empty() {
+            check_cmd_exists(path)
+        } else {
+            check_cmd_exists("node")
+        }
+    } else {
+        check_cmd_exists("node")
+    };
+
+    let python_ok = if let Some(ref path) = python_path {
+        if !path.trim().is_empty() {
+            check_cmd_exists(path)
+        } else {
+            check_python_exists()
+        }
+    } else {
+        check_python_exists()
+    };
+
+    status.insert("node".to_string(), node_ok);
+    status.insert("python".to_string(), python_ok);
+    Ok(status)
+}
+
 #[tauri::command]
 async fn delete_messages(state: State<'_, AppState>, ids: Vec<String>) -> AppResult<()> {
     state.db.lock().await.delete_messages(&ids)
+}
+
+#[tauri::command]
+async fn install_env(tech: String) -> AppResult<bool> {
+    let pkg_id = if tech == "node" {
+        "OpenJS.NodeJS"
+    } else if tech == "python" {
+        "Python.Python.3"
+    } else {
+        return Err(crate::error::AppError::Message("Unknown technology".to_string()));
+    };
+
+    let mut c = std::process::Command::new("winget");
+    c.args(&[
+        "install",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+        pkg_id,
+    ]);
+    #[cfg(target_os = "windows")]
+    c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    match c.status() {
+        Ok(s) => Ok(s.success()),
+        Err(e) => Err(crate::error::AppError::Message(e.to_string())),
+    }
 }
 
 pub fn run() {
@@ -215,7 +289,9 @@ pub fn run() {
             delete_memory,
             internet_search,
             chat,
-            chat_stream
+            chat_stream,
+            check_env,
+            install_env
         ])
         .run(tauri::generate_context!())
         .expect("error while running NanoAgent");
