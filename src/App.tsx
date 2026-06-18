@@ -7,6 +7,7 @@ import {
   Brain,
   CheckSquare,
   FileText,
+  Folder,
   MessageSquare,
   Monitor,
   Moon,
@@ -23,6 +24,7 @@ import {
 import {
   appendMessage,
   archiveConversation,
+  chat,
   chatStream,
   createConversation,
   createItem,
@@ -30,6 +32,7 @@ import {
   deleteConversation,
   deleteItem,
   deleteMemory,
+  deleteMessages,
   deleteModelConfig,
   internetSearch,
   listEnabledMemories,
@@ -75,6 +78,15 @@ const statusLabels: Record<string, string> = {
 
 type WorkspaceView = ItemKind | "all" | "memory";
 type ThemeMode = "system" | "light" | "dark";
+type SettingsTab =
+  | "task"
+  | "prompt"
+  | "memory"
+  | "theme"
+  | "archive"
+  | "model"
+  | "skills"
+  | "mcp";
 
 const workspaceLabels: Record<WorkspaceView, string> = {
   all: "全部",
@@ -159,6 +171,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("task");
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [pendingReminder, setPendingReminder] = useState<ReminderDraft | null>(null);
   const [activeReminder, setActiveReminder] = useState<Item | null>(null);
@@ -688,9 +701,49 @@ function App() {
 
       const enabledMemories = await listEnabledMemories();
       const webResults = webSearchEnabled ? await internetSearch(content) : [];
+
+      let currentMessages = [...nextMessages];
+      const KEEP_RECENT_COUNT = 6;
+      const COMPRESSION_THRESHOLD = 0.8 * MAX_CONTEXT_TOKENS;
+
+      const totalTokens = currentMessages.reduce((sum, msg) => sum + estimateTokens(msg.content), 0);
+
+      if (totalTokens >= COMPRESSION_THRESHOLD && currentMessages.length > KEEP_RECENT_COUNT) {
+        try {
+          const messagesToCompress = currentMessages.slice(0, currentMessages.length - KEEP_RECENT_COUNT);
+          const recentMessages = currentMessages.slice(currentMessages.length - KEEP_RECENT_COUNT);
+
+          if (messagesToCompress.length >= 2) {
+            const summaryPrompt = "请简明扼要地对以下对话历史进行上下文摘要（限 150 字内），保留关键事实、用户偏好和核心讨论点，以便作为后续对话的背景。请直接输出摘要，不要有任何多余的解释：\n\n" +
+              messagesToCompress.map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`).join("\n");
+
+            const summaryResponse = await chat(activeModelId, [{ role: "user", content: summaryPrompt }]);
+            const summaryText = summaryResponse.content.trim();
+
+            if (summaryText) {
+              const idsToDelete = messagesToCompress.map(m => m.id);
+              await deleteMessages(idsToDelete);
+
+              const summaryMsg = await appendMessage({
+                conversation_id: conversationId,
+                role: "system",
+                content: `【系统上下文摘要（已自动压缩更早的对话历史）】：\n${summaryText}`
+              });
+
+              currentMessages = [summaryMsg, ...recentMessages];
+              setMessages(currentMessages);
+              setNotice("上下文达到 80% 限制，已自动进行历史压缩。");
+            }
+          }
+        } catch (err) {
+          console.error("Context compression failed:", err);
+          setNotice("上下文压缩失败，将继续发送完整上下文。");
+        }
+      }
+
       const modelMessages: ChatMessage[] = [
         buildSystemMessage(enabledMemories, webResults),
-        ...nextMessages.map((message) => ({
+        ...currentMessages.map((message) => ({
           role: message.role,
           content: message.content
         }))
@@ -706,7 +759,7 @@ function App() {
         content: "",
         created_at: new Date().toISOString()
       };
-      setMessages([...nextMessages, temporaryAssistantMessage]);
+      setMessages([...currentMessages, temporaryAssistantMessage]);
 
       const unlisten = await listen<ChatStreamEvent>("chat-stream", (event) => {
         if (event.payload.request_id !== requestId) {
@@ -741,7 +794,7 @@ function App() {
       unlisten();
 
       if (!streamedContent.trim()) {
-        setMessages(nextMessages);
+        setMessages(currentMessages);
         setMessageReasoning((current) => {
           const { [requestId]: _, ...rest } = current;
           return rest;
@@ -755,7 +808,7 @@ function App() {
         content: streamedContent
       });
 
-      setMessages([...nextMessages, assistantMessage]);
+      setMessages([...currentMessages, assistantMessage]);
       if (streamedReasoning.trim()) {
         setMessageReasoning((current) => {
           const { [requestId]: _, ...rest } = current;
@@ -773,6 +826,187 @@ function App() {
     }
   }
 
+  function renderWorkspaceGrid() {
+    return (
+      <section className="settings-workspace-grid" ref={workspaceRef}>
+        <section className="list-pane" style={{ flexBasis: "320px" }}>
+          <header className="list-header">
+            <strong>{workspaceLabels[activeKind]}</strong>
+            <span>{activeKind === "memory" ? memoryItems.length : items.length} 条</span>
+          </header>
+          <div className="search-bar">
+            <Search size={18} />
+            <input
+              value={query}
+              onChange={(event) => handleSearch(event.target.value)}
+              placeholder="搜索"
+            />
+          </div>
+
+          <div className="item-list">
+            {activeKind === "memory" ? (
+              <>
+                {memoryItems.map((memory) => (
+                  <button
+                    key={memory.id}
+                    className={memory.id === selectedMemoryId ? "item-row selected" : "item-row"}
+                    onClick={() => setSelectedMemoryId(memory.id)}
+                  >
+                    <div className="item-row-header">
+                      <span className="badge-memory">记忆</span>
+                      <span className="status-indicator">{memory.enabled ? "已启用" : "已禁用"}</span>
+                    </div>
+                    <strong>{memory.title}</strong>
+                    <small>{memory.content || "暂无内容"}</small>
+                  </button>
+                ))}
+                {memoryItems.length === 0 && (
+                  <div className="empty">{query.trim() ? "没有匹配的记忆" : "暂无记忆"}</div>
+                )}
+              </>
+            ) : (
+              <>
+                {items.map((item) => (
+                  <button
+                    key={item.id}
+                    className={item.id === selectedId ? "item-row selected" : "item-row"}
+                    onClick={() => setSelectedId(item.id)}
+                  >
+                    <div className="item-row-header">
+                      <span className={`badge-${item.kind}`}>{kindLabels[item.kind as ItemKind] || item.kind}</span>
+                      <span className="status-indicator">{statusLabels[item.status] || item.status}</span>
+                    </div>
+                    <strong>{item.title}</strong>
+                    <small>{item.body || "暂无内容"}</small>
+                  </button>
+                ))}
+                {items.length === 0 && <div className="empty">暂无内容</div>}
+              </>
+            )}
+          </div>
+          {activeKind !== "memory" && (
+            <div style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", gap: "8px" }}>
+              <button 
+                className="ghost" 
+                onClick={() => void handleNewItem(activeKind as ItemKind)} 
+                style={{ flex: 1, minHeight: "32px", fontSize: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px", border: "1px solid var(--border-color)", borderRadius: "6px" }}
+              >
+                <Plus size={14} /> 新建{kindLabels[activeKind as ItemKind] || "备忘录"}
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="editor-pane">
+          {activeKind === "memory" ? (
+            <>
+              <div className="editor-header">
+                <label className="memory-toggle">
+                  <input
+                    type="checkbox"
+                    checked={memoryEnabled}
+                    onChange={(event) => setMemoryEnabled(event.target.checked)}
+                    disabled={!selectedMemory}
+                  />
+                  在对话中启用
+                </label>
+                <div className="editor-actions">
+                  <button onClick={handleSaveMemory} disabled={!selectedMemory}><Save size={16} /> 保存</button>
+                  <button className="icon danger" aria-label="删除记忆" title="删除记忆" onClick={handleDeleteMemory} disabled={!selectedMemory}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <input
+                className="title-input"
+                value={memoryTitle}
+                onChange={(event) => setMemoryTitle(event.target.value)}
+                placeholder="记忆标题"
+                disabled={!selectedMemory}
+              />
+              <textarea
+                className="body-input"
+                value={memoryContent}
+                onChange={(event) => setMemoryContent(event.target.value)}
+                placeholder="稳定记录用户偏好、事实背景、工作流规则或项目上下文..."
+                disabled={!selectedMemory}
+              />
+              <input
+                className="tag-input"
+                value={memoryTagsText}
+                onChange={(event) => setMemoryTagsText(event.target.value)}
+                placeholder="标签，以英文逗号分隔"
+                disabled={!selectedMemory}
+              />
+            </>
+          ) : (
+            <>
+              <div className="editor-header">
+                <select value={status} onChange={(event) => setStatus(event.target.value)}>
+                  <option value="active">活跃</option>
+                  <option value="todo">待办</option>
+                  <option value="done">已完成</option>
+                  <option value="archived">已归档</option>
+                </select>
+                <div className="editor-actions">
+                  <button onClick={handleSaveItem} disabled={!selectedItem}><Save size={16} /> 保存</button>
+                  <button className="icon danger" aria-label="删除项目" title="删除项目" onClick={handleDeleteItem} disabled={!selectedItem}>
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <input
+                className="title-input"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="标题"
+                disabled={!selectedItem}
+              />
+              <textarea
+                className="body-input"
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                placeholder="在此编写笔记、备忘录详情或提示词模板..."
+                disabled={!selectedItem}
+              />
+              {activeKind === "task" && (
+                <div className="reminder-controls">
+                  <label>
+                    <span>提醒时间</span>
+                    <input
+                      type="datetime-local"
+                      value={reminderAt}
+                      onChange={(event) => setReminderAt(event.target.value)}
+                      disabled={!selectedItem}
+                    />
+                  </label>
+                  <label>
+                    <span>周期提醒</span>
+                    <select value={repeatRule} onChange={(event) => setRepeatRule(event.target.value)} disabled={!selectedItem}>
+                      <option value="none">不重复</option>
+                      <option value="daily">每天</option>
+                      <option value="weekly">每周</option>
+                      <option value="monthly">每月</option>
+                    </select>
+                  </label>
+                </div>
+              )}
+              <input
+                className="tag-input"
+                value={tagsText}
+                onChange={(event) => setTagsText(event.target.value)}
+                placeholder="标签，以英文逗号分隔"
+                disabled={!selectedItem}
+              />
+            </>
+          )}
+        </section>
+      </section>
+    );
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -784,46 +1018,48 @@ function App() {
           </div>
         </div>
 
-        <div className="nav-wrap">
-          <nav className="nav-group">
-            <div className="nav-item">
-              <button className={activeKind === "all" ? "active" : ""} onClick={() => handleKindChange("all")}>
-                <FileText size={18} /> 全部
-              </button>
-              <button className="nav-inline-create" onClick={() => void handleNewItem("note")} aria-label="新建笔记" title="新建笔记">
-                <Plus size={16} />
-              </button>
+        <div className="sidebar-section projects">
+          <div className="sidebar-section-header">
+            <div>
+              <Folder size={14} />
+              <span>项目区</span>
             </div>
-            <div className="nav-item">
-              <button className={activeKind === "note" ? "active" : ""} onClick={() => handleKindChange("note")}>
-                <FileText size={18} /> 笔记
-              </button>
-              <button className="nav-inline-create" onClick={() => void handleNewItem("note")} aria-label="新建笔记" title="新建笔记">
-                <Plus size={16} />
-              </button>
+          </div>
+          <div className="sidebar-project-list">
+            <button className="sidebar-project-item active">
+              <span className="sidebar-project-dot" />
+              <span>默认项目</span>
+            </button>
+            <button className="sidebar-project-item">
+              <span className="sidebar-project-dot" />
+              <span>知识库</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="sidebar-section chats">
+          <div className="sidebar-section-header">
+            <div>
+              <MessageSquare size={14} />
+              <span>对话区</span>
             </div>
-            <div className="nav-item">
-              <button className={activeKind === "task" ? "active" : ""} onClick={() => handleKindChange("task")}>
-                <CheckSquare size={18} /> 备忘录
+            <button className="new-chat-btn" onClick={handleNewConversation} title="新建对话">
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="sidebar-chat-list">
+            {conversations.map((conversation) => (
+              <button
+                key={conversation.id}
+                className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
+                onClick={() => setActiveConversationId(conversation.id)}
+              >
+                <MessageSquare size={14} className="chat-icon" />
+                <span className="chat-title">{conversation.title}</span>
               </button>
-              <button className="nav-inline-create" onClick={() => void handleNewItem("task")} aria-label="新建备忘录" title="新建备忘录">
-                <Plus size={16} />
-              </button>
-            </div>
-            <div className="nav-item">
-              <button className={activeKind === "prompt" ? "active" : ""} onClick={() => handleKindChange("prompt")}>
-                <MessageSquare size={18} /> 提示词
-              </button>
-              <button className="nav-inline-create" onClick={() => void handleNewItem("prompt")} aria-label="新建提示词" title="新建提示词">
-                <Plus size={16} />
-              </button>
-            </div>
-            <div className="nav-item">
-              <button className={activeKind === "memory" ? "active" : ""} onClick={() => handleKindChange("memory")}>
-                <Brain size={18} /> 记忆库
-              </button>
-            </div>
-          </nav>
+            ))}
+            {conversations.length === 0 && <div className="empty">暂无对话</div>}
+          </div>
         </div>
 
         <button className="settings-entry" onClick={handleOpenModelConfig}>
@@ -840,293 +1076,303 @@ function App() {
                 <Settings size={18} />
                 <strong>系统设置</strong>
               </div>
-              <button className="ghost" onClick={handleNewModelConfig}>新建配置</button>
+              <button className="modal-close-btn" onClick={() => setShowModelConfig(false)} aria-label="关闭" title="关闭">&times;</button>
             </header>
 
-            <section className="theme-section">
-              <header>
-                <Sun size={17} />
-                <strong>外观主题</strong>
-              </header>
-              <div className="theme-switcher" role="group" aria-label="主题切换">
-                {(["system", "light", "dark"] as ThemeMode[]).map((mode) => {
-                  const Icon = mode === "system" ? Monitor : mode === "light" ? Sun : Moon;
-                  return (
-                    <button
-                      key={mode}
-                      className={themeMode === mode ? "active" : ""}
-                      onClick={() => setThemeMode(mode)}
-                      type="button"
-                    >
-                      <Icon size={15} />
-                      {themeLabels[mode]}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            <div className="model-config-grid">
-              <aside className="model-config-list">
-                {models.map((model) => (
-                  <button
-                    key={model.id}
-                    className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
-                    onClick={() => {
-                      setModelDraft({ ...model });
-                      setActiveModelId(model.id);
-                    }}
-                  >
-                    <strong>{model.name}</strong>
-                    <span>{model.provider} / {model.model}</span>
-                  </button>
-                ))}
-                {models.length === 0 && <div className="empty">暂无模型配置</div>}
+            <div className="settings-modal-layout">
+              <aside className="settings-sidebar">
+                <button
+                  className={activeSettingsTab === "task" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => {
+                    setActiveSettingsTab("task");
+                    handleKindChange("task");
+                  }}
+                >
+                  <CheckSquare size={16} />
+                  <span>备忘录</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "prompt" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => {
+                    setActiveSettingsTab("prompt");
+                    handleKindChange("prompt");
+                  }}
+                >
+                  <MessageSquare size={16} />
+                  <span>提示词</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "memory" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => {
+                    setActiveSettingsTab("memory");
+                    handleKindChange("memory");
+                  }}
+                >
+                  <Brain size={16} />
+                  <span>记忆库</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "theme" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("theme")}
+                >
+                  <Sun size={16} />
+                  <span>主题选择</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "archive" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("archive")}
+                >
+                  <Archive size={16} />
+                  <span>归档列表</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "model" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("model")}
+                >
+                  <Bot size={16} />
+                  <span>模型管理</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "skills" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("skills")}
+                >
+                  <Sparkles size={16} />
+                  <span>Skills管理</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "mcp" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("mcp")}
+                >
+                  <Monitor size={16} />
+                  <span>MCP配置</span>
+                </button>
               </aside>
 
-              <div className="model-config-form">
-                <input
-                  value={modelDraft.name}
-                  onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
-                  placeholder="名称"
-                />
-                <select
-                  value={modelDraft.provider}
-                  onChange={(event) => handleProviderChange(event.target.value)}
-                >
-                  <option value="openai-compatible">OpenAI 兼容协议</option>
-                  <option value="anthropic">Anthropic Claude</option>
-                </select>
-                <input
-                  value={modelDraft.base_url}
-                  onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
-                  placeholder="接口地址"
-                />
-                <input
-                  value={modelDraft.model}
-                  onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
-                  placeholder="模型标识"
-                />
-                <input
-                  value={modelDraft.api_key}
-                  type="password"
-                  onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
-                  placeholder="密钥"
-                />
-                <div className="modal-actions">
-                  <button onClick={handleSaveModel}><Save size={15} /> 保存并使用</button>
-                  <button className="ghost" onClick={() => setShowModelConfig(false)}>关闭</button>
-                  <button className="icon danger" aria-label="删除模型" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id}>
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </div>
-            </div>
+              <div className="settings-content">
+                {activeSettingsTab === "task" && (
+                  <div className="settings-tab-content">
+                    <h3>备忘录</h3>
+                    <p className="description">管理待办任务，设置定时提醒，让您的日程有条不紊。</p>
+                    {renderWorkspaceGrid()}
+                  </div>
+                )}
 
-            <section className="archived-section">
-              <header>
-                <Archive size={17} />
-                <strong>归档对话</strong>
-              </header>
-              <div className="archived-list">
-                {archivedConversations.map((conversation) => (
-                  <div key={conversation.id} className="archived-row">
-                    <button onClick={() => handleRestoreConversation(conversation)}>
-                      <strong>{conversation.title}</strong>
-                      <span>{conversation.archived_at || conversation.updated_at}</span>
-                    </button>
-                    <button
-                      className="icon"
-                      aria-label="恢复并回复"
-                      title="恢复并回复"
-                      onClick={() => handleRestoreConversation(conversation)}
-                    >
-                      <RotateCcw size={15} />
-                    </button>
-                    <button
-                      className="icon danger"
-                      aria-label="删除归档对话"
-                      title="删除归档对话"
-                      onClick={() => handleDeleteArchivedConversation(conversation.id)}
-                    >
-                      <Trash2 size={15} />
+                {activeSettingsTab === "prompt" && (
+                  <div className="settings-tab-content">
+                    <h3>提示词</h3>
+                    <p className="description">管理常用的AI提示词模板，快速插入到对话框中。</p>
+                    {renderWorkspaceGrid()}
+                  </div>
+                )}
+
+                {activeSettingsTab === "memory" && (
+                  <div className="settings-tab-content">
+                    <h3>记忆库</h3>
+                    <p className="description">配置AI的长期记忆偏好与项目上下文，提高回答精准度。</p>
+                    {renderWorkspaceGrid()}
+                  </div>
+                )}
+
+                {activeSettingsTab === "theme" && (
+                  <div className="settings-tab-content theme-tab-content">
+                    <h3>主题选择</h3>
+                    <p className="description">自定义NanoAgent的外观显示，适配各种工作环境。</p>
+                    <div className="theme-switcher" role="group" aria-label="主题切换">
+                      {(["system", "light", "dark"] as ThemeMode[]).map((mode) => {
+                        const Icon = mode === "system" ? Monitor : mode === "light" ? Sun : Moon;
+                        return (
+                          <button
+                            key={mode}
+                            className={themeMode === mode ? "active" : ""}
+                            onClick={() => setThemeMode(mode)}
+                            type="button"
+                          >
+                            <Icon size={15} />
+                            {themeLabels[mode]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingsTab === "archive" && (
+                  <div className="settings-tab-content archive-tab-content">
+                    <h3>归档列表</h3>
+                    <p className="description">在此查看和恢复您曾经归档的对话历史。</p>
+                    <div className="archived-list">
+                      {archivedConversations.map((conversation) => (
+                        <div key={conversation.id} className="archived-row">
+                          <button onClick={() => handleRestoreConversation(conversation)}>
+                            <strong>{conversation.title}</strong>
+                            <span>{conversation.archived_at || conversation.updated_at}</span>
+                          </button>
+                          <button
+                            className="icon"
+                            aria-label="恢复并回复"
+                            title="恢复并回复"
+                            onClick={() => handleRestoreConversation(conversation)}
+                          >
+                            <RotateCcw size={15} />
+                          </button>
+                          <button
+                            className="icon danger"
+                            aria-label="删除归档对话"
+                            title="删除归档对话"
+                            onClick={() => handleDeleteArchivedConversation(conversation.id)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      ))}
+                      {archivedConversations.length === 0 && <div className="empty">暂无归档对话</div>}
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingsTab === "model" && (
+                  <div className="settings-tab-content model-tab-content">
+                    <div className="model-header-row">
+                      <h3>模型管理</h3>
+                      <button className="ghost compact-btn" onClick={handleNewModelConfig}><Plus size={14} /> 新建配置</button>
+                    </div>
+                    <p className="description" style={{ marginTop: "-4px" }}>配置OpenAI兼容接口或Claude原生模型，供AI助手对话使用。</p>
+                    <div className="model-config-grid">
+                      <aside className="model-config-list">
+                        {models.map((model) => (
+                          <button
+                            key={model.id}
+                            className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
+                            onClick={() => {
+                              setModelDraft({ ...model });
+                              setActiveModelId(model.id);
+                            }}
+                          >
+                            <strong>{model.name}</strong>
+                            <span>{model.provider} / {model.model}</span>
+                          </button>
+                        ))}
+                        {models.length === 0 && <div className="empty">暂无模型配置</div>}
+                      </aside>
+
+                      <div className="model-config-form">
+                        <input
+                          value={modelDraft.name}
+                          onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
+                          placeholder="名称"
+                        />
+                        <select
+                          value={modelDraft.provider}
+                          onChange={(event) => handleProviderChange(event.target.value)}
+                        >
+                          <option value="openai-compatible">OpenAI 兼容协议</option>
+                          <option value="anthropic">Anthropic Claude</option>
+                        </select>
+                        <input
+                          value={modelDraft.base_url}
+                          onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
+                          placeholder="接口地址"
+                        />
+                        <input
+                          value={modelDraft.model}
+                          onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
+                          placeholder="模型标识"
+                        />
+                        <input
+                          value={modelDraft.api_key}
+                          type="password"
+                          onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
+                          placeholder="密钥"
+                        />
+                        <div className="modal-actions">
+                          <button onClick={handleSaveModel}><Save size={15} /> 保存并使用</button>
+                          <button className="icon danger" aria-label="删除模型" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id}>
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingsTab === "skills" && (
+                  <div className="settings-tab-content placeholder-tab-content">
+                    <h3>Skills 管理</h3>
+                    <p className="description">配置并扩展 AI 助手的工具与自动化能力（例如执行脚本、文件读写、网页检索等）。</p>
+                    <div className="skills-mockup-list">
+                      <div className="skills-mockup-item">
+                        <div className="skills-item-header">
+                          <strong className="skills-item-title">Terminal Execution (命令行执行)</strong>
+                          <span className="skills-status-badge">已启用</span>
+                        </div>
+                        <span className="skills-item-desc">允许 AI 助手在本地安全终端中运行受控的命令与脚本。</span>
+                      </div>
+                      <div className="skills-mockup-item">
+                        <div className="skills-item-header">
+                          <strong className="skills-item-title">File System Reader (文件读取器)</strong>
+                          <span className="skills-status-badge">已启用</span>
+                        </div>
+                        <span className="skills-item-desc">支持 AI 检索和读取指定项目目录中的代码与文档。</span>
+                      </div>
+                      <div className="skills-mockup-item">
+                        <div className="skills-item-header">
+                          <strong className="skills-item-title">Web Browser Agent (网页浏览器)</strong>
+                          <span className="skills-status-badge disabled">未启用</span>
+                        </div>
+                        <span className="skills-item-desc">支持 AI 启动无头浏览器，提取复杂动态网页内容。</span>
+                      </div>
+                    </div>
+                    <div className="coming-soon-banner">
+                      <span>✨ Skills 管理功能即将在下个版本上线，敬请期待！</span>
+                    </div>
+                  </div>
+                )}
+
+                {activeSettingsTab === "mcp" && (
+                  <div className="settings-tab-content placeholder-tab-content">
+                    <h3>MCP 配置 (Model Context Protocol)</h3>
+                    <p className="description">连接符合 Model Context Protocol 规范的外部工具服务器，为大模型注入实时上下文。</p>
+                    
+                    <div className="mcp-servers-list">
+                      <div className="mcp-server-card">
+                        <div className="mcp-server-header">
+                          <div className="mcp-server-title">
+                            <strong>filesystem-server</strong>
+                            <span className="mcp-status-dot active"></span>
+                            <span className="mcp-status-text">已连接</span>
+                          </div>
+                          <button className="ghost mcp-btn-danger">断开</button>
+                        </div>
+                        <div className="mcp-server-details">
+                          <code>command: npx -y @modelcontextprotocol/server-filesystem C:\Users\13439\Desktop</code>
+                        </div>
+                      </div>
+
+                      <div className="mcp-server-card">
+                        <div className="mcp-server-header">
+                          <div className="mcp-server-title">
+                            <strong>sqlite-server</strong>
+                            <span className="mcp-status-dot active"></span>
+                            <span className="mcp-status-text">已连接</span>
+                          </div>
+                          <button className="ghost mcp-btn-danger">断开</button>
+                        </div>
+                        <div className="mcp-server-details">
+                          <code>command: npx -y @modelcontextprotocol/server-sqlite --db nano-agent.sqlite3</code>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button className="mcp-add-btn">
+                      <Plus size={14} /> 添加 MCP 服务器
                     </button>
                   </div>
-                ))}
-                {archivedConversations.length === 0 && <div className="empty">暂无归档对话</div>}
+                )}
               </div>
-            </section>
+            </div>
           </section>
         </div>
       )}
-
-      <section className="workspace-pane" ref={workspaceRef}>
-      <section className="list-pane" style={{ flexBasis: `${workspaceListRatio}%` }}>
-        <header className="list-header">
-          <strong>{workspaceLabels[activeKind]}</strong>
-          <span>{activeKind === "memory" ? memoryItems.length : items.length} 条</span>
-        </header>
-        <div className="search-bar">
-          <Search size={18} />
-          <input
-            value={query}
-            onChange={(event) => handleSearch(event.target.value)}
-            placeholder="搜索本地内容"
-          />
-        </div>
-
-        <div className="item-list">
-          {activeKind === "memory" ? (
-            <>
-              {memoryItems.map((memory) => (
-                <button
-                  key={memory.id}
-                  className={memory.id === selectedMemoryId ? "item-row selected" : "item-row"}
-                  onClick={() => setSelectedMemoryId(memory.id)}
-                >
-                  <div className="item-row-header">
-                    <span className="badge-memory">记忆</span>
-                    <span className="status-indicator">{memory.enabled ? "已启用" : "已禁用"}</span>
-                  </div>
-                  <strong>{memory.title}</strong>
-                  <small>{memory.content || "暂无内容"}</small>
-                </button>
-              ))}
-              {memoryItems.length === 0 && (
-                <div className="empty">{query.trim() ? "没有匹配的记忆" : "暂无记忆"}</div>
-              )}
-            </>
-          ) : (
-            <>
-              {items.map((item) => (
-                <button
-                  key={item.id}
-                  className={item.id === selectedId ? "item-row selected" : "item-row"}
-                  onClick={() => setSelectedId(item.id)}
-                >
-                  <div className="item-row-header">
-                    <span className={`badge-${item.kind}`}>{kindLabels[item.kind as ItemKind] || item.kind}</span>
-                    <span className="status-indicator">{statusLabels[item.status] || item.status}</span>
-                  </div>
-                  <strong>{item.title}</strong>
-                  <small>{item.body || "暂无内容"}</small>
-                </button>
-              ))}
-              {items.length === 0 && <div className="empty">暂无内容</div>}
-            </>
-          )}
-        </div>
-      </section>
-
-      <div className="row-resizer" onMouseDown={beginWorkspaceSplitResize} />
-
-      <section className="editor-pane">
-        {activeKind === "memory" ? (
-          <>
-            <div className="editor-header">
-              <label className="memory-toggle">
-                <input
-                  type="checkbox"
-                  checked={memoryEnabled}
-                  onChange={(event) => setMemoryEnabled(event.target.checked)}
-                  disabled={!selectedMemory}
-                />
-                在对话中启用
-              </label>
-              <div className="editor-actions">
-                <button onClick={handleSaveMemory} disabled={!selectedMemory}><Save size={16} /> 保存</button>
-                <button className="icon danger" aria-label="删除记忆" title="删除记忆" onClick={handleDeleteMemory} disabled={!selectedMemory}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-
-            <input
-              className="title-input"
-              value={memoryTitle}
-              onChange={(event) => setMemoryTitle(event.target.value)}
-              placeholder="记忆标题"
-              disabled={!selectedMemory}
-            />
-            <textarea
-              className="body-input"
-              value={memoryContent}
-              onChange={(event) => setMemoryContent(event.target.value)}
-              placeholder="稳定记录用户偏好、事实背景、工作流规则或项目上下文..."
-              disabled={!selectedMemory}
-            />
-            <input
-              className="tag-input"
-              value={memoryTagsText}
-              onChange={(event) => setMemoryTagsText(event.target.value)}
-              placeholder="标签，以英文逗号分隔"
-              disabled={!selectedMemory}
-            />
-          </>
-        ) : (
-          <>
-            <div className="editor-header">
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="active">活跃</option>
-                <option value="todo">待办</option>
-                <option value="done">已完成</option>
-                <option value="archived">已归档</option>
-              </select>
-              <div className="editor-actions">
-                <button onClick={handleSaveItem} disabled={!selectedItem}><Save size={16} /> 保存</button>
-                <button className="icon danger" aria-label="删除项目" title="删除项目" onClick={handleDeleteItem} disabled={!selectedItem}>
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-
-            <input
-              className="title-input"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="标题"
-              disabled={!selectedItem}
-            />
-            <textarea
-              className="body-input"
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              placeholder="在此编写笔记、备忘录详情或提示词模板..."
-              disabled={!selectedItem}
-            />
-            {activeKind === "task" && (
-              <div className="reminder-controls">
-                <label>
-                  <span>提醒时间</span>
-                  <input
-                    type="datetime-local"
-                    value={reminderAt}
-                    onChange={(event) => setReminderAt(event.target.value)}
-                    disabled={!selectedItem}
-                  />
-                </label>
-                <label>
-                  <span>周期提醒</span>
-                  <select value={repeatRule} onChange={(event) => setRepeatRule(event.target.value)} disabled={!selectedItem}>
-                    <option value="none">不重复</option>
-                    <option value="daily">每天</option>
-                    <option value="weekly">每周</option>
-                    <option value="monthly">每月</option>
-                  </select>
-                </label>
-              </div>
-            )}
-            <input
-              className="tag-input"
-              value={tagsText}
-              onChange={(event) => setTagsText(event.target.value)}
-              placeholder="标签，以英文逗号分隔"
-              disabled={!selectedItem}
-            />
-          </>
-        )}
-      </section>
-      </section>
 
       <aside className="chat-pane">
         <header className="chat-header">
@@ -1135,9 +1381,6 @@ function App() {
             <strong>AI 助手</strong>
           </div>
           <div className="chat-header-actions">
-            <button className="icon" aria-label="新对话" title="新对话" onClick={handleNewConversation}>
-              <Plus size={15} />
-            </button>
             <button className="icon" aria-label="归档对话" title="归档对话" onClick={handleArchiveConversation} disabled={!activeConversationId}>
               <Archive size={15} />
             </button>
@@ -1147,26 +1390,14 @@ function App() {
           </div>
         </header>
 
-        <div className="conversation-list">
-          {conversations.map((conversation) => (
-            <button
-              key={conversation.id}
-              className={conversation.id === activeConversationId ? "conversation-row active" : "conversation-row"}
-              onClick={() => setActiveConversationId(conversation.id)}
-            >
-              {conversation.title}
-            </button>
-          ))}
-        </div>
-
         <div className="chat-log">
           {messages.map((message) => (
             <div key={message.id} className={`chat-message ${message.role}`}>
               {message.role === "assistant" && messageReasoning[message.id]?.trim() && (
-                <div className="reasoning-panel">
-                  <div className="reasoning-title">思考过程</div>
+                <details className="reasoning-panel">
+                  <summary className="reasoning-title">思考过程</summary>
                   <MarkdownMessage content={messageReasoning[message.id]} />
-                </div>
+                </details>
               )}
               <MarkdownMessage content={message.content} />
             </div>
@@ -1197,9 +1428,14 @@ function App() {
                 ))}
               </select>
             </div>
-            <button aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()}>
-              <SendHorizontal size={17} />
-            </button>
+            <div className="chat-input-actions">
+              <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={handleNewConversation} type="button">
+                <Plus size={17} />
+              </button>
+              <button className="chat-input-action send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
+                <SendHorizontal size={17} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1231,6 +1467,8 @@ function App() {
                 setActiveKind("task");
                 setSelectedId(activeReminder.id);
                 setActiveReminder(null);
+                setShowModelConfig(true);
+                setActiveSettingsTab("task");
               }}>查看</button>
             </div>
           </div>
@@ -1396,9 +1634,7 @@ function getNextReminderAt(value?: string | null, repeatRule?: string | null) {
 }
 
 function buildSystemMessage(memories: Memory[], webResults: WebSearchResult[] = []): ChatMessage {
-  if (memories.length === 0 && webResults.length === 0) {
-    return systemMessage;
-  }
+  const runtimeContext = buildRuntimeContext();
 
   const memoryContext = memories
     .map((memory) => `- ${memory.title}: ${memory.content}`)
@@ -1412,6 +1648,7 @@ function buildSystemMessage(memories: Memory[], webResults: WebSearchResult[] = 
     .join("\n");
 
   const sections = [
+    runtimeContext,
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
     webContext ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${webContext}` : ""
   ].filter(Boolean);
@@ -1420,6 +1657,36 @@ function buildSystemMessage(memories: Memory[], webResults: WebSearchResult[] = 
     role: "system",
     content: `${systemMessage.content}\n\n${sections.join("\n\n")}`
   };
+}
+
+function buildRuntimeContext() {
+  const now = new Date();
+  const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short"
+  });
+
+  return [
+    "运行上下文：",
+    `- 当前本地日期时间：${dateTimeFormatter.format(now)}`,
+    `- 当前 ISO 时间：${now.toISOString()}`,
+    "- 用户询问当前日期、时间、今天、明天、昨天或相对日期时，必须以本运行上下文为准。"
+  ].join("\n");
+}
+
+const MAX_CONTEXT_TOKENS = 4000;
+
+function estimateTokens(content: string): number {
+  const chineseChars = content.match(/[\u4e00-\u9fa5]/g) || [];
+  const englishWords = content.replace(/[\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(Boolean);
+  return chineseChars.length + Math.ceil(englishWords.length * 1.3);
 }
 
 export default App;

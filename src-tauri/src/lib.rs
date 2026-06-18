@@ -169,6 +169,11 @@ async fn chat_stream(
     send_chat_completion_stream(app, config, request).await
 }
 
+#[tauri::command]
+async fn delete_messages(state: State<'_, AppState>, ids: Vec<String>) -> AppResult<()> {
+    state.db.lock().await.delete_messages(&ids)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -201,6 +206,7 @@ pub fn run() {
             archive_conversation,
             list_messages,
             append_message,
+            delete_messages,
             list_memories,
             list_enabled_memories,
             search_memories,

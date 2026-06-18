@@ -129,3 +129,8 @@ export function chatStream(
     }
   });
 }
+
+export function deleteMessages(ids: string[]) {
+  return invoke<void>("delete_messages", { ids });
+}
+

@@ -481,6 +481,19 @@ impl Database {
         Ok(message)
     }
 
+    pub fn delete_messages(&self, ids: &[String]) -> AppResult<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query = format!("DELETE FROM messages WHERE id IN ({})", placeholders);
+        let mut stmt = self.conn.prepare(&query)?;
+        let params = rusqlite::params_from_iter(ids);
+        stmt.execute(params)?;
+        Ok(())
+    }
+
+
     pub fn list_memories(&self) -> AppResult<Vec<Memory>> {
         let mut stmt = self.conn.prepare(
             "
