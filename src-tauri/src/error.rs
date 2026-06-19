@@ -13,6 +13,8 @@ pub enum AppError {
     Json(#[from] serde_json::Error),
     #[error("time parse error: {0}")]
     Time(#[from] chrono::ParseError),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
     #[error("{0}")]
     Message(String),
 }

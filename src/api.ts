@@ -73,6 +73,10 @@ export function archiveConversation(id: string, archived: boolean) {
   return invoke<void>("archive_conversation", { id, archived });
 }
 
+export function renameConversation(id: string, title: string) {
+  return invoke<void>("rename_conversation", { id, title });
+}
+
 export function listMessages(conversationId: string) {
   return invoke<PersistedMessage[]>("list_messages", { conversationId });
 }
@@ -109,8 +113,9 @@ export function internetSearch(query: string) {
   return invoke<WebSearchResult[]>("internet_search", { query });
 }
 
-export function syncAnthropicSkills() {
-  return invoke<GitHubSkill[]>("sync_anthropic_skills");
+
+export function listLocalSkills() {
+  return invoke<[string, GitHubSkill[]]>("list_local_skills");
 }
 
 export function chat(modelConfigId: string, messages: ChatMessage[], temperature = 0.4) {
@@ -180,4 +185,16 @@ export function deleteProjectFile(projectPath: string, relativePath: string, app
 
 export function renameProjectFile(request: ProjectFileMoveRequest) {
   return invoke<ProjectFileEntry>("rename_project_file", { request });
+}
+
+export function executeBashCommand(projectPath: string, command: string) {
+  return invoke<string>("execute_bash_command", { projectPath, command });
+}
+
+export function writeLocalFile(projectPath: string, path: string, content: string) {
+  return invoke<void>("write_local_file", { projectPath, path, content });
+}
+
+export function readLocalFile(projectPath: string, path: string) {
+  return invoke<string>("read_local_file", { projectPath, path });
 }

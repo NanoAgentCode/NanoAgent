@@ -104,6 +104,15 @@ async fn delete_conversation(state: State<'_, AppState>, id: String) -> AppResul
 }
 
 #[tauri::command]
+async fn rename_conversation(
+    state: State<'_, AppState>,
+    id: String,
+    title: String,
+) -> AppResult<()> {
+    state.db.lock().await.rename_conversation(&id, &title)
+}
+
+#[tauri::command]
 async fn archive_conversation(
     state: State<'_, AppState>,
     id: String,
@@ -163,6 +172,11 @@ async fn internet_search(query: String) -> AppResult<Vec<WebSearchResult>> {
 #[tauri::command]
 async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
     fetch_anthropic_skills().await
+}
+
+#[tauri::command]
+async fn list_local_skills() -> AppResult<(String, Vec<GitHubSkill>)> {
+    skills::list_local_skills().await
 }
 
 #[tauri::command]
@@ -678,6 +692,83 @@ fn content_hash(content: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+#[tauri::command]
+async fn execute_bash_command(project_path: String, command: String) -> AppResult<String> {
+    let mut c = if cfg!(target_os = "windows") {
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.arg("-NoProfile")
+           .arg("-Command")
+           .arg(&command);
+        cmd
+    } else {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c")
+           .arg(&command);
+        cmd
+    };
+
+    let proj = std::path::Path::new(&project_path);
+    if !proj.exists() {
+        std::fs::create_dir_all(proj)?;
+    }
+
+    c.current_dir(&project_path);
+    let output = c.output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(crate::error::AppError::Message(format!(
+            "Command failed with code {:?}\nStdout: {}\nStderr: {}",
+            output.status.code(),
+            stdout,
+            stderr
+        )))
+    }
+}
+
+#[tauri::command]
+async fn write_local_file(project_path: String, path: String, content: String) -> AppResult<()> {
+    let proj = std::path::Path::new(&project_path);
+    if !proj.exists() {
+        std::fs::create_dir_all(proj)?;
+    }
+
+    let p = std::path::Path::new(&path);
+    let target_path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::path::Path::new(&project_path).join(p)
+    };
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    std::fs::write(target_path, content.as_bytes())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_local_file(project_path: String, path: String) -> AppResult<String> {
+    let proj = std::path::Path::new(&project_path);
+    if !proj.exists() {
+        std::fs::create_dir_all(proj)?;
+    }
+
+    let p = std::path::Path::new(&path);
+    let target_path = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        std::path::Path::new(&project_path).join(p)
+    };
+
+    let content = std::fs::read_to_string(target_path)?;
+    Ok(content)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -709,6 +800,7 @@ pub fn run() {
             create_conversation,
             delete_conversation,
             archive_conversation,
+            rename_conversation,
             list_messages,
             append_message,
             delete_messages,
@@ -720,6 +812,7 @@ pub fn run() {
             delete_memory,
             internet_search,
             sync_anthropic_skills,
+            list_local_skills,
             chat,
             chat_stream,
             check_env,
@@ -730,7 +823,10 @@ pub fn run() {
             create_project_file,
             write_project_file,
             delete_project_file,
-            rename_project_file
+            rename_project_file,
+            execute_bash_command,
+            write_local_file,
+            read_local_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running NanoAgent");

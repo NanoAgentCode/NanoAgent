@@ -426,6 +426,20 @@ impl Database {
         Ok(())
     }
 
+    pub fn rename_conversation(&self, id: &str, title: &str) -> AppResult<()> {
+        let now = Utc::now();
+        self.conn.execute(
+            "
+            UPDATE conversations
+            SET title = ?2,
+                updated_at = ?3
+            WHERE id = ?1
+            ",
+            params![id, title, now.to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_conversation(&self, id: &str) -> AppResult<()> {
         self.conn
             .execute("DELETE FROM conversations WHERE id = ?1", params![id])?;

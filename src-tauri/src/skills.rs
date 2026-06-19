@@ -207,3 +207,63 @@ fn title_from_slug(slug: &str) -> String {
 fn fallback_description(slug: &str) -> String {
     format!("来自 Anthropic 官方仓库的 \"{slug}\" 技能。")
 }
+
+pub async fn list_local_skills() -> AppResult<(String, Vec<GitHubSkill>)> {
+    let exe_path = std::env::current_exe()?;
+    let install_dir = exe_path
+        .parent()
+        .ok_or_else(|| AppError::Message("Failed to get executable parent directory".to_string()))?;
+    let skills_dir = install_dir.join("skills");
+
+    if !skills_dir.exists() {
+        std::fs::create_dir_all(&skills_dir)?;
+    }
+
+    let skills_dir_str = skills_dir.to_string_lossy().to_string();
+    let mut local_skills = Vec::new();
+
+    // Recursively find all SKILL.md paths inside the skills directory (up to 3 levels deep)
+    let skill_md_files = find_skill_md_files(&skills_dir, 0);
+
+    for skill_md_path in skill_md_files {
+        let parent_dir = skill_md_path.parent().unwrap();
+        let slug = parent_dir.file_name().unwrap().to_string_lossy().to_string();
+
+        if let Ok(markdown) = std::fs::read_to_string(&skill_md_path) {
+            let (name, description) = parse_frontmatter(&markdown);
+            let name = name.unwrap_or_else(|| title_from_slug(&slug));
+            let description = description.unwrap_or_else(|| format!("本地安装目录技能：{slug}"));
+
+            local_skills.push(GitHubSkill {
+                slug,
+                name,
+                description,
+                doc_url: format!("file:///{}", skill_md_path.to_string_lossy().replace('\\', "/")),
+            });
+        }
+    }
+
+    Ok((skills_dir_str, local_skills))
+}
+
+fn find_skill_md_files(dir: &std::path::Path, depth: usize) -> Vec<std::path::PathBuf> {
+    if depth > 3 {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let skill_md = path.join("SKILL.md");
+                if skill_md.exists() {
+                    results.push(skill_md);
+                } else {
+                    results.extend(find_skill_md_files(&path, depth + 1));
+                }
+            }
+        }
+    }
+    results
+}

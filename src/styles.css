@@ -99,7 +99,129 @@ button {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.4;
+  opacity: 0.4 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Global Focus Ring for accessibility and visual consistency */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 1px;
+}
+
+/* Unified Button Component Styles */
+.primary,
+button.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--accent-indigo);
+  color: #ffffff !important;
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid transparent;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.primary:hover:not(:disabled),
+button.primary:hover:not(:disabled) {
+  background: var(--border-color-active);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.primary:active:not(:disabled),
+button.primary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.secondary,
+button.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary) !important;
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.secondary:hover:not(:disabled),
+button.secondary:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  border-color: var(--border-color-active);
+}
+
+.secondary:active:not(:disabled),
+button.secondary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ghost,
+button.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary) !important;
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ghost:hover:not(:disabled),
+button.ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary) !important;
+}
+
+.ghost:active:not(:disabled),
+button.ghost:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.danger,
+button.danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  background: rgba(244, 63, 94, 0.12);
+  color: var(--accent-danger) !important;
+  font-weight: 500;
+  font-size: 13px;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.danger:hover:not(:disabled),
+button.danger:hover:not(:disabled) {
+  background: var(--accent-danger);
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
+}
+
+.danger:active:not(:disabled),
+button.danger:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .app-shell {
@@ -263,6 +385,10 @@ button:disabled {
   overflow-y: auto;
   flex: 1;
   padding-right: 4px;
+}
+
+.sidebar-chat-list .sidebar-chat-item {
+  padding-left: 22px;
 }
 
 .sidebar-project-item,
@@ -579,6 +705,68 @@ button:disabled {
   color: var(--text-primary);
   background: var(--bg-card-hover);
   border-color: var(--text-secondary);
+}
+
+/* Icon-only button styles */
+.icon-only-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  max-width: 36px;
+  max-height: 36px;
+  padding: 0 !important;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.icon-only-btn:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+  border-color: var(--border-color-active);
+}
+
+.icon-only-btn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.icon-only-btn svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.icon-only-btn.compact {
+  width: 32px;
+  height: 32px;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px;
+  max-height: 32px;
+  border-radius: 6px;
+}
+
+.icon-only-btn.compact svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.icon-only-btn.success-btn {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.icon-only-btn.success-btn:hover:not(:disabled) {
+  background: var(--accent-emerald);
+  color: #080a0f !important;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
 .danger {
@@ -2658,4 +2846,59 @@ button:disabled {
   0% { left: -30%; width: 30%; }
   50% { width: 50%; }
   100% { left: 100%; width: 30%; }
+}
+
+/* Context Menu */
+.custom-context-menu {
+  position: fixed;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.25);
+  border-radius: 8px;
+  padding: 5px;
+  z-index: 9999;
+  min-width: 140px;
+  backdrop-filter: blur(12px);
+  animation: fadeIn 0.1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.custom-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.custom-context-menu-item:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.custom-context-menu-item.danger {
+  color: var(--accent-danger);
+}
+
+.custom-context-menu-item.danger:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: var(--accent-danger);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }

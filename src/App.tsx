@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   CheckSquare,
+  Edit,
   FileText,
   Folder,
   MessageSquare,
@@ -22,11 +23,13 @@ import {
   Settings,
   Sparkles,
   Sun,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import {
   appendMessage,
   archiveConversation,
+  renameConversation,
   chat,
   chatStream,
   createConversation,
@@ -50,7 +53,10 @@ import {
   saveModelConfig,
   searchItems,
   searchMemories,
-  syncAnthropicSkills,
+  listLocalSkills,
+  executeBashCommand,
+  writeLocalFile,
+  readLocalFile,
   updateItem,
   updateMemory,
   checkEnv,
@@ -178,6 +184,30 @@ function saveProjects(projects: ProjectEntry[], activeProjectId: string) {
   } else {
     localStorage.removeItem(activeProjectStorageKey);
   }
+}
+
+interface ParsedToolCall {
+  name: string;
+  args: Record<string, string>;
+  raw: string;
+}
+
+function parseToolCall(content: string): ParsedToolCall | null {
+  if (!content) return null;
+  const match = content.match(/<tool_call\s+name="([^"]+)">([\s\S]*?)<\/tool_call>/);
+  if (!match) return null;
+
+  const name = match[1];
+  const body = match[2];
+  const args: Record<string, string> = {};
+
+  const tagRegex = /<([^>]+)>([\s\S]*?)<\/\1>/g;
+  let tagMatch;
+  while ((tagMatch = tagRegex.exec(body)) !== null) {
+    args[tagMatch[1]] = tagMatch[2].trim();
+  }
+
+  return { name, args, raw: match[0] };
 }
 
 interface Skill {
@@ -311,6 +341,18 @@ function App() {
   const [projectApprovalText, setProjectApprovalText] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
+  const [skillsDir, setSkillsDir] = useState<string>("");
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    visible: boolean;
+    conversation: Conversation | null;
+    project: ProjectEntry | null;
+  }>({ x: 0, y: 0, visible: false, conversation: null, project: null });
+
+  const tempDir = skillsDir
+    ? skillsDir.replace(/[\\/]skills$/, "") + (skillsDir.includes("/") ? "/temp" : "\\temp")
+    : "C:\\Users\\13439\\Desktop\\temp";
   const [previewArchivedId, setPreviewArchivedId] = useState("");
   const [previewMessages, setPreviewMessages] = useState<PersistedMessage[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
@@ -434,6 +476,7 @@ function App() {
 
   useEffect(() => {
     void loadAll();
+    void checkLocalSkills();
     
     // Check if skills contain "computer_use" and clean it up
     const saved = localStorage.getItem("nano-agent-skills");
@@ -450,20 +493,7 @@ function App() {
       }
     }
 
-    // First-time (or retry) skills sync from GitHub.
-    // After a failure we record a timestamp and only retry after 1 hour,
-    // so a bad network connection at launch does not spam the error notice
-    // on every subsequent restart.
-    const synced = localStorage.getItem("nano-agent-skills-synced");
-    if (!synced) {
-      const failedAt = localStorage.getItem("nano-agent-skills-sync-failed-at");
-      const RETRY_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-      const shouldRetry =
-        !failedAt || Date.now() - parseInt(failedAt, 10) > RETRY_COOLDOWN_MS;
-      if (shouldRetry) {
-        void syncGitHubSkills();
-      }
-    }
+    // Auto-sync logic removed
 
     // First-time environment check
     const isEnvChecked = localStorage.getItem("nano-agent-env-checked") === "true";
@@ -704,6 +734,13 @@ function App() {
         setPromptSuggestions([]);
         setPromptTriggerIndex(-1);
       }
+    } else {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (!busy && chatInput.trim()) {
+          void handleSendMessage();
+        }
+      }
     }
   }
 
@@ -899,80 +936,70 @@ function App() {
     setTimeout(() => setNotice(""), 3000);
   }
 
-  async function syncGitHubSkills() {
-    if (isSyncing) return;
-    setIsSyncing(true);
-    try {
-      const remoteSkills = await syncAnthropicSkills();
 
+
+  async function checkLocalSkills() {
+    try {
+      const [skillsDir, localSkills] = await listLocalSkills();
+      setSkillsDir(skillsDir);
       setSkills((current) => {
         const skillMap = new Map(current.map((s) => [s.id, s]));
+        const scannedLocalIds = new Set<string>();
 
-        remoteSkills.forEach((remoteSkill) => {
-          const id = `github_${remoteSkill.slug}`;
+        localSkills.forEach((localSkill) => {
+          const id = `local_${localSkill.slug}`;
+          scannedLocalIds.add(id);
+
           if (!skillMap.has(id)) {
-            const defaultParams: Record<string, string> = {};
-            if (
-              remoteSkill.slug.includes("docx") ||
-              remoteSkill.slug.includes("pdf") ||
-              remoteSkill.slug.includes("pptx") ||
-              remoteSkill.slug.includes("xlsx") ||
-              remoteSkill.slug.includes("doc")
-            ) {
-              defaultParams.output_dir = "C:\\Users\\13439\\Desktop";
-            } else if (remoteSkill.slug.includes("art") || remoteSkill.slug.includes("design")) {
-              defaultParams.output_format = "SVG";
-            } else {
-              defaultParams.workspace_root = "C:\\Users\\13439\\Desktop";
-            }
-
             skillMap.set(id, {
               id,
-              name: remoteSkill.name,
-              provider: "Anthropic (GitHub)",
-              description: remoteSkill.description,
-              enabled: false,
-              parameters: defaultParams,
-              docUrl: remoteSkill.doc_url
+              name: localSkill.name,
+              provider: "Local",
+              description: localSkill.description,
+              enabled: true,
+              parameters: {
+                workspace_root: "C:\\Users\\13439\\Desktop"
+              },
+              docUrl: localSkill.doc_url
             });
           } else {
             const existing = skillMap.get(id);
             if (existing) {
               skillMap.set(id, {
                 ...existing,
-                name: remoteSkill.name || existing.name,
-                provider: "Anthropic (GitHub)",
-                description: remoteSkill.description || existing.description,
-                docUrl: remoteSkill.doc_url || existing.docUrl
+                name: localSkill.name || existing.name,
+                description: localSkill.description || existing.description,
+                docUrl: localSkill.doc_url || existing.docUrl
               });
             }
           }
         });
 
+        // Remove local skills that are no longer in the directory
+        Array.from(skillMap.keys()).forEach((id) => {
+          if (id.startsWith("local_") && !scannedLocalIds.has(id)) {
+            skillMap.delete(id);
+          }
+        });
+
+        // Update default skill_creator's skills_root parameter dynamically
+        const skillCreator = skillMap.get("skill_creator");
+        if (skillCreator && skillCreator.parameters.skills_root !== skillsDir) {
+          skillMap.set("skill_creator", {
+            ...skillCreator,
+            parameters: {
+              ...skillCreator.parameters,
+              skills_root: skillsDir
+            }
+          });
+        }
+
         const merged = Array.from(skillMap.values());
         localStorage.setItem("nano-agent-skills", JSON.stringify(merged));
         return merged;
       });
-
-      localStorage.setItem("nano-agent-skills-synced", "true");
-      localStorage.removeItem("nano-agent-skills-sync-failed-at");
-      setNotice(`已同步 Anthropic 官方技能库：${remoteSkills.length} 个技能。`);
-      setTimeout(() => setNotice(""), 3000);
     } catch (error) {
-      console.error("Failed to sync GitHub skills:", error);
-      // Record the failure timestamp so we only auto-retry after the cooldown.
-      localStorage.setItem("nano-agent-skills-sync-failed-at", String(Date.now()));
-      // Extract a readable message — Tauri wraps backend errors as plain strings.
-      const raw = String(error);
-      const readable = raw.replace(/^Error:\s*/i, "").replace(/\s*\(https?:\/\/[^)]+\)$/, "");
-      const isRateLimit = raw.includes("403") || raw.toLowerCase().includes("rate limit");
-      const hint = isRateLimit
-        ? "GitHub API 请求超限 (403)，请稍后重试，或配置环境变量 GITHUB_TOKEN / GH_TOKEN 后重启应用。"
-        : "请检查网络连接，然后点击\u300e同步官方技能\u300f按钮手动重试。";
-      setNotice(`\u26a0 技能同步失败：${readable}。${hint}`);
-      // Leave the notice visible until user manually dismisses or syncs successfully.
-    } finally {
-      setIsSyncing(false);
+      console.error("Failed to check local skills:", error);
     }
   }
 
@@ -1490,6 +1517,146 @@ function App() {
     await loadMessages(conversation.id);
   }
 
+  async function handleRenameConversation(id: string, currentTitle: string) {
+    const nextTitle = prompt("请输入新的会话名称：", currentTitle);
+    if (nextTitle === null) return;
+    const trimmed = nextTitle.trim();
+    if (!trimmed) {
+      alert("会话名称不能为空");
+      return;
+    }
+    try {
+      await renameConversation(id, trimmed);
+      await Promise.all([
+        refreshConversations(),
+        refreshProjectConversationMap(projects)
+      ]);
+    } catch (e) {
+      console.error(e);
+      alert("重命名失败");
+    }
+  }
+
+  async function handleContextArchiveConversation(conversation: Conversation) {
+    try {
+      await archiveConversation(conversation.id, true);
+      const isProjectConversation = Boolean(conversation.project_path);
+      
+      if (activeConversationId === conversation.id) {
+        if (isProjectConversation) {
+          await refreshProjectConversationMap(projects);
+          setActiveConversationId("");
+          setMessages([]);
+        } else {
+          const rest = conversations.filter((item) => item.id !== conversation.id);
+          setConversations(rest);
+          const nextActiveId = rest[0]?.id || "";
+          setActiveConversationId(nextActiveId);
+          setMessages([]);
+          await refreshConversations(nextActiveId);
+        }
+      } else {
+        await Promise.all([
+          refreshConversations(),
+          refreshProjectConversationMap(projects)
+        ]);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("归档失败");
+    }
+  }
+
+  async function handleContextDeleteConversation(conversation: Conversation) {
+    if (!confirm(`确定要删除会话「${conversation.title}」吗？`)) {
+      return;
+    }
+    try {
+      await deleteConversation(conversation.id);
+      const isProjectConversation = Boolean(conversation.project_path);
+      
+      if (activeConversationId === conversation.id) {
+        if (isProjectConversation) {
+          await refreshProjectConversationMap(projects);
+          setActiveConversationId("");
+          setMessages([]);
+        } else {
+          const rest = conversations.filter((item) => item.id !== conversation.id);
+          setConversations(rest);
+          const nextActiveId = rest[0]?.id || "";
+          setActiveConversationId(nextActiveId);
+          setMessages([]);
+          await refreshConversations(nextActiveId);
+        }
+      } else {
+        await Promise.all([
+          refreshConversations(),
+          refreshProjectConversationMap(projects)
+        ]);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("删除失败");
+    }
+  }
+
+  function handleContextMenu(e: React.MouseEvent, conversation: Conversation) {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      visible: true,
+      conversation,
+      project: null
+    });
+  }
+
+  function handleProjectContextMenu(e: React.MouseEvent, project: ProjectEntry) {
+    e.preventDefault();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      visible: true,
+      conversation: null,
+      project
+    });
+  }
+
+  function handleCloseConversation() {
+    setActiveConversationId("");
+    setMessages([]);
+  }
+
+  useEffect(() => {
+    const handleCloseMenu = () => {
+      if (contextMenu.visible) {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+    window.addEventListener("click", handleCloseMenu);
+    return () => {
+      window.removeEventListener("click", handleCloseMenu);
+    };
+  }, [contextMenu.visible]);
+
+  useEffect(() => {
+    const handleGlobalContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", handleGlobalContextMenu);
+    return () => {
+      window.removeEventListener("contextmenu", handleGlobalContextMenu);
+    };
+  }, []);
+
   async function handleDeleteArchivedConversation(id: string) {
     await deleteConversation(id);
     setArchivedConversations((current) => current.filter((item) => item.id !== id));
@@ -1514,6 +1681,178 @@ function App() {
     });
     await refreshConversations(conversation.id);
     return conversation.id;
+  }
+
+  const [executingToolMessageId, setExecutingToolMessageId] = useState<string | null>(null);
+
+  async function triggerLlmContinue(conversationId: string, currentMessages: PersistedMessage[]) {
+    const conversationForRequest = findConversationById(conversationId);
+    const projectForRequest = findConversationProject(conversationForRequest);
+    const enabledMemories = await listEnabledMemories();
+    const webResults: any[] = [];
+    let projectFiles: ProjectFileEntry[] = [];
+    if (projectForRequest?.path) {
+      try {
+        projectFiles = await listProjectFiles(projectForRequest.path);
+      } catch (error) {
+        console.error("Failed to list project files:", error);
+      }
+    }
+
+    const modelMessages: ChatMessage[] = [
+      buildSystemMessage(enabledMemories, webResults, projectForRequest, projectFiles, skills, tempDir),
+      ...currentMessages.map((message) => ({
+        role: message.role,
+        content: message.content
+      }))
+    ];
+
+    const requestId = crypto.randomUUID();
+    let streamedContent = "";
+    let streamedReasoning = "";
+    const temporaryAssistantMessage: PersistedMessage = {
+      id: requestId,
+      conversation_id: conversationId,
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString()
+    };
+    setMessages([...currentMessages, temporaryAssistantMessage]);
+
+    const unlisten = await listen<ChatStreamEvent>("chat-stream", (event) => {
+      if (event.payload.request_id !== requestId) return;
+      if (activeConversationIdRef.current !== conversationId) return;
+
+      if (event.payload.type === "delta") {
+        streamedContent += event.payload.content;
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === requestId
+              ? { ...message, content: streamedContent }
+              : message
+          )
+        );
+      }
+
+      if (event.payload.type === "reasoning_delta") {
+        streamedReasoning += event.payload.content;
+        setMessageReasoning((current) => ({
+          ...current,
+          [requestId]: streamedReasoning
+        }));
+      }
+
+      if (event.payload.type === "error") {
+        setNotice(event.payload.message);
+      }
+    });
+
+    try {
+      setBusy(true);
+      await chatStream(requestId, activeModelId, modelMessages);
+    } catch (err) {
+      console.error("Continue streaming failed:", err);
+      setNotice(`对话回复失败：${String(err)}`);
+    } finally {
+      unlisten();
+      setBusy(false);
+      const finalMessages = await listMessages(conversationId);
+      setMessages(finalMessages);
+      if (projectForRequest) {
+        await refreshProjectConversationMap(projects);
+      } else {
+        await refreshConversations(conversationId);
+      }
+    }
+  }
+
+  async function handleExecuteTool(messageId: string, toolCall: ParsedToolCall) {
+    if (executingToolMessageId) return;
+    setExecutingToolMessageId(messageId);
+    setBusy(true);
+
+    try {
+      const conversationId = await ensureConversation();
+      const conversationForRequest = findConversationById(conversationId);
+      const projectForRequest = findConversationProject(conversationForRequest);
+      const projectPath = projectForRequest?.path || tempDir;
+
+      let resultText = "";
+
+      if (toolCall.name === "write_file") {
+        const path = toolCall.args.path;
+        const content = toolCall.args.content || "";
+        if (!path) throw new Error("缺少 path 参数");
+        await writeLocalFile(projectPath, path, content);
+        resultText = `文件 ${path} 写入成功，内容长度为 ${content.length} 字符。`;
+      } else if (toolCall.name === "read_file") {
+        const path = toolCall.args.path;
+        if (!path) throw new Error("缺少 path 参数");
+        const content = await readLocalFile(projectPath, path);
+        resultText = `读取文件 ${path} 成功，内容如下：\n\n\`\`\`\n${content}\n\`\`\``;
+      } else if (toolCall.name === "execute_command") {
+        const command = toolCall.args.command;
+        if (!command) throw new Error("缺少 command 参数");
+        const isBashEnabled = skills.find((s) => s.id === "bash_tool")?.enabled;
+        if (!isBashEnabled) {
+          throw new Error("Bash Tool 技能已被禁用，请在设置中启用后再试。");
+        }
+        const output = await executeBashCommand(projectPath, command);
+        resultText = `命令执行成功，输出结果如下：\n\n\`\`\`\n${output}\n\`\`\``;
+      } else {
+        throw new Error(`未知的工具类型: ${toolCall.name}`);
+      }
+
+      const userMessage = await appendMessage({
+        conversation_id: conversationId,
+        role: "user",
+        content: `[工具执行结果: ${toolCall.name}] 执行结果如下：\n\n${resultText}`
+      });
+
+      const updatedMessages = await listMessages(conversationId);
+      setMessages(updatedMessages);
+
+      void triggerLlmContinue(conversationId, updatedMessages);
+    } catch (error) {
+      console.error("Tool execution failed:", error);
+      setNotice(`工具执行失败: ${String(error)}`);
+      
+      try {
+        const conversationId = await ensureConversation();
+        await appendMessage({
+          conversation_id: conversationId,
+          role: "user",
+          content: `[工具执行结果: ${toolCall.name}] 执行失败: ${String(error)}`
+        });
+        const updatedMessages = await listMessages(conversationId);
+        setMessages(updatedMessages);
+        void triggerLlmContinue(conversationId, updatedMessages);
+      } catch (e) {
+        console.error("Failed to append tool error message:", e);
+      }
+    } finally {
+      setExecutingToolMessageId(null);
+      setBusy(false);
+    }
+  }
+
+  async function handleRejectTool(messageId: string, toolCall: ParsedToolCall) {
+    setBusy(true);
+    try {
+      const conversationId = await ensureConversation();
+      await appendMessage({
+        conversation_id: conversationId,
+        role: "user",
+        content: `[工具执行结果: ${toolCall.name}] 用户拒绝了执行该工具请求。`
+      });
+      const updatedMessages = await listMessages(conversationId);
+      setMessages(updatedMessages);
+      void triggerLlmContinue(conversationId, updatedMessages);
+    } catch (error) {
+      console.error("Reject tool failed:", error);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleSendMessage() {
@@ -1622,7 +1961,7 @@ function App() {
       }
 
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(enabledMemories, webResults, projectForRequest, projectFiles),
+        buildSystemMessage(enabledMemories, webResults, projectForRequest, projectFiles, skills, tempDir),
         ...currentMessages.map((message) => ({
           role: message.role,
           content: message.content
@@ -1774,13 +2113,15 @@ function App() {
             )}
           </div>
           {activeKind !== "memory" && (
-            <div style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", gap: "8px" }}>
+            <div style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", justifyContent: "center" }}>
               <button 
-                className="ghost" 
+                className="icon-only-btn" 
                 onClick={() => void handleNewItem(activeKind as ItemKind)} 
-                style={{ flex: 1, minHeight: "32px", fontSize: "13px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px", border: "1px solid var(--border-color)", borderRadius: "6px" }}
+                title={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
+                aria-label={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
+                type="button"
               >
-                <Plus size={14} /> 新建{kindLabels[activeKind as ItemKind] || "备忘录"}
+                <Plus />
               </button>
             </div>
           )}
@@ -1800,7 +2141,7 @@ function App() {
                   在对话中启用
                 </label>
                 <div className="editor-actions">
-                  <button onClick={handleSaveMemory} disabled={!selectedMemory}><Save size={16} /> 保存</button>
+                  <button className="icon-only-btn success-btn" onClick={handleSaveMemory} disabled={!selectedMemory} aria-label="保存" title="保存" type="button"><Save /></button>
                   <button className="icon danger" aria-label="删除记忆" title="删除记忆" onClick={handleDeleteMemory} disabled={!selectedMemory}>
                     <Trash2 size={16} />
                   </button>
@@ -1839,7 +2180,7 @@ function App() {
                   <option value="archived">已归档</option>
                 </select>
                 <div className="editor-actions">
-                  <button onClick={handleSaveItem} disabled={!selectedItem}><Save size={16} /> 保存</button>
+                  <button className="icon-only-btn success-btn" onClick={handleSaveItem} disabled={!selectedItem} aria-label="保存" title="保存" type="button"><Save /></button>
                   <button className="icon danger" aria-label="删除项目" title="删除项目" onClick={handleDeleteItem} disabled={!selectedItem}>
                     <Trash2 size={16} />
                   </button>
@@ -1947,6 +2288,7 @@ function App() {
                           selectProject(project);
                         }
                       }}
+                      onContextMenu={(e) => handleProjectContextMenu(e, project)}
                       title={tooltipText}
                     >
                       <button
@@ -1964,18 +2306,6 @@ function App() {
                       </button>
                       <span className="sidebar-project-dot" />
                       <span className="project-title" title={tooltipText}>{project.name}</span>
-                      <button
-                        className="project-remove-btn"
-                        type="button"
-                        aria-label="移除项目入口"
-                        title="移除项目入口"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleRemoveProjectApproval(project);
-                        }}
-                      >
-                        <Trash2 size={13} />
-                      </button>
                       <button
                         className="project-add-chat-btn"
                         type="button"
@@ -2001,6 +2331,8 @@ function App() {
                                 selectProject(project);
                                 setActiveConversationId(conversation.id);
                               }}
+                              onContextMenu={(e) => handleContextMenu(e, conversation)}
+                              type="button"
                             >
                               <MessageSquare size={14} className="chat-icon" />
                               <span className="chat-title">{conversation.title}</span>
@@ -2040,6 +2372,7 @@ function App() {
                   key={conversation.id}
                   className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
                   onClick={() => setActiveConversationId(conversation.id)}
+                  onContextMenu={(e) => handleContextMenu(e, conversation)}
                   type="button"
                 >
                   <MessageSquare size={14} className="chat-icon" />
@@ -2347,7 +2680,7 @@ function App() {
                   <div className="settings-tab-content model-tab-content">
                     <div className="model-header-row">
                       <h3>模型管理</h3>
-                      <button className="ghost compact-btn" onClick={handleNewModelConfig}><Plus size={14} /> 新建配置</button>
+                      <button className="icon-only-btn compact" onClick={handleNewModelConfig} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
                     </div>
                     <p className="description" style={{ marginTop: "-4px" }}>配置OpenAI兼容接口或Claude原生模型，供AI助手对话使用。</p>
                     <div className="model-config-grid">
@@ -2518,26 +2851,17 @@ function App() {
 
                     <div className="skills-config-grid" style={{ flex: 1, overflow: "hidden" }}>
                       <aside className="skills-config-list" style={{ display: "flex", flexDirection: "column", gap: "8px", overflow: "hidden" }}>
-                        <div style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
+                        <div style={{ marginBottom: "4px" }}>
                           <button 
                             className="secondary" 
-                            style={{ flex: 1, padding: "6px 8px", fontSize: "0.8rem", height: "auto" }} 
-                            onClick={syncGitHubSkills}
-                            disabled={isSyncing}
-                            type="button"
-                          >
-                            {isSyncing ? "同步中..." : "同步官方技能"}
-                          </button>
-                          <button 
-                            className="secondary" 
-                            style={{ flex: 1, padding: "6px 8px", fontSize: "0.8rem", height: "auto" }} 
+                            style={{ width: "100%", padding: "6px 8px", fontSize: "0.8rem", height: "auto" }} 
                             onClick={() => {
                               setIsAddingSkill(true);
                               setSelectedSkillId("");
                             }}
                             type="button"
                           >
-                            添加自定义
+                            添加自定义技能
                           </button>
                         </div>
                         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -2771,28 +3095,88 @@ function App() {
             <Bot size={19} />
             <strong>AI 助手</strong>
           </div>
-          <div className="chat-header-actions">
-            <button className="icon" aria-label="归档对话" title="归档对话" onClick={handleArchiveConversation} disabled={!activeConversationId}>
-              <Archive size={15} />
+          {activeConversationId && (
+            <button
+              className="icon"
+              aria-label="关闭当前会话"
+              title="关闭当前会话"
+              onClick={handleCloseConversation}
+              type="button"
+            >
+              <X size={15} />
             </button>
-            <button className="icon danger" aria-label="删除对话" title="删除对话" onClick={handleDeleteConversation} disabled={!activeConversationId}>
-              <Trash2 size={15} />
-            </button>
-          </div>
+          )}
         </header>
 
         <div className="chat-log">
-          {messages.map((message) => (
-            <div key={message.id} className={`chat-message ${message.role}`}>
-              {message.role === "assistant" && messageReasoning[message.id]?.trim() && (
-                <details className="reasoning-panel">
-                  <summary className="reasoning-title">思考过程</summary>
-                  <MarkdownMessage content={messageReasoning[message.id]} />
-                </details>
-              )}
-              <MarkdownMessage content={message.content} />
-            </div>
-          ))}
+          {messages.map((message) => {
+            const toolCall = message.role === "assistant" ? parseToolCall(message.content) : null;
+            const isExecuted = toolCall ? messages.slice(messages.indexOf(message) + 1).some((m) =>
+              m.role === "user" && m.content.startsWith(`[工具执行结果: ${toolCall.name}]`)
+            ) : false;
+
+            return (
+              <div key={message.id} className={`chat-message ${message.role}`}>
+                {message.role === "assistant" && messageReasoning[message.id]?.trim() && (
+                  <details className="reasoning-panel">
+                    <summary className="reasoning-title">思考过程</summary>
+                    <MarkdownMessage content={messageReasoning[message.id]} />
+                  </details>
+                )}
+                <MarkdownMessage content={message.content} />
+                
+                {toolCall && (
+                  <div className="tool-call-card" style={{
+                    marginTop: "12px",
+                    padding: "12px",
+                    border: "1px solid var(--border-color, #e0e0e0)",
+                    borderRadius: "8px",
+                    background: "rgba(0, 0, 0, 0.02)",
+                    fontSize: "0.85rem",
+                    textAlign: "left"
+                  }}>
+                    <div style={{ fontWeight: "bold", marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
+                      🔧 工具调用请求: <code style={{ background: "rgba(0,0,0,0.06)", padding: "2px 4px", borderRadius: "4px" }}>{toolCall.name}</code>
+                    </div>
+                    
+                    {Object.entries(toolCall.args).map(([k, v]) => (
+                      <div key={k} style={{ margin: "4px 0" }}>
+                        <span style={{ color: "var(--text-secondary)", fontWeight: "600" }}>{k}:</span>
+                        <pre style={{ margin: "4px 0", background: "rgba(0,0,0,0.04)", padding: "6px", borderRadius: "4px", overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{v}</pre>
+                      </div>
+                    ))}
+                    
+                    <div style={{ marginTop: "12px", display: "flex", gap: "8px", alignItems: "center" }}>
+                      {isExecuted ? (
+                        <span style={{ color: "#2e7d32", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px" }}>
+                          ✓ 已执行完成
+                        </span>
+                      ) : executingToolMessageId === message.id ? (
+                        <span style={{ color: "var(--text-secondary)" }}>⏳ 正在执行中...</span>
+                      ) : (
+                        <>
+                          <button
+                            className="primary"
+                            style={{ padding: "4px 12px", fontSize: "0.8rem", height: "auto" }}
+                            onClick={() => handleExecuteTool(message.id, toolCall)}
+                          >
+                            运行工具
+                          </button>
+                          <button
+                            className="secondary"
+                            style={{ padding: "4px 12px", fontSize: "0.8rem", height: "auto" }}
+                            onClick={() => handleRejectTool(message.id, toolCall)}
+                          >
+                            拒绝
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
           {messages.length === 0 && <div className="empty">在下方输入开始对话，记录将保存在本地</div>}
         </div>
 
@@ -2991,6 +3375,80 @@ function App() {
           </div>
         )}
       </aside>
+
+      {contextMenu.visible && (
+        <div
+          className="custom-context-menu"
+          style={{
+            top: `${contextMenu.y}px`,
+            left: `${contextMenu.x}px`
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {contextMenu.conversation && (
+            <>
+              <button
+                className="custom-context-menu-item"
+                onClick={() => {
+                  if (contextMenu.conversation) {
+                    void handleRenameConversation(
+                      contextMenu.conversation.id,
+                      contextMenu.conversation.title
+                    );
+                  }
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+                type="button"
+              >
+                <Edit size={14} />
+                <span>重命名</span>
+              </button>
+              <button
+                className="custom-context-menu-item"
+                onClick={() => {
+                  if (contextMenu.conversation) {
+                    void handleContextArchiveConversation(contextMenu.conversation);
+                  }
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+                type="button"
+              >
+                <Archive size={14} />
+                <span>归档会话</span>
+              </button>
+              <button
+                className="custom-context-menu-item danger"
+                onClick={() => {
+                  if (contextMenu.conversation) {
+                    void handleContextDeleteConversation(contextMenu.conversation);
+                  }
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+                type="button"
+              >
+                <Trash2 size={14} />
+                <span>删除会话</span>
+              </button>
+            </>
+          )}
+
+          {contextMenu.project && (
+            <button
+              className="custom-context-menu-item danger"
+              onClick={() => {
+                if (contextMenu.project) {
+                  handleRemoveProjectApproval(contextMenu.project);
+                }
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+              type="button"
+            >
+              <Trash2 size={14} />
+              <span>移除项目入口</span>
+            </button>
+          )}
+        </div>
+      )}
     </main>
   );
 }
@@ -3154,7 +3612,9 @@ function buildSystemMessage(
   memories: Memory[],
   webResults: WebSearchResult[] = [],
   activeProject: ProjectEntry | null = null,
-  projectFiles: ProjectFileEntry[] = []
+  projectFiles: ProjectFileEntry[] = [],
+  skills: Skill[] = [],
+  tempDir?: string
 ): ChatMessage {
   const runtimeContext = buildRuntimeContext();
 
@@ -3180,9 +3640,66 @@ function buildSystemMessage(
       ].join("\n")
     : "";
 
+  const enabledSkills = skills.filter((s) => s.enabled);
+  const skillsContext = enabledSkills.length > 0
+    ? [
+        "当前已启用的本地/系统技能（Skills）：",
+        ...enabledSkills.map((s) => {
+          const parameters = { ...s.parameters };
+          if (activeProject?.path) {
+            if ("workspace_root" in parameters) {
+              parameters.workspace_root = activeProject.path;
+            }
+            if ("output_dir" in parameters) {
+              parameters.output_dir = activeProject.path;
+            }
+            if ("skills_root" in parameters) {
+              parameters.skills_root = activeProject.path + "\\.agents\\skills";
+            }
+          } else if (tempDir) {
+            if ("workspace_root" in parameters) {
+              parameters.workspace_root = tempDir;
+            }
+            if ("output_dir" in parameters) {
+              parameters.output_dir = tempDir;
+            }
+          }
+
+          const params = parameters && Object.keys(parameters).length > 0
+            ? "\n  配置参数：\n" + Object.entries(parameters)
+                .map(([k, v]) => `    * ${k}: ${v}`)
+                .join("\n")
+            : "";
+          return `- 名称：${s.name} (ID: ${s.id})\n  提供者：${s.provider}\n  描述：${s.description}${params}`;
+        })
+      ].join("\n")
+    : "";
+
+  const toolsSystemInstruction = `
+如果你需要使用已启用的技能来执行操作（如读取文件、写入文件或执行命令），你必须在回答中输出以下格式的 XML 标签来发出工具调用请求：
+
+1. 写入文件（如果文件不存在会自动创建并写入，用于创建或修改文件）：
+<tool_call name="write_file">
+  <path>文件名或路径（如 a.txt）</path>
+  <content>写入的完整文件内容</content>
+</tool_call>
+
+2. 读取文件（读取本地文件内容）：
+<tool_call name="read_file">
+  <path>文件名或路径</path>
+</tool_call>
+
+3. 执行命令（对应 Bash Tool，仅在已启用 Bash Tool 时可用）：
+<tool_call name="execute_command">
+  <command>具体的终端命令行</command>
+</tool_call>
+
+注意：请一次仅发出一个 <tool_call>，等待用户确认执行并向你回传结果后，你再根据执行结果继续后续思考或操作。`;
+
   const sections = [
     runtimeContext,
     projectContext,
+    skillsContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext}\n\n${toolsSystemInstruction}` : "",
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
     webContext ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${webContext}` : ""
   ].filter(Boolean);
