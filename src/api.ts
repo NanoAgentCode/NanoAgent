@@ -109,8 +109,11 @@ export function deleteMemory(id: string) {
   return invoke<void>("delete_memory", { id });
 }
 
-export function internetSearch(query: string) {
-  return invoke<WebSearchResult[]>("internet_search", { query });
+export function internetSearch(query: string, tavilyApiKey?: string) {
+  return invoke<WebSearchResult[]>("internet_search", {
+    query,
+    tavilyApiKey: tavilyApiKey?.trim() || null
+  });
 }
 
 

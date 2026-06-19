@@ -165,8 +165,11 @@ async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<()> 
 }
 
 #[tauri::command]
-async fn internet_search(query: String) -> AppResult<Vec<WebSearchResult>> {
-    run_internet_search(&query).await
+async fn internet_search(
+    query: String,
+    tavily_api_key: Option<String>,
+) -> AppResult<Vec<WebSearchResult>> {
+    run_internet_search(&query, tavily_api_key.as_deref()).await
 }
 
 #[tauri::command]

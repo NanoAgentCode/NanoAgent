@@ -158,6 +158,7 @@ const themeLabels: Record<ThemeMode, string> = {
 
 const projectStorageKey = "nano-agent-projects";
 const activeProjectStorageKey = "nano-agent-active-project-id";
+const tavilyApiKeyStorageKey = "nano-agent-tavily-api-key";
 
 function loadSavedProjects() {
   const saved = localStorage.getItem(projectStorageKey);
@@ -292,14 +293,29 @@ const defaultSkills: Skill[] = [
     id: "web_search",
     name: "Web Search",
     provider: "NanoAgent",
-    description: "通过内置的搜索引擎模块获取网页的实时新闻与技术内容。",
+    description: "优先使用应用内 Tavily API Key 调用本机 Tavily Agent Skill / CLI；不可用时自动回退到内置 DuckDuckGo 检索。",
     enabled: false,
     parameters: {
-      engine: "DuckDuckGo"
+      engine: "Tavily + DuckDuckGo fallback"
     },
     docUrl: "https://github.com/google-deepmind/antigravity"
   }
 ];
+
+function normalizeSkills(skills: Skill[]) {
+  return skills.map((skill) =>
+    skill.id === "web_search"
+      ? {
+          ...skill,
+          description: "优先使用应用内 Tavily API Key 调用本机 Tavily Agent Skill / CLI；不可用时自动回退到内置 DuckDuckGo 检索。",
+          parameters: {
+            ...skill.parameters,
+            engine: "Tavily + DuckDuckGo fallback"
+          }
+        }
+      : skill
+  );
+}
 
 function App() {
   const listRequestRef = useRef(0);
@@ -370,7 +386,7 @@ function App() {
     const saved = localStorage.getItem("nano-agent-skills");
     if (saved) {
       try {
-        return JSON.parse(saved) as Skill[];
+        return normalizeSkills(JSON.parse(saved) as Skill[]);
       } catch (e) {
         console.error("Failed to parse skills from localStorage", e);
       }
@@ -395,6 +411,7 @@ function App() {
   });
   const [nodePath, setNodePath] = useState(() => localStorage.getItem("nano-agent-node-path") || "");
   const [pythonPath, setPythonPath] = useState(() => localStorage.getItem("nano-agent-python-path") || "");
+  const [tavilyApiKey, setTavilyApiKey] = useState(() => localStorage.getItem(tavilyApiKeyStorageKey) || "");
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({ node: true, python: true });
   const [showCustomPaths, setShowCustomPaths] = useState(false);
   const [showEnvActionsMenu, setShowEnvActionsMenu] = useState(false);
@@ -1068,6 +1085,19 @@ function App() {
       setIsCheckingEnv(false);
       setTimeout(() => setNotice(""), 5000);
     }
+  }
+
+  function handleSaveTavilyApiKey() {
+    const trimmed = tavilyApiKey.trim();
+    if (trimmed) {
+      localStorage.setItem(tavilyApiKeyStorageKey, trimmed);
+      setTavilyApiKey(trimmed);
+      setNotice("Tavily API Key 已保存。");
+    } else {
+      localStorage.removeItem(tavilyApiKeyStorageKey);
+      setNotice("Tavily API Key 已清空，将使用系统环境变量或 DuckDuckGo 兜底。");
+    }
+    setTimeout(() => setNotice(""), 3000);
   }
 
   function handleDeleteSkill(id: string) {
@@ -1878,7 +1908,7 @@ function App() {
       }
 
       const enabledMemories = await listEnabledMemories();
-      const webResults = webSearchEnabled ? await internetSearch(content) : [];
+      const webResults = webSearchEnabled ? await internetSearch(content, tavilyApiKey) : [];
       let projectFiles: ProjectFileEntry[] = [];
       if (projectForRequest?.path) {
         try {
@@ -2943,6 +2973,21 @@ function App() {
                                   <span style={{ fontSize: "0.85rem" }}>{skill.enabled ? "该技能当前已激活，模型将在合适的时候自动调用" : "该技能当前已禁用"}</span>
                                 </div>
                               </div>
+
+                              {skill.id === "web_search" && (
+                                <div className="skills-form-section" style={{ marginTop: "12px" }}>
+                                  <h5>Tavily API Key</h5>
+                                  <div className="skills-param-field">
+                                    <input
+                                      value={tavilyApiKey}
+                                      type="password"
+                                      onChange={(event) => setTavilyApiKey(event.target.value)}
+                                      onBlur={handleSaveTavilyApiKey}
+                                      placeholder="粘贴 Tavily API Key；留空则使用系统环境变量或 DuckDuckGo 兜底"
+                                    />
+                                  </div>
+                                </div>
+                              )}
 
                               <div className="skills-form-actions">
                                 <button
