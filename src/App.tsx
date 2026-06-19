@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { setTheme } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
   Bot,
   Brain,
+  ChevronDown,
+  ChevronRight,
   CheckSquare,
   FileText,
   Folder,
@@ -29,6 +32,7 @@ import {
   createConversation,
   createItem,
   createMemory,
+  createProjectDirectory,
   deleteConversation,
   deleteItem,
   deleteMemory,
@@ -42,9 +46,11 @@ import {
   listMemories,
   listMessages,
   listModelConfigs,
+  listProjectFiles,
   saveModelConfig,
   searchItems,
   searchMemories,
+  syncAnthropicSkills,
   updateItem,
   updateMemory,
   checkEnv,
@@ -60,6 +66,8 @@ import type {
   Memory,
   ModelConfig,
   ModelConfigDraft,
+  ProjectEntry,
+  ProjectFileEntry,
   PersistedMessage,
   WebSearchResult
 } from "./types";
@@ -141,6 +149,36 @@ const themeLabels: Record<ThemeMode, string> = {
   light: "白天",
   dark: "夜晚"
 };
+
+const projectStorageKey = "nano-agent-projects";
+const activeProjectStorageKey = "nano-agent-active-project-id";
+
+function loadSavedProjects() {
+  const saved = localStorage.getItem(projectStorageKey);
+  if (!saved) return [];
+
+  try {
+    const parsed = JSON.parse(saved) as ProjectEntry[];
+    return parsed.filter((project) => project.id && project.name && project.path);
+  } catch (error) {
+    console.error("Failed to parse projects from localStorage", error);
+    return [];
+  }
+}
+
+function projectNameFromPath(path: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  return normalized.split(/[\\/]/).pop() || normalized || "未命名项目";
+}
+
+function saveProjects(projects: ProjectEntry[], activeProjectId: string) {
+  localStorage.setItem(projectStorageKey, JSON.stringify(projects));
+  if (activeProjectId) {
+    localStorage.setItem(activeProjectStorageKey, activeProjectId);
+  } else {
+    localStorage.removeItem(activeProjectStorageKey);
+  }
+}
 
 interface Skill {
   id: string;
@@ -235,6 +273,8 @@ const defaultSkills: Skill[] = [
 
 function App() {
   const listRequestRef = useRef(0);
+  const messageLoadRequestRef = useRef(0);
+  const activeConversationIdRef = useRef("");
   const workspaceRef = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -255,6 +295,18 @@ function App() {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
   const [activeModelId, setActiveModelId] = useState("");
+  const [projects, setProjects] = useState<ProjectEntry[]>(() => loadSavedProjects());
+  const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem(activeProjectStorageKey) || "");
+  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => {
+    const activeId = localStorage.getItem(activeProjectStorageKey) || "";
+    return activeId ? [activeId] : [];
+  });
+  const [projectConversations, setProjectConversations] = useState<Record<string, Conversation[]>>({});
+  const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
+  const [newProjectParent, setNewProjectParent] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [pendingProjectRemoval, setPendingProjectRemoval] = useState<ProjectEntry | null>(null);
+  const [projectApprovalText, setProjectApprovalText] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
   const [previewArchivedId, setPreviewArchivedId] = useState("");
@@ -336,6 +388,47 @@ function App() {
     () => memoryItems.find((memory) => memory.id === selectedMemoryId),
     [memoryItems, selectedMemoryId]
   );
+  const activeConversation = useMemo(() => {
+    const allProjectConversations = Object.values(projectConversations).flat();
+    return [...conversations, ...allProjectConversations].find(
+      (conversation) => conversation.id === activeConversationId
+    );
+  }, [activeConversationId, conversations, projectConversations]);
+  const activeConversationProject = useMemo(
+    () =>
+      activeConversation?.project_path
+        ? projects.find((project) => project.path === activeConversation.project_path) || null
+        : null,
+    [activeConversation, projects]
+  );
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      if (activeProjectId) {
+        setActiveProjectId("");
+        localStorage.removeItem(activeProjectStorageKey);
+      }
+      return;
+    }
+
+    if (!projects.some((project) => project.id === activeProjectId)) {
+      const nextActiveProjectId = projects[0].id;
+      setActiveProjectId(nextActiveProjectId);
+      localStorage.setItem(activeProjectStorageKey, nextActiveProjectId);
+    }
+  }, [activeProjectId, projects]);
+
+  useEffect(() => {
+    if (activeProjectId) {
+      setExpandedProjectIds((current) =>
+        current.includes(activeProjectId) ? current : [...current, activeProjectId]
+      );
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    void refreshProjectConversationMap(projects);
+  }, [projects]);
 
   useEffect(() => {
     void loadAll();
@@ -453,6 +546,7 @@ function App() {
   }, [selectedMemory]);
 
   useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
     setMessageReasoning({});
     if (!activeConversationId) {
       setMessages([]);
@@ -486,10 +580,16 @@ function App() {
   }
 
   async function loadMessages(conversationId: string) {
+    const requestId = ++messageLoadRequestRef.current;
     try {
-      setMessages(await listMessages(conversationId));
+      const nextMessages = await listMessages(conversationId);
+      if (requestId === messageLoadRequestRef.current && activeConversationIdRef.current === conversationId) {
+        setMessages(nextMessages);
+      }
     } catch (error) {
-      setNotice(String(error));
+      if (requestId === messageLoadRequestRef.current) {
+        setNotice(String(error));
+      }
     }
   }
 
@@ -635,33 +735,206 @@ function App() {
     });
   }
 
+  function toggleProjectExpanded(projectId: string) {
+    setExpandedProjectIds((current) =>
+      current.includes(projectId)
+        ? current.filter((id) => id !== projectId)
+        : [...current, projectId]
+    );
+  }
+
+  async function refreshProjectConversationMap(projectList = projects) {
+    if (projectList.length === 0) {
+      setProjectConversations({});
+      return;
+    }
+
+    const pairs = await Promise.all(
+      projectList.map(async (project) => {
+        const projectItems = await listConversations(project.path);
+        return [project.id, projectItems] as const;
+      })
+    );
+    setProjectConversations(Object.fromEntries(pairs));
+  }
+
+  function selectProject(project: ProjectEntry) {
+    setActiveProjectId(project.id);
+    saveProjects(projects, project.id);
+    setExpandedProjectIds((current) => (current.includes(project.id) ? current : [...current, project.id]));
+  }
+
+  function findConversationById(conversationId: string) {
+    const allProjectConversations = Object.values(projectConversations).flat();
+    return [...conversations, ...allProjectConversations].find(
+      (conversation) => conversation.id === conversationId
+    ) || null;
+  }
+
+  function findConversationProject(conversation: Conversation | null) {
+    return conversation?.project_path
+      ? projects.find((project) => project.path === conversation.project_path) || null
+      : null;
+  }
+
+  function upsertProject(path: string) {
+    const normalizedPath = path.trim();
+    if (!normalizedPath) return;
+
+    const now = new Date().toISOString();
+    const existing = projects.find(
+      (project) => project.path.toLowerCase() === normalizedPath.toLowerCase()
+    );
+    const nextProject: ProjectEntry = existing
+      ? { ...existing, opened_at: now }
+      : {
+          id: normalizedPath,
+          name: projectNameFromPath(normalizedPath),
+          path: normalizedPath,
+          opened_at: now
+        };
+    const nextProjects = [
+      nextProject,
+      ...projects.filter((project) => project.id !== nextProject.id)
+    ];
+
+    setProjects(nextProjects);
+    setActiveProjectId(nextProject.id);
+    setExpandedProjectIds((current) => (current.includes(nextProject.id) ? current : [...current, nextProject.id]));
+    saveProjects(nextProjects, nextProject.id);
+    setNotice(`已打开项目：${nextProject.name}`);
+    setTimeout(() => setNotice(""), 3000);
+  }
+
+  async function handleOpenProject() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "打开项目"
+      });
+
+      if (typeof selected === "string") {
+        upsertProject(selected);
+      }
+    } catch (error) {
+      setNotice(`打开项目失败：${String(error)}`);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  }
+
+  async function handleSelectNewProjectParent() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "选择新项目所在目录"
+      });
+
+      if (typeof selected === "string") {
+        setNewProjectParent(selected);
+      }
+    } catch (error) {
+      setNotice(`选择目录失败：${String(error)}`);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  }
+
+  async function handleCreateProject() {
+    const name = newProjectName.trim();
+    if (!newProjectParent || !name) {
+      setNotice("请选择父目录并填写项目名称");
+      setTimeout(() => setNotice(""), 3000);
+      return;
+    }
+
+    try {
+      const projectPath = await createProjectDirectory(newProjectParent, name);
+      upsertProject(projectPath);
+      setShowNewProjectDialog(false);
+      setNewProjectParent("");
+      setNewProjectName("");
+    } catch (error) {
+      setNotice(`新建项目失败：${String(error)}`);
+      setTimeout(() => setNotice(""), 5000);
+    }
+  }
+
+  function handleRemoveProjectApproval(project: ProjectEntry) {
+    setPendingProjectRemoval(project);
+    setProjectApprovalText("");
+  }
+
+  function handleConfirmRemoveProject() {
+    if (!pendingProjectRemoval || projectApprovalText.trim() !== pendingProjectRemoval.name) {
+      return;
+    }
+
+    const nextProjects = projects.filter((project) => project.id !== pendingProjectRemoval.id);
+    const nextActiveProjectId =
+      activeProjectId === pendingProjectRemoval.id ? nextProjects[0]?.id || "" : activeProjectId;
+
+    setProjects(nextProjects);
+    setActiveProjectId(nextActiveProjectId);
+    setExpandedProjectIds((current) => current.filter((id) => id !== pendingProjectRemoval.id));
+    setProjectConversations((current) => {
+      const { [pendingProjectRemoval.id]: _, ...rest } = current;
+      return rest;
+    });
+    saveProjects(nextProjects, nextActiveProjectId);
+    setPendingProjectRemoval(null);
+    setProjectApprovalText("");
+    setNotice("项目入口已移除，磁盘文件未删除。");
+    setTimeout(() => setNotice(""), 3000);
+  }
+
   async function syncGitHubSkills() {
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      const response = await fetch("https://api.github.com/repos/anthropics/skills/contents/skills");
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      const data = await response.json() as { name: string; type: string }[];
-      const folders = data.filter((item) => item.type === "dir").map((item) => item.name);
+      const remoteSkills = await syncAnthropicSkills();
 
       setSkills((current) => {
         const skillMap = new Map(current.map((s) => [s.id, s]));
 
-        folders.forEach((name) => {
-          const id = `github_${name}`;
+        remoteSkills.forEach((remoteSkill) => {
+          const id = `github_${remoteSkill.slug}`;
           if (!skillMap.has(id)) {
+            const defaultParams: Record<string, string> = {};
+            if (
+              remoteSkill.slug.includes("docx") ||
+              remoteSkill.slug.includes("pdf") ||
+              remoteSkill.slug.includes("pptx") ||
+              remoteSkill.slug.includes("xlsx") ||
+              remoteSkill.slug.includes("doc")
+            ) {
+              defaultParams.output_dir = "C:\\Users\\13439\\Desktop";
+            } else if (remoteSkill.slug.includes("art") || remoteSkill.slug.includes("design")) {
+              defaultParams.output_format = "SVG";
+            } else {
+              defaultParams.workspace_root = "C:\\Users\\13439\\Desktop";
+            }
+
             skillMap.set(id, {
               id,
-              name: name.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+              name: remoteSkill.name,
               provider: "Anthropic (GitHub)",
-              description: `来自 Anthropic 官方仓库的 "${name}" 技能。正在从 GitHub 加载详细的 SKILL.md 文档说明...`,
+              description: remoteSkill.description,
               enabled: false,
-              parameters: {},
-              docUrl: `https://github.com/anthropics/skills/tree/main/skills/${name}`
+              parameters: defaultParams,
+              docUrl: remoteSkill.doc_url
             });
-            void fetchSkillMarkdownDetails(id, name);
+          } else {
+            const existing = skillMap.get(id);
+            if (existing) {
+              skillMap.set(id, {
+                ...existing,
+                name: remoteSkill.name || existing.name,
+                provider: "Anthropic (GitHub)",
+                description: remoteSkill.description || existing.description,
+                docUrl: remoteSkill.doc_url || existing.docUrl
+              });
+            }
           }
         });
 
@@ -671,74 +944,14 @@ function App() {
       });
 
       localStorage.setItem("nano-agent-skills-synced", "true");
-      setNotice("已成功同步 Anthropic 官方技能库！");
+      setNotice(`已同步 Anthropic 官方技能库：${remoteSkills.length} 个技能。`);
       setTimeout(() => setNotice(""), 3000);
     } catch (error) {
       console.error("Failed to sync GitHub skills:", error);
-      setNotice(`同步失败: ${String(error)}，请检查网络后重试。`);
+      setNotice(`同步失败：${String(error)}。如果是 GitHub 403，请稍后重试或配置 GITHUB_TOKEN/GH_TOKEN 后重新启动应用。`);
       setTimeout(() => setNotice(""), 5000);
     } finally {
       setIsSyncing(false);
-    }
-  }
-
-  function parseFrontmatter(markdown: string): { name?: string; description?: string } {
-    const match = markdown.match(/^---\r?\n([\s\S]+?)\r?\n---/);
-    if (!match) return {};
-    const yaml = match[1];
-    const result: { name?: string; description?: string } = {};
-
-    yaml.split("\n").forEach((line) => {
-      const colon = line.indexOf(":");
-      if (colon !== -1) {
-        const key = line.substring(0, colon).trim();
-        let val = line.substring(colon + 1).trim();
-        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-          val = val.substring(1, val.length - 1);
-        }
-        if (key === "name") {
-          result.name = val;
-        } else if (key === "description") {
-          result.description = val;
-        }
-      }
-    });
-    return result;
-  }
-
-  async function fetchSkillMarkdownDetails(id: string, name: string) {
-    try {
-      const response = await fetch(`https://raw.githubusercontent.com/anthropics/skills/main/skills/${name}/SKILL.md`);
-      if (!response.ok) return;
-      const markdown = await response.text();
-      const info = parseFrontmatter(markdown);
-
-      setSkills((current) => {
-        const next = current.map((s) => {
-          if (s.id === id) {
-            const defaultParams: Record<string, string> = {};
-            if (name.includes("docx") || name.includes("pdf") || name.includes("pptx") || name.includes("xlsx") || name.includes("doc")) {
-              defaultParams.output_dir = "C:\\Users\\13439\\Desktop";
-            } else if (name.includes("art") || name.includes("design")) {
-              defaultParams.output_format = "SVG";
-            } else {
-              defaultParams.workspace_root = "C:\\Users\\13439\\Desktop";
-            }
-
-            return {
-              ...s,
-              name: info.name || s.name,
-              description: info.description || s.description,
-              parameters: defaultParams
-            };
-          }
-          return s;
-        });
-        localStorage.setItem("nano-agent-skills", JSON.stringify(next));
-        return next;
-      });
-    } catch (e) {
-      console.error(`Failed to fetch markdown details for ${name}:`, e);
     }
   }
 
@@ -903,6 +1116,8 @@ function App() {
     setArchivedConversations(nextArchivedConversations);
     if (selectId) {
       setActiveConversationId(selectId);
+    } else if (!nextConversations.some((conversation) => conversation.id === activeConversationId)) {
+      setActiveConversationId(nextConversations[0]?.id || "");
     }
   }
 
@@ -1197,15 +1412,33 @@ function App() {
     setMessages([]);
   }
 
+  async function handleNewProjectConversation(project: ProjectEntry) {
+    selectProject(project);
+    const conversation = await createConversation({
+      title: "新对话",
+      model_config_id: activeModelId || null,
+      project_path: project.path
+    });
+    await refreshProjectConversationMap(projects);
+    setActiveConversationId(conversation.id);
+    setMessages([]);
+  }
+
   async function handleDeleteConversation() {
     if (!activeConversationId) {
       return;
     }
 
+    const isProjectConversation = Boolean(activeConversation?.project_path);
     await deleteConversation(activeConversationId);
-    const rest = conversations.filter((item) => item.id !== activeConversationId);
-    setConversations(rest);
-    setActiveConversationId(rest[0]?.id || "");
+    if (isProjectConversation) {
+      await refreshProjectConversationMap(projects);
+      setActiveConversationId("");
+    } else {
+      const rest = conversations.filter((item) => item.id !== activeConversationId);
+      setConversations(rest);
+      setActiveConversationId(rest[0]?.id || "");
+    }
   }
 
   async function handleArchiveConversation() {
@@ -1213,12 +1446,20 @@ function App() {
       return;
     }
 
+    const isProjectConversation = Boolean(activeConversation?.project_path);
     await archiveConversation(activeConversationId, true);
-    const rest = conversations.filter((item) => item.id !== activeConversationId);
-    setConversations(rest);
-    setActiveConversationId(rest[0]?.id || "");
+    if (isProjectConversation) {
+      await refreshProjectConversationMap(projects);
+      setActiveConversationId("");
+    } else {
+      const rest = conversations.filter((item) => item.id !== activeConversationId);
+      setConversations(rest);
+      setActiveConversationId(rest[0]?.id || "");
+    }
     setMessages([]);
-    await refreshConversations(rest[0]?.id);
+    if (!isProjectConversation) {
+      await refreshConversations(conversations.filter((item) => item.id !== activeConversationId)[0]?.id);
+    }
   }
 
   async function handleRestoreConversation(conversation: Conversation) {
@@ -1269,12 +1510,15 @@ function App() {
 
     try {
       const conversationId = await ensureConversation();
+      const conversationForRequest = findConversationById(conversationId);
+      const projectForRequest = findConversationProject(conversationForRequest);
+      const persistedMessages = await listMessages(conversationId);
       const userMessage = await appendMessage({
         conversation_id: conversationId,
         role: "user",
         content
       });
-      const nextMessages = [...messages, userMessage];
+      const nextMessages = [...persistedMessages, userMessage];
       setMessages(nextMessages);
 
       if (reminderDraft) {
@@ -1297,12 +1541,25 @@ function App() {
         });
 
         setMessages([...nextMessages, assistantMessage]);
-        await refreshConversations(conversationId);
+        if (projectForRequest) {
+          await refreshProjectConversationMap(projects);
+        } else {
+          await refreshConversations(conversationId);
+        }
         return;
       }
 
       const enabledMemories = await listEnabledMemories();
       const webResults = webSearchEnabled ? await internetSearch(content) : [];
+      let projectFiles: ProjectFileEntry[] = [];
+      if (projectForRequest?.path) {
+        try {
+          projectFiles = await listProjectFiles(projectForRequest.path);
+        } catch (error) {
+          console.error("Failed to list project files:", error);
+          setNotice(`无法读取当前项目文件列表：${String(error)}`);
+        }
+      }
 
       let currentMessages = [...nextMessages];
       const KEEP_RECENT_COUNT = 6;
@@ -1344,7 +1601,7 @@ function App() {
       }
 
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(enabledMemories, webResults),
+        buildSystemMessage(enabledMemories, webResults, projectForRequest, projectFiles),
         ...currentMessages.map((message) => ({
           role: message.role,
           content: message.content
@@ -1365,6 +1622,9 @@ function App() {
 
       const unlisten = await listen<ChatStreamEvent>("chat-stream", (event) => {
         if (event.payload.request_id !== requestId) {
+          return;
+        }
+        if (activeConversationIdRef.current !== conversationId) {
           return;
         }
 
@@ -1410,8 +1670,10 @@ function App() {
         content: streamedContent
       });
 
-      setMessages([...currentMessages, assistantMessage]);
-      if (streamedReasoning.trim()) {
+      if (activeConversationIdRef.current === conversationId) {
+        setMessages([...currentMessages, assistantMessage]);
+      }
+      if (streamedReasoning.trim() && activeConversationIdRef.current === conversationId) {
         setMessageReasoning((current) => {
           const { [requestId]: _, ...rest } = current;
           return {
@@ -1420,7 +1682,11 @@ function App() {
           };
         });
       }
-      await refreshConversations(conversationId);
+      if (projectForRequest) {
+        await refreshProjectConversationMap(projects);
+      } else {
+        await refreshConversations(conversationId);
+      }
     } catch (error) {
       setNotice(String(error));
     } finally {
@@ -1626,16 +1892,98 @@ function App() {
               <Folder size={14} />
               <span>项目区</span>
             </div>
+            <div className="sidebar-section-actions">
+              <button className="new-chat-btn" onClick={() => setShowNewProjectDialog(true)} title="新建项目" type="button">
+                <Plus size={14} />
+              </button>
+              <button className="new-chat-btn" onClick={() => void handleOpenProject()} title="打开已有项目" type="button">
+                <Folder size={14} />
+              </button>
+            </div>
           </div>
           <div className="sidebar-project-list">
-            <button className="sidebar-project-item active">
-              <span className="sidebar-project-dot" />
-              <span>默认项目</span>
-            </button>
-            <button className="sidebar-project-item">
-              <span className="sidebar-project-dot" />
-              <span>知识库</span>
-            </button>
+            {projects.map((project) => {
+              const isActiveProject = project.id === activeProjectId;
+              const isExpanded = expandedProjectIds.includes(project.id);
+              const projectChats = projectConversations[project.id] || [];
+
+              return (
+                <div key={project.id} className="sidebar-project-group">
+                  <div
+                    className={isActiveProject ? "sidebar-project-item active" : "sidebar-project-item"}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => selectProject(project)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        selectProject(project);
+                      }
+                    }}
+                    title={project.path}
+                  >
+                    <button
+                      className="project-expand-btn"
+                      type="button"
+                      aria-label={isExpanded ? "收起项目详情" : "展开项目详情"}
+                      title={isExpanded ? "收起项目详情" : "展开项目详情"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleProjectExpanded(project.id);
+                      }}
+                    >
+                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                    <span className="sidebar-project-dot" />
+                    <span className="project-title">{project.name}</span>
+                    <button
+                      className="project-remove-btn"
+                      type="button"
+                      aria-label="移除项目入口"
+                      title="移除项目入口"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleRemoveProjectApproval(project);
+                      }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="project-detail">
+                      <span title={project.path}>{project.path}</span>
+                      <button
+                        className="project-create-chat"
+                        type="button"
+                        onClick={() => void handleNewProjectConversation(project)}
+                      >
+                        <Plus size={13} />
+                        <span>新建项目会话</span>
+                      </button>
+                      <div className="project-chat-list">
+                        {projectChats.map((conversation) => (
+                          <button
+                            key={conversation.id}
+                            className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
+                            onClick={() => {
+                              selectProject(project);
+                              setActiveConversationId(conversation.id);
+                            }}
+                          >
+                            <MessageSquare size={14} className="chat-icon" />
+                            <span className="chat-title">{conversation.title}</span>
+                          </button>
+                        ))}
+                        {projectChats.length === 0 && <div className="empty project-chat-empty">暂无项目会话</div>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {projects.length === 0 && (
+              <div className="empty project-empty">打开或新建一个项目</div>
+            )}
           </div>
         </div>
 
@@ -1645,7 +1993,7 @@ function App() {
               <MessageSquare size={14} />
               <span>对话区</span>
             </div>
-            <button className="new-chat-btn" onClick={handleNewConversation} title="新建对话">
+            <button className="new-chat-btn" onClick={() => void handleNewConversation()} title="新建对话">
               <Plus size={14} />
             </button>
           </div>
@@ -1669,6 +2017,85 @@ function App() {
           <span>系统设置</span>
         </button>
       </aside>
+
+      {showNewProjectDialog && (
+        <div className="modal-backdrop" onClick={() => setShowNewProjectDialog(false)}>
+          <section className="project-dialog" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <Folder size={18} />
+                <strong>新建项目</strong>
+              </div>
+              <button className="modal-close-btn" onClick={() => setShowNewProjectDialog(false)} aria-label="关闭" title="关闭">&times;</button>
+            </header>
+            <label>
+              <span>父目录</span>
+              <div className="project-path-picker">
+                <input value={newProjectParent} readOnly placeholder="选择项目所在目录" />
+                <button type="button" onClick={() => void handleSelectNewProjectParent()}>
+                  选择
+                </button>
+              </div>
+            </label>
+            <label>
+              <span>项目名称</span>
+              <input
+                value={newProjectName}
+                onChange={(event) => setNewProjectName(event.target.value)}
+                placeholder="my-project"
+                autoFocus
+              />
+            </label>
+            <footer>
+              <button className="ghost" type="button" onClick={() => setShowNewProjectDialog(false)}>
+                取消
+              </button>
+              <button className="primary" type="button" onClick={() => void handleCreateProject()}>
+                创建并打开
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {pendingProjectRemoval && (
+        <div className="modal-backdrop" onClick={() => setPendingProjectRemoval(null)}>
+          <section className="project-dialog danger-approval" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <Trash2 size={18} />
+                <strong>审批危险操作</strong>
+              </div>
+              <button className="modal-close-btn" onClick={() => setPendingProjectRemoval(null)} aria-label="关闭" title="关闭">&times;</button>
+            </header>
+            <p>
+              将从项目区移除 <strong>{pendingProjectRemoval.name}</strong>。此操作不会删除磁盘文件。
+            </p>
+            <label>
+              <span>输入项目名称以确认</span>
+              <input
+                value={projectApprovalText}
+                onChange={(event) => setProjectApprovalText(event.target.value)}
+                placeholder={pendingProjectRemoval.name}
+                autoFocus
+              />
+            </label>
+            <footer>
+              <button className="ghost" type="button" onClick={() => setPendingProjectRemoval(null)}>
+                取消
+              </button>
+              <button
+                className="danger"
+                type="button"
+                onClick={handleConfirmRemoveProject}
+                disabled={projectApprovalText.trim() !== pendingProjectRemoval.name}
+              >
+                批准移除
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {showModelConfig && (
         <div className="modal-backdrop" onClick={() => setShowModelConfig(false)}>
@@ -2370,7 +2797,7 @@ function App() {
               </select>
             </div>
             <div className="chat-input-actions">
-              <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={handleNewConversation} type="button">
+              <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
                 <Plus size={17} />
               </button>
               <button className="chat-input-action send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
@@ -2684,7 +3111,12 @@ function getNextReminderAt(value?: string | null, repeatRule?: string | null) {
   return date.toISOString();
 }
 
-function buildSystemMessage(memories: Memory[], webResults: WebSearchResult[] = []): ChatMessage {
+function buildSystemMessage(
+  memories: Memory[],
+  webResults: WebSearchResult[] = [],
+  activeProject: ProjectEntry | null = null,
+  projectFiles: ProjectFileEntry[] = []
+): ChatMessage {
   const runtimeContext = buildRuntimeContext();
 
   const memoryContext = memories
@@ -2698,8 +3130,20 @@ function buildSystemMessage(memories: Memory[], webResults: WebSearchResult[] = 
     })
     .join("\n");
 
+  const projectContext = activeProject
+    ? [
+        "当前项目上下文：",
+        `- 项目名称：${activeProject.name}`,
+        `- 项目路径：${activeProject.path}`,
+        projectFiles.length > 0
+          ? `- 当前项目文件列表（最多 300 项，已跳过 node_modules、.git、target、dist 等大目录）：\n${formatProjectFileTree(projectFiles)}`
+          : "- 当前项目文件列表为空，或暂时无法读取。"
+      ].join("\n")
+    : "";
+
   const sections = [
     runtimeContext,
+    projectContext,
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
     webContext ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${webContext}` : ""
   ].filter(Boolean);
@@ -2708,6 +3152,24 @@ function buildSystemMessage(memories: Memory[], webResults: WebSearchResult[] = 
     role: "system",
     content: `${systemMessage.content}\n\n${sections.join("\n\n")}`
   };
+}
+
+function formatProjectFileTree(files: ProjectFileEntry[]) {
+  return files
+    .map((file) => {
+      const depth = Math.max(0, file.path.split("/").length - 1);
+      const indent = "  ".repeat(depth);
+      const name = file.path.split("/").pop() || file.path;
+      const suffix = file.is_dir ? "/" : file.size != null ? ` (${formatBytes(file.size)})` : "";
+      return `${indent}- ${name}${suffix}`;
+    })
+    .join("\n");
+}
+
+function formatBytes(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function buildRuntimeContext() {

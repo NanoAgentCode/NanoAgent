@@ -48,7 +48,11 @@ fn parse_duckduckgo_results(html: &str) -> AppResult<Vec<WebSearchResult>> {
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
-        let url = title_node.value().attr("href").unwrap_or_default().to_string();
+        let url = title_node
+            .value()
+            .attr("href")
+            .unwrap_or_default()
+            .to_string();
         let snippet = result
             .select(&snippet_selector)
             .next()

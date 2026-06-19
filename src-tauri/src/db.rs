@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Message, MessageDraft,
-    Memory, MemoryDraft, MemoryPatch, ModelConfig, ModelConfigDraft,
+    Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
+    Message, MessageDraft, ModelConfig, ModelConfigDraft,
 };
 
 pub struct Database {
@@ -64,6 +64,7 @@ impl Database {
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 model_config_id TEXT,
+                project_path TEXT,
                 archived INTEGER NOT NULL DEFAULT 0,
                 archived_at TEXT,
                 created_at TEXT NOT NULL,
@@ -101,6 +102,7 @@ impl Database {
             );
             ",
         )?;
+        self.ensure_column("conversations", "project_path", "TEXT")?;
         self.ensure_column("conversations", "archived", "INTEGER NOT NULL DEFAULT 0")?;
         self.ensure_column("conversations", "archived_at", "TEXT")?;
         self.ensure_column("items", "reminder_at", "TEXT")?;
@@ -116,8 +118,10 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
 
         if !columns.iter().any(|name| name == column) {
-            self.conn
-                .execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
+            self.conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+                [],
+            )?;
         }
 
         Ok(())
@@ -221,7 +225,8 @@ impl Database {
     pub fn delete_item(&self, id: &str) -> AppResult<()> {
         self.conn
             .execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
-        self.conn.execute("DELETE FROM items WHERE id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM items WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -316,36 +321,47 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_conversations(&self) -> AppResult<Vec<Conversation>> {
+    pub fn list_conversations(&self, project_path: Option<&str>) -> AppResult<Vec<Conversation>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, title, model_config_id, archived, archived_at, created_at, updated_at
+            SELECT id, title, model_config_id, project_path, archived, archived_at, created_at, updated_at
             FROM conversations
             WHERE archived = 0
+              AND (
+                (?1 IS NULL AND project_path IS NULL)
+                OR project_path = ?1
+              )
             ORDER BY updated_at DESC
             ",
         )?;
 
         let rows = stmt
-            .query_map([], Self::row_to_conversation)?
+            .query_map([project_path], Self::row_to_conversation)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(AppError::from)?;
 
         Ok(rows)
     }
 
-    pub fn list_archived_conversations(&self) -> AppResult<Vec<Conversation>> {
+    pub fn list_archived_conversations(
+        &self,
+        project_path: Option<&str>,
+    ) -> AppResult<Vec<Conversation>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, title, model_config_id, archived, archived_at, created_at, updated_at
+            SELECT id, title, model_config_id, project_path, archived, archived_at, created_at, updated_at
             FROM conversations
             WHERE archived = 1
+              AND (
+                (?1 IS NULL AND project_path IS NULL)
+                OR project_path = ?1
+              )
             ORDER BY COALESCE(archived_at, updated_at) DESC
             ",
         )?;
 
         let rows = stmt
-            .query_map([], Self::row_to_conversation)?
+            .query_map([project_path], Self::row_to_conversation)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(AppError::from)?;
 
@@ -358,6 +374,7 @@ impl Database {
             id: Uuid::new_v4().to_string(),
             title: clean_or_default(draft.title.unwrap_or_default(), "New chat"),
             model_config_id: draft.model_config_id,
+            project_path: draft.project_path,
             archived: false,
             archived_at: None,
             created_at: now,
@@ -367,13 +384,14 @@ impl Database {
         self.conn.execute(
             "
             INSERT INTO conversations
-                (id, title, model_config_id, archived, archived_at, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                (id, title, model_config_id, project_path, archived, archived_at, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ",
             params![
                 conversation.id,
                 conversation.title,
                 conversation.model_config_id,
+                conversation.project_path,
                 if conversation.archived { 1 } else { 0 },
                 conversation.archived_at.map(|time| time.to_rfc3339()),
                 conversation.created_at.to_rfc3339(),
@@ -397,7 +415,11 @@ impl Database {
             params![
                 id,
                 if archived { 1 } else { 0 },
-                if archived { Some(now.to_rfc3339()) } else { None },
+                if archived {
+                    Some(now.to_rfc3339())
+                } else {
+                    None
+                },
                 now.to_rfc3339()
             ],
         )?;
@@ -492,7 +514,6 @@ impl Database {
         stmt.execute(params)?;
         Ok(())
     }
-
 
     pub fn list_memories(&self) -> AppResult<Vec<Memory>> {
         let mut stmt = self.conn.prepare(
@@ -701,7 +722,12 @@ impl Database {
             .execute("DELETE FROM memories_fts WHERE id = ?1", params![memory.id])?;
         self.conn.execute(
             "INSERT INTO memories_fts (id, title, content, tags) VALUES (?1, ?2, ?3, ?4)",
-            params![memory.id, memory.title, memory.content, memory.tags.join(" ")],
+            params![
+                memory.id,
+                memory.title,
+                memory.content,
+                memory.tags.join(" ")
+            ],
         )?;
         Ok(())
     }
@@ -750,15 +776,16 @@ impl Database {
     }
 
     fn row_to_conversation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversation> {
-        let archived: i64 = row.get(3)?;
-        let archived_at: Option<String> = row.get(4)?;
-        let created_at: String = row.get(5)?;
-        let updated_at: String = row.get(6)?;
+        let archived: i64 = row.get(4)?;
+        let archived_at: Option<String> = row.get(5)?;
+        let created_at: String = row.get(6)?;
+        let updated_at: String = row.get(7)?;
 
         Ok(Conversation {
             id: row.get(0)?,
             title: row.get(1)?,
             model_config_id: row.get(2)?,
+            project_path: row.get(3)?,
             archived: archived == 1,
             archived_at: archived_at
                 .map(|value| parse_time_for_row(&value))
@@ -805,11 +832,9 @@ fn parse_time(value: &str) -> AppResult<DateTime<Utc>> {
 fn parse_time_for_row(value: &str) -> rusqlite::Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value)
         .map(|time| time.with_timezone(&Utc))
-        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Text,
-            Box::new(err),
-        ))
+        .map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
+        })
 }
 
 fn clean_or_default(value: String, default: &str) -> String {

@@ -65,6 +65,7 @@ export interface Conversation {
   id: string;
   title: string;
   model_config_id?: string | null;
+  project_path?: string | null;
   archived: boolean;
   archived_at?: string | null;
   created_at: string;
@@ -74,6 +75,7 @@ export interface Conversation {
 export interface ConversationDraft {
   title?: string;
   model_config_id?: string | null;
+  project_path?: string | null;
 }
 
 export interface PersistedMessage {
@@ -125,4 +127,45 @@ export interface WebSearchResult {
   title: string;
   url: string;
   snippet: string;
+}
+
+export interface GitHubSkill {
+  slug: string;
+  name: string;
+  description: string;
+  doc_url: string;
+}
+
+export interface ProjectEntry {
+  id: string;
+  name: string;
+  path: string;
+  opened_at: string;
+}
+
+export interface ProjectFileEntry {
+  path: string;
+  is_dir: boolean;
+  size?: number | null;
+}
+
+export interface ProjectFileContent {
+  path: string;
+  content: string;
+  hash: string;
+  size: number;
+}
+
+export interface ProjectFileWriteRequest {
+  project_path: string;
+  relative_path: string;
+  content: string;
+  expected_hash?: string | null;
+}
+
+export interface ProjectFileMoveRequest {
+  project_path: string;
+  from_relative_path: string;
+  to_relative_path: string;
+  approval_text: string;
 }

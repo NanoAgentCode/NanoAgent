@@ -73,6 +73,7 @@ pub struct Conversation {
     pub id: String,
     pub title: String,
     pub model_config_id: Option<String>,
+    pub project_path: Option<String>,
     pub archived: bool,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
@@ -83,6 +84,7 @@ pub struct Conversation {
 pub struct ConversationDraft {
     pub title: Option<String>,
     pub model_config_id: Option<String>,
+    pub project_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,4 +165,35 @@ pub struct WebSearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectFileEntry {
+    pub path: String,
+    pub is_dir: bool,
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectFileContent {
+    pub path: String,
+    pub content: String,
+    pub hash: String,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectFileWriteRequest {
+    pub project_path: String,
+    pub relative_path: String,
+    pub content: String,
+    pub expected_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectFileMoveRequest {
+    pub project_path: String,
+    pub from_relative_path: String,
+    pub to_relative_path: String,
+    pub approval_text: String,
 }

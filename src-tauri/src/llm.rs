@@ -118,10 +118,7 @@ async fn send_openai_chat_completion(
     request: ChatRequest,
 ) -> AppResult<ChatResponse> {
     ensure_api_key(&config)?;
-    let endpoint = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let payload = OpenAiChatRequest {
         model: config.model,
         messages: request.messages,
@@ -209,10 +206,7 @@ async fn send_openai_chat_completion_stream(
         return Ok(());
     }
 
-    let endpoint = format!(
-        "{}/chat/completions",
-        config.base_url.trim_end_matches('/')
-    );
+    let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
     let payload = OpenAiChatRequest {
         model: config.model,
         messages: request.messages,
@@ -346,11 +340,8 @@ fn process_sse_line(
             },
         };
 
-        app.emit(
-            "chat-stream",
-            event,
-        )
-        .map_err(|err| AppError::Message(err.to_string()))?;
+        app.emit("chat-stream", event)
+            .map_err(|err| AppError::Message(err.to_string()))?;
     }
 
     Ok(())

@@ -13,6 +13,11 @@ import type {
   ModelConfig,
   ModelConfigDraft,
   PersistedMessage,
+  GitHubSkill,
+  ProjectFileContent,
+  ProjectFileEntry,
+  ProjectFileMoveRequest,
+  ProjectFileWriteRequest,
   WebSearchResult
 } from "./types";
 
@@ -48,12 +53,12 @@ export function deleteModelConfig(id: string) {
   return invoke<void>("delete_model_config", { id });
 }
 
-export function listConversations() {
-  return invoke<Conversation[]>("list_conversations");
+export function listConversations(projectPath?: string | null) {
+  return invoke<Conversation[]>("list_conversations", { projectPath: projectPath || null });
 }
 
-export function listArchivedConversations() {
-  return invoke<Conversation[]>("list_archived_conversations");
+export function listArchivedConversations(projectPath?: string | null) {
+  return invoke<Conversation[]>("list_archived_conversations", { projectPath: projectPath || null });
 }
 
 export function createConversation(draft: ConversationDraft) {
@@ -104,6 +109,10 @@ export function internetSearch(query: string) {
   return invoke<WebSearchResult[]>("internet_search", { query });
 }
 
+export function syncAnthropicSkills() {
+  return invoke<GitHubSkill[]>("sync_anthropic_skills");
+}
+
 export function chat(modelConfigId: string, messages: ChatMessage[], temperature = 0.4) {
   return invoke<{ content: string }>("chat", {
     request: {
@@ -145,3 +154,30 @@ export function installEnv(tech: string) {
   return invoke<boolean>("install_env", { tech });
 }
 
+export function createProjectDirectory(parentPath: string, name: string) {
+  return invoke<string>("create_project_directory", { parentPath, name });
+}
+
+export function listProjectFiles(projectPath: string) {
+  return invoke<ProjectFileEntry[]>("list_project_files", { projectPath });
+}
+
+export function readProjectFile(projectPath: string, relativePath: string) {
+  return invoke<ProjectFileContent>("read_project_file", { projectPath, relativePath });
+}
+
+export function createProjectFile(request: ProjectFileWriteRequest) {
+  return invoke<ProjectFileContent>("create_project_file", { request });
+}
+
+export function writeProjectFile(request: ProjectFileWriteRequest) {
+  return invoke<ProjectFileContent>("write_project_file", { request });
+}
+
+export function deleteProjectFile(projectPath: string, relativePath: string, approvalText: string) {
+  return invoke<void>("delete_project_file", { projectPath, relativePath, approvalText });
+}
+
+export function renameProjectFile(request: ProjectFileMoveRequest) {
+  return invoke<ProjectFileEntry>("rename_project_file", { request });
+}
