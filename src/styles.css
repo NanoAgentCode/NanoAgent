@@ -215,10 +215,25 @@ button:disabled {
   margin-bottom: 10px;
 }
 
-.sidebar-section-header > div {
+.sidebar-section-header > div,
+.sidebar-section-toggle {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.sidebar-section-toggle {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.sidebar-section-toggle:hover {
+  color: var(--text-primary);
+}
+
+.sidebar-section-toggle:hover svg {
+  color: var(--text-primary) !important;
 }
 
 .sidebar-section-actions {
@@ -306,7 +321,8 @@ button:disabled {
 }
 
 .project-expand-btn,
-.project-remove-btn {
+.project-remove-btn,
+.project-add-chat-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -325,7 +341,9 @@ button:disabled {
 }
 
 .sidebar-project-item:hover .project-remove-btn,
-.sidebar-project-item.active .project-remove-btn {
+.sidebar-project-item.active .project-remove-btn,
+.sidebar-project-item:hover .project-add-chat-btn,
+.sidebar-project-item.active .project-add-chat-btn {
   opacity: 1;
 }
 
@@ -337,6 +355,11 @@ button:disabled {
 .project-remove-btn:hover {
   color: var(--accent-danger);
   background: rgba(248, 113, 113, 0.12);
+}
+
+.project-add-chat-btn:hover {
+  color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.1);
 }
 
 .project-detail {
@@ -351,31 +374,6 @@ button:disabled {
   line-height: 1.4;
 }
 
-.project-detail > span {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-create-chat {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: fit-content;
-  min-height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
-}
-
-.project-create-chat:hover {
-  color: var(--accent-cyan);
-  border-color: rgba(0, 240, 255, 0.35);
-  background: rgba(0, 240, 255, 0.08);
-}
-
 .project-chat-list {
   display: flex;
   flex-direction: column;
@@ -388,10 +386,6 @@ button:disabled {
   font-size: 12.5px;
 }
 
-.project-chat-empty {
-  padding: 4px 8px;
-  font-size: 12px;
-}
 
 .project-empty {
   padding: 8px 10px;

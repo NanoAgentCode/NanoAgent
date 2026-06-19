@@ -301,6 +301,8 @@ function App() {
     const activeId = localStorage.getItem(activeProjectStorageKey) || "";
     return activeId ? [activeId] : [];
   });
+  const [projectsSectionExpanded, setProjectsSectionExpanded] = useState(true);
+  const [chatsSectionExpanded, setChatsSectionExpanded] = useState(true);
   const [projectConversations, setProjectConversations] = useState<Record<string, Conversation[]>>({});
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [newProjectParent, setNewProjectParent] = useState("");
@@ -448,10 +450,19 @@ function App() {
       }
     }
 
-    // First-time skills sync from GitHub
+    // First-time (or retry) skills sync from GitHub.
+    // After a failure we record a timestamp and only retry after 1 hour,
+    // so a bad network connection at launch does not spam the error notice
+    // on every subsequent restart.
     const synced = localStorage.getItem("nano-agent-skills-synced");
     if (!synced) {
-      void syncGitHubSkills();
+      const failedAt = localStorage.getItem("nano-agent-skills-sync-failed-at");
+      const RETRY_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+      const shouldRetry =
+        !failedAt || Date.now() - parseInt(failedAt, 10) > RETRY_COOLDOWN_MS;
+      if (shouldRetry) {
+        void syncGitHubSkills();
+      }
     }
 
     // First-time environment check
@@ -944,12 +955,22 @@ function App() {
       });
 
       localStorage.setItem("nano-agent-skills-synced", "true");
+      localStorage.removeItem("nano-agent-skills-sync-failed-at");
       setNotice(`已同步 Anthropic 官方技能库：${remoteSkills.length} 个技能。`);
       setTimeout(() => setNotice(""), 3000);
     } catch (error) {
       console.error("Failed to sync GitHub skills:", error);
-      setNotice(`同步失败：${String(error)}。如果是 GitHub 403，请稍后重试或配置 GITHUB_TOKEN/GH_TOKEN 后重新启动应用。`);
-      setTimeout(() => setNotice(""), 5000);
+      // Record the failure timestamp so we only auto-retry after the cooldown.
+      localStorage.setItem("nano-agent-skills-sync-failed-at", String(Date.now()));
+      // Extract a readable message — Tauri wraps backend errors as plain strings.
+      const raw = String(error);
+      const readable = raw.replace(/^Error:\s*/i, "").replace(/\s*\(https?:\/\/[^)]+\)$/, "");
+      const isRateLimit = raw.includes("403") || raw.toLowerCase().includes("rate limit");
+      const hint = isRateLimit
+        ? "GitHub API 请求超限 (403)，请稍后重试，或配置环境变量 GITHUB_TOKEN / GH_TOKEN 后重启应用。"
+        : "请检查网络连接，然后点击\u300e同步官方技能\u300f按钮手动重试。";
+      setNotice(`\u26a0 技能同步失败：${readable}。${hint}`);
+      // Leave the notice visible until user manually dismisses or syncs successfully.
     } finally {
       setIsSyncing(false);
     }
@@ -1888,7 +1909,11 @@ function App() {
 
         <div className="sidebar-section projects">
           <div className="sidebar-section-header">
-            <div>
+            <div
+              className="sidebar-section-toggle"
+              onClick={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
+            >
+              {projectsSectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               <Folder size={14} />
               <span>项目区</span>
             </div>
@@ -1901,115 +1926,129 @@ function App() {
               </button>
             </div>
           </div>
-          <div className="sidebar-project-list">
-            {projects.map((project) => {
-              const isActiveProject = project.id === activeProjectId;
-              const isExpanded = expandedProjectIds.includes(project.id);
-              const projectChats = projectConversations[project.id] || [];
+          {projectsSectionExpanded && (
+            <div className="sidebar-project-list">
+              {projects.map((project) => {
+                const isActiveProject = project.id === activeProjectId;
+                const isExpanded = expandedProjectIds.includes(project.id);
+                const projectChats = projectConversations[project.id] || [];
+                const hasNoChats = projectChats.length === 0;
+                const tooltipText = hasNoChats ? "暂无项目会话" : project.path;
 
-              return (
-                <div key={project.id} className="sidebar-project-group">
-                  <div
-                    className={isActiveProject ? "sidebar-project-item active" : "sidebar-project-item"}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => selectProject(project)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        selectProject(project);
-                      }
-                    }}
-                    title={project.path}
-                  >
-                    <button
-                      className="project-expand-btn"
-                      type="button"
-                      aria-label={isExpanded ? "收起项目详情" : "展开项目详情"}
-                      title={isExpanded ? "收起项目详情" : "展开项目详情"}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleProjectExpanded(project.id);
+                return (
+                  <div key={project.id} className="sidebar-project-group">
+                    <div
+                      className={isActiveProject ? "sidebar-project-item active" : "sidebar-project-item"}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => selectProject(project)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          selectProject(project);
+                        }
                       }}
+                      title={tooltipText}
                     >
-                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </button>
-                    <span className="sidebar-project-dot" />
-                    <span className="project-title">{project.name}</span>
-                    <button
-                      className="project-remove-btn"
-                      type="button"
-                      aria-label="移除项目入口"
-                      title="移除项目入口"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleRemoveProjectApproval(project);
-                      }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-
-                  {isExpanded && (
-                    <div className="project-detail">
-                      <span title={project.path}>{project.path}</span>
                       <button
-                        className="project-create-chat"
+                        className="project-expand-btn"
                         type="button"
-                        onClick={() => void handleNewProjectConversation(project)}
+                        aria-label={isExpanded ? "收起项目详情" : "展开项目详情"}
+                        title={isExpanded ? "收起项目详情" : "展开项目详情"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleProjectExpanded(project.id);
+                        }}
+                        style={{ visibility: hasNoChats ? "hidden" : "visible" }}
+                      >
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                      <span className="sidebar-project-dot" />
+                      <span className="project-title" title={tooltipText}>{project.name}</span>
+                      <button
+                        className="project-remove-btn"
+                        type="button"
+                        aria-label="移除项目入口"
+                        title="移除项目入口"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemoveProjectApproval(project);
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                      <button
+                        className="project-add-chat-btn"
+                        type="button"
+                        aria-label="新建项目会话"
+                        title="新建项目会话"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleNewProjectConversation(project);
+                        }}
                       >
                         <Plus size={13} />
-                        <span>新建项目会话</span>
                       </button>
-                      <div className="project-chat-list">
-                        {projectChats.map((conversation) => (
-                          <button
-                            key={conversation.id}
-                            className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
-                            onClick={() => {
-                              selectProject(project);
-                              setActiveConversationId(conversation.id);
-                            }}
-                          >
-                            <MessageSquare size={14} className="chat-icon" />
-                            <span className="chat-title">{conversation.title}</span>
-                          </button>
-                        ))}
-                        {projectChats.length === 0 && <div className="empty project-chat-empty">暂无项目会话</div>}
-                      </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-            {projects.length === 0 && (
-              <div className="empty project-empty">打开或新建一个项目</div>
-            )}
-          </div>
+
+                    {isExpanded && !hasNoChats && (
+                      <div className="project-detail">
+                        <div className="project-chat-list">
+                          {projectChats.map((conversation) => (
+                            <button
+                              key={conversation.id}
+                              className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
+                              onClick={() => {
+                                selectProject(project);
+                                setActiveConversationId(conversation.id);
+                              }}
+                            >
+                              <MessageSquare size={14} className="chat-icon" />
+                              <span className="chat-title">{conversation.title}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {projects.length === 0 && (
+                <div className="empty project-empty">打开或新建一个项目</div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="sidebar-section chats">
           <div className="sidebar-section-header">
-            <div>
+            <div
+              className="sidebar-section-toggle"
+              onClick={() => setChatsSectionExpanded(!chatsSectionExpanded)}
+            >
+              {chatsSectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               <MessageSquare size={14} />
               <span>对话区</span>
             </div>
-            <button className="new-chat-btn" onClick={() => void handleNewConversation()} title="新建对话">
+            <button className="new-chat-btn" onClick={() => void handleNewConversation()} title="新建对话" type="button">
               <Plus size={14} />
             </button>
           </div>
-          <div className="sidebar-chat-list">
-            {conversations.map((conversation) => (
-              <button
-                key={conversation.id}
-                className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
-                onClick={() => setActiveConversationId(conversation.id)}
-              >
-                <MessageSquare size={14} className="chat-icon" />
-                <span className="chat-title">{conversation.title}</span>
-              </button>
-            ))}
-            {conversations.length === 0 && <div className="empty">暂无对话</div>}
-          </div>
+          {chatsSectionExpanded && (
+            <div className="sidebar-chat-list">
+              {conversations.map((conversation) => (
+                <button
+                  key={conversation.id}
+                  className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
+                  onClick={() => setActiveConversationId(conversation.id)}
+                  type="button"
+                >
+                  <MessageSquare size={14} className="chat-icon" />
+                  <span className="chat-title">{conversation.title}</span>
+                </button>
+              ))}
+              {conversations.length === 0 && <div className="empty">暂无对话</div>}
+            </div>
+          )}
         </div>
 
         <button className="settings-entry" onClick={handleOpenModelConfig}>

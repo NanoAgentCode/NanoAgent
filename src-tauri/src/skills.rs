@@ -1,4 +1,7 @@
+use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 use crate::error::{AppError, AppResult};
 
@@ -6,6 +9,11 @@ const ANTHROPIC_SKILLS_API: &str =
     "https://api.github.com/repos/anthropics/skills/contents/skills?ref=main";
 const RAW_SKILL_BASE: &str = "https://raw.githubusercontent.com/anthropics/skills/main/skills";
 const USER_AGENT: &str = "NanoAgent/0.1 (https://github.com/NanoAgentCode/NanoAgent)";
+
+/// Maximum concurrent HTTP requests when fetching individual SKILL.md files.
+/// Keeps us well below GitHub's unauthenticated rate limit (60 req / hr) for
+/// small skill counts while still parallelising the work.
+const MAX_CONCURRENT_FETCHES: usize = 4;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GitHubSkill {
@@ -29,7 +37,7 @@ struct GitHubError {
 }
 
 pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
-    let client = github_client()?;
+    let client = Arc::new(github_client()?);
     let response = client.get(ANTHROPIC_SKILLS_API).send().await?;
 
     if !response.status().is_success() {
@@ -37,29 +45,42 @@ pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
     }
 
     let items = response.json::<Vec<GitHubContentItem>>().await?;
-    let mut skills = Vec::new();
+    let dir_items: Vec<_> = items
+        .into_iter()
+        .filter(|item| item.item_type == "dir")
+        .collect();
 
-    for item in items.into_iter().filter(|item| item.item_type == "dir") {
-        let (name, description) = fetch_skill_frontmatter(&client, &item.name)
-            .await
-            .unwrap_or_else(|_| {
-                (
-                    title_from_slug(&item.name),
-                    fallback_description(&item.name),
-                )
-            });
+    // Fetch all SKILL.md files concurrently, bounded by a semaphore so we
+    // don't blast GitHub's unauthenticated API with dozens of requests at once.
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FETCHES));
 
-        skills.push(GitHubSkill {
-            slug: item.name.clone(),
-            name,
-            description,
-            doc_url: format!(
-                "https://github.com/anthropics/skills/tree/main/skills/{}",
-                item.name
-            ),
-        });
-    }
+    let futures: Vec<_> = dir_items
+        .iter()
+        .map(|item| {
+            let client = Arc::clone(&client);
+            let sem = Arc::clone(&semaphore);
+            let slug = item.name.clone();
+            async move {
+                let _permit = sem.acquire_owned().await;
+                let (name, description) = fetch_skill_frontmatter(&client, &slug)
+                    .await
+                    .unwrap_or_else(|_| {
+                        (title_from_slug(&slug), fallback_description(&slug))
+                    });
+                GitHubSkill {
+                    doc_url: format!(
+                        "https://github.com/anthropics/skills/tree/main/skills/{}",
+                        slug
+                    ),
+                    slug,
+                    name,
+                    description,
+                }
+            }
+        })
+        .collect();
 
+    let skills = join_all(futures).await;
     Ok(skills)
 }
 
@@ -115,10 +136,14 @@ async fn fetch_skill_frontmatter(
 }
 
 fn parse_frontmatter(markdown: &str) -> (Option<String>, Option<String>) {
-    let Some(rest) = markdown.strip_prefix("---") else {
+    // Normalise Windows-style CRLF so the delimiter logic works regardless of
+    // the line endings used in the raw GitHub file.
+    let normalised = markdown.replace("\r\n", "\n");
+
+    let Some(rest) = normalised.strip_prefix("---") else {
         return (None, None);
     };
-    let Some(frontmatter) = rest.trim_start_matches(['\r', '\n']).split("\n---").next() else {
+    let Some(frontmatter) = rest.trim_start_matches('\n').split("\n---").next() else {
         return (None, None);
     };
 
