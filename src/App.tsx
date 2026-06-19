@@ -386,19 +386,18 @@ function App() {
     provider: string;
     description: string;
     docUrl: string;
-    paramsText: string;
   }>({
     id: "",
     name: "",
     provider: "Custom",
     description: "",
-    docUrl: "",
-    paramsText: ""
+    docUrl: ""
   });
   const [nodePath, setNodePath] = useState(() => localStorage.getItem("nano-agent-node-path") || "");
   const [pythonPath, setPythonPath] = useState(() => localStorage.getItem("nano-agent-python-path") || "");
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({ node: true, python: true });
   const [showCustomPaths, setShowCustomPaths] = useState(false);
+  const [showEnvActionsMenu, setShowEnvActionsMenu] = useState(false);
   const [showEnvPrompt, setShowEnvPrompt] = useState(false);
   const [isCheckingEnv, setIsCheckingEnv] = useState(false);
   const [isInstallingEnv, setIsInstallingEnv] = useState(false);
@@ -742,22 +741,6 @@ function App() {
         }
       }
     }
-  }
-
-  function handleParamChange(skillId: string, paramKey: string, value: string) {
-    setSkills((current) =>
-      current.map((s) =>
-        s.id === skillId
-          ? { ...s, parameters: { ...s.parameters, [paramKey]: value } }
-          : s
-      )
-    );
-  }
-
-  function handleSaveSkillConfig(skill: Skill) {
-    localStorage.setItem("nano-agent-skills", JSON.stringify(skills));
-    setNotice(`Skill "${skill.name}" 配置已保存！`);
-    setTimeout(() => setNotice(""), 3000);
   }
 
   function handleToggleSkill(id: string, enabled: boolean) {
@@ -1111,27 +1094,13 @@ function App() {
       return;
     }
 
-    const parameters: Record<string, string> = {};
-    if (newSkillDraft.paramsText) {
-      newSkillDraft.paramsText.split("\n").forEach((line) => {
-        const eq = line.indexOf("=");
-        if (eq !== -1) {
-          const k = line.substring(0, eq).trim();
-          const v = line.substring(eq + 1).trim();
-          if (k) {
-            parameters[k] = v;
-          }
-        }
-      });
-    }
-
     const newSkill: Skill = {
       id: newSkillDraft.id,
       name: newSkillDraft.name,
       provider: "Custom",
       description: newSkillDraft.description || "自定义导入的技能工具。",
       enabled: true,
-      parameters,
+      parameters: {},
       docUrl: newSkillDraft.docUrl
     };
 
@@ -1147,8 +1116,7 @@ function App() {
       name: "",
       provider: "Custom",
       description: "",
-      docUrl: "",
-      paramsText: ""
+      docUrl: ""
     });
 
     setNotice("自定义技能添加成功！");
@@ -2142,8 +2110,8 @@ function App() {
                 </label>
                 <div className="editor-actions">
                   <button className="icon-only-btn success-btn" onClick={handleSaveMemory} disabled={!selectedMemory} aria-label="保存" title="保存" type="button"><Save /></button>
-                  <button className="icon danger" aria-label="删除记忆" title="删除记忆" onClick={handleDeleteMemory} disabled={!selectedMemory}>
-                    <Trash2 size={16} />
+                  <button className="icon-only-btn danger-btn" aria-label="删除记忆" title="删除记忆" onClick={handleDeleteMemory} disabled={!selectedMemory} type="button">
+                    <Trash2 />
                   </button>
                 </div>
               </div>
@@ -2181,8 +2149,8 @@ function App() {
                 </select>
                 <div className="editor-actions">
                   <button className="icon-only-btn success-btn" onClick={handleSaveItem} disabled={!selectedItem} aria-label="保存" title="保存" type="button"><Save /></button>
-                  <button className="icon danger" aria-label="删除项目" title="删除项目" onClick={handleDeleteItem} disabled={!selectedItem}>
-                    <Trash2 size={16} />
+                  <button className="icon-only-btn danger-btn" aria-label="删除项目" title="删除项目" onClick={handleDeleteItem} disabled={!selectedItem} type="button">
+                    <Trash2 />
                   </button>
                 </div>
               </div>
@@ -2254,16 +2222,16 @@ function App() {
               className="sidebar-section-toggle"
               onClick={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
             >
-              {projectsSectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <Folder size={14} />
+              {projectsSectionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              <Folder size={16} />
               <span>项目区</span>
             </div>
             <div className="sidebar-section-actions">
               <button className="new-chat-btn" onClick={() => setShowNewProjectDialog(true)} title="新建项目" type="button">
-                <Plus size={14} />
+                <Plus size={16} />
               </button>
               <button className="new-chat-btn" onClick={() => void handleOpenProject()} title="打开已有项目" type="button">
-                <Folder size={14} />
+                <Folder size={16} />
               </button>
             </div>
           </div>
@@ -2302,7 +2270,7 @@ function App() {
                         }}
                         style={{ visibility: hasNoChats ? "hidden" : "visible" }}
                       >
-                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                       </button>
                       <span className="sidebar-project-dot" />
                       <span className="project-title" title={tooltipText}>{project.name}</span>
@@ -2316,7 +2284,7 @@ function App() {
                           void handleNewProjectConversation(project);
                         }}
                       >
-                        <Plus size={13} />
+                        <Plus size={16} />
                       </button>
                     </div>
 
@@ -2357,12 +2325,12 @@ function App() {
               className="sidebar-section-toggle"
               onClick={() => setChatsSectionExpanded(!chatsSectionExpanded)}
             >
-              {chatsSectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <MessageSquare size={14} />
+              {chatsSectionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              <MessageSquare size={16} />
               <span>对话区</span>
             </div>
             <button className="new-chat-btn" onClick={() => void handleNewConversation()} title="新建对话" type="button">
-              <Plus size={14} />
+              <Plus size={16} />
             </button>
           </div>
           {chatsSectionExpanded && (
@@ -2611,20 +2579,22 @@ function App() {
                                 <span>{conversation.archived_at || conversation.updated_at}</span>
                               </button>
                               <button
-                                className="icon"
+                                className="icon-only-btn"
                                 aria-label="恢复并回复"
                                 title="恢复并回复"
                                 onClick={() => void handleRestoreConversation(conversation)}
+                                type="button"
                               >
-                                <RotateCcw size={15} />
+                                <RotateCcw />
                               </button>
                               <button
-                                className="icon danger"
+                                className="icon-only-btn danger-btn"
                                 aria-label="删除归档对话"
                                 title="删除归档对话"
                                 onClick={() => void handleDeleteArchivedConversation(conversation.id)}
+                                type="button"
                               >
-                                <Trash2 size={15} />
+                                <Trash2 />
                               </button>
                             </div>
                           ))}
@@ -2730,10 +2700,10 @@ function App() {
                           onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
                           placeholder="密钥"
                         />
-                        <div className="modal-actions">
-                          <button onClick={handleSaveModel}><Save size={15} /> 保存并使用</button>
-                          <button className="icon danger" aria-label="删除模型" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id}>
-                            <Trash2 size={15} />
+                        <div className="modal-actions icon-actions">
+                          <button className="icon-only-btn success-btn" onClick={handleSaveModel} aria-label="保存并使用" title="保存并使用" type="button"><Save /></button>
+                          <button className="icon-only-btn danger-btn" aria-label="删除模型" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id} type="button">
+                            <Trash2 />
                           </button>
                         </div>
                       </div>
@@ -2751,71 +2721,74 @@ function App() {
                     </div>
 
                     {/* Environment status and manual/auto configuration block */}
-                    <div className="env-status-banner" style={{
-                      backgroundColor: "var(--bg-main)",
-                      borderRadius: "8px",
-                      border: "1px solid var(--border-color)",
-                      padding: "12px 16px",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "10px"
-                    }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <strong style={{ fontSize: "0.9rem" }}>环境与依赖配置</strong>
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <button 
-                            className="secondary" 
-                            onClick={runEnvCheck} 
-                            disabled={isCheckingEnv || isInstallingEnv} 
-                            style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
-                            type="button"
-                          >
-                            {isCheckingEnv ? "正在检测..." : "重新检测环境"}
-                          </button>
-                          <button 
-                            className="primary" 
-                            onClick={handleAutoInstallMissing} 
-                            disabled={isCheckingEnv || isInstallingEnv} 
-                            style={{ padding: "4px 8px", fontSize: "0.8rem", height: "auto" }}
-                            type="button"
-                          >
-                            {isInstallingEnv ? "正在安装..." : "自动配置/安装 (winget)"}
-                          </button>
+                    <div className="env-status-banner">
+                      <div className="env-status-main">
+                        <div className="env-status-left">
+                          <strong>环境与依赖配置</strong>
+                          <div className="env-status-items">
+                            <div className="env-status-item-compact">
+                              <span>Node.js</span>
+                              <span className={envStatus.node ? "env-status-ok" : "env-status-missing"}>
+                                {envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
+                              </span>
+                            </div>
+                            <div className="env-status-item-compact">
+                              <span>Python</span>
+                              <span className={envStatus.python ? "env-status-ok" : "env-status-missing"}>
+                                {envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="env-status-actions">
+                          <div className="env-actions-menu-wrap">
+                            <button
+                              className="secondary env-action-btn"
+                              type="button"
+                              onClick={() => setShowEnvActionsMenu((current) => !current)}
+                              aria-expanded={showEnvActionsMenu}
+                            >
+                              更多
+                              <ChevronDown size={16} />
+                            </button>
+                            {showEnvActionsMenu && (
+                              <div className="env-actions-menu">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowEnvActionsMenu(false);
+                                    void runEnvCheck();
+                                  }}
+                                  disabled={isCheckingEnv || isInstallingEnv}
+                                >
+                                  {isCheckingEnv ? "正在检测..." : "重新检测环境"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowEnvActionsMenu(false);
+                                    void handleAutoInstallMissing();
+                                  }}
+                                  disabled={isCheckingEnv || isInstallingEnv}
+                                >
+                                  {isInstallingEnv ? "正在安装..." : "自动配置/安装 (winget)"}
+                                </button>
+                                {envStatus.node && envStatus.python && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowEnvActionsMenu(false);
+                                      setShowCustomPaths((current) => !current);
+                                    }}
+                                  >
+                                    {showCustomPaths ? "隐藏自定义配置" : "配置自定义路径"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <div style={{ display: "flex", gap: "24px", fontSize: "0.85rem" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>Node.js 环境:</span>
-                          <span style={{ color: envStatus.node ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
-                            {envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>Python 环境:</span>
-                          <span style={{ color: envStatus.python ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
-                            {envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
-                          </span>
-                        </div>
-                      </div>
-                      {envStatus.node && envStatus.python && (
-                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                          <button
-                            type="button"
-                            onClick={() => setShowCustomPaths(!showCustomPaths)}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: "var(--accent-cyan)",
-                              fontSize: "0.8rem",
-                              cursor: "pointer",
-                              padding: 0,
-                              textDecoration: "underline"
-                            }}
-                          >
-                            {showCustomPaths ? "隐藏自定义配置" : "配置自定义路径"}
-                          </button>
-                        </div>
-                      )}
                       {(!envStatus.node || !envStatus.python || showCustomPaths) && (
                         <>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -2925,16 +2898,6 @@ function App() {
                                 style={{ width: "100%", boxSizing: "border-box", borderRadius: "4px", border: "1px solid var(--border-color)", padding: "8px", backgroundColor: "var(--bg-main)", color: "var(--text-main)", resize: "vertical", fontSize: "0.85rem" }}
                               />
                             </div>
-                            <div className="skills-param-field" style={{ margin: 0 }}>
-                              <label style={{ fontSize: "0.8rem" }}>配置参数 (一行为一个参数，格式为 Key=Value):</label>
-                              <textarea
-                                value={newSkillDraft.paramsText}
-                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, paramsText: e.target.value }))}
-                                placeholder="例如:&#10;api_key=your_key&#10;timeout=30"
-                                rows={3}
-                                style={{ width: "100%", boxSizing: "border-box", borderRadius: "4px", border: "1px solid var(--border-color)", padding: "8px", backgroundColor: "var(--bg-main)", color: "var(--text-main)", resize: "vertical", fontSize: "0.85rem" }}
-                              />
-                            </div>
                             <div style={{ marginTop: "auto", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
                               <button className="secondary" onClick={() => {
                                 setIsAddingSkill(false);
@@ -2976,60 +2939,24 @@ function App() {
 
                               <div className="skills-form-section" style={{ marginTop: "12px" }}>
                                 <h5>启用状态</h5>
-                                <div className="skills-switch-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div className="skills-switch-row">
                                   <span style={{ fontSize: "0.85rem" }}>{skill.enabled ? "该技能当前已激活，模型将在合适的时候自动调用" : "该技能当前已禁用"}</span>
-                                  <button
-                                    className={skill.enabled ? "danger" : "primary"}
-                                    onClick={() => handleToggleSkill(skill.id, !skill.enabled)}
-                                    type="button"
-                                    style={{ padding: "6px 12px", fontSize: "0.85rem", height: "auto" }}
-                                  >
-                                    {skill.enabled ? "禁用技能" : "启用技能"}
-                                  </button>
                                 </div>
                               </div>
 
-                              {Object.keys(skill.parameters).length > 0 && (
-                                <div className="skills-form-section" style={{ marginTop: "12px" }}>
-                                  <h5>技能参数配置</h5>
-                                  <div className="skills-params-group">
-                                    {Object.entries(skill.parameters).map(([key, val]) => {
-                                      const labelMap: Record<string, string> = {
-                                        workspace_root: "工作区根目录 (Workspace Root Path)",
-                                        shell_path: "终端 Shell 路径 (Shell Executable)",
-                                        allowed_prefixes: "允许运行的命令前缀 (Allowed Commands)",
-                                        output_dir: "输出文件目录 (Output Directory)",
-                                        framework: "前端组件框架 (Frontend Framework)",
-                                        canvas_format: "画布生成格式 (Canvas Format)",
-                                        skills_root: "本地技能根目录 (Skills Root Directory)",
-                                        engine: "搜索引擎引擎 (Search Engine)"
-                                      };
-                                      return (
-                                        <div key={key} className="skills-param-field" style={{ margin: "6px 0" }}>
-                                          <label style={{ fontSize: "0.8rem" }}>{labelMap[key] || key}</label>
-                                          <input
-                                            value={val}
-                                            onChange={(e) => handleParamChange(skill.id, key, e.target.value)}
-                                            placeholder={`请输入 ${key}...`}
-                                            style={{ padding: "6px 10px", fontSize: "0.85rem" }}
-                                          />
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
-
-                              <div style={{ marginTop: "auto", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-                                <button className="primary" onClick={() => handleSaveSkillConfig(skill)} type="button">
-                                  <Save size={15} /> 保存配置
+                              <div className="skills-form-actions">
+                                <button
+                                  className={skill.enabled ? "danger" : "primary"}
+                                  onClick={() => handleToggleSkill(skill.id, !skill.enabled)}
+                                  type="button"
+                                >
+                                  {skill.enabled ? "禁用技能" : "启用技能"}
                                 </button>
                                 {skill.id !== "text_editor" && skill.id !== "bash_tool" && (
-                                  <button 
-                                    className="danger" 
-                                    onClick={() => handleDeleteSkill(skill.id)} 
-                                    type="button" 
-                                    style={{ backgroundColor: "var(--accent-red)", color: "white", padding: "8px 12px", fontSize: "0.85rem", height: "auto" }}
+                                  <button
+                                    className="danger"
+                                    onClick={() => handleDeleteSkill(skill.id)}
+                                    type="button"
                                   >
                                     删除技能
                                   </button>
@@ -3221,10 +3148,10 @@ function App() {
             </div>
             <div className="chat-input-actions">
               <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
-                <Plus size={17} />
+                <Plus size={20} />
               </button>
               <button className="chat-input-action send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
-                <SendHorizontal size={17} />
+                <SendHorizontal size={20} />
               </button>
             </div>
           </div>
@@ -3666,7 +3593,7 @@ function buildSystemMessage(
           }
 
           const params = parameters && Object.keys(parameters).length > 0
-            ? "\n  配置参数：\n" + Object.entries(parameters)
+            ? "\n  自动运行参数：\n" + Object.entries(parameters)
                 .map(([k, v]) => `    * ${k}: ${v}`)
                 .join("\n")
             : "";
