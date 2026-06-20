@@ -1346,8 +1346,8 @@ button.danger:active:not(:disabled) {
 }
 
 .chat-message th {
-  background: #252526;
-  color: #d4d4d4;
+  background: rgba(56, 189, 248, 0.08);
+  color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
 }
 
