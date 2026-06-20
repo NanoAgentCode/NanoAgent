@@ -2,6 +2,7 @@ mod db;
 mod error;
 mod llm;
 mod models;
+mod observability;
 mod skills;
 mod web_search;
 
@@ -14,6 +15,9 @@ use models::{
     ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
     ProjectFileWriteRequest, WebSearchResult,
 };
+use observability::{
+    ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
+};
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
@@ -21,31 +25,145 @@ use web_search::internet_search as run_internet_search;
 
 struct AppState {
     db: Mutex<Database>,
+    observability: Mutex<ObservabilityPipeline>,
+}
+
+async fn start_observation(
+    state: &State<'_, AppState>,
+    operation: &str,
+    category: &str,
+    entity_type: Option<&str>,
+    entity_id: Option<String>,
+    input_summary: Option<String>,
+    metadata: serde_json::Value,
+    trace_id: Option<String>,
+) -> Option<SpanContext> {
+    state.observability.lock().await.start_span(SpanStart {
+        trace_id,
+        parent_span_id: None,
+        operation: operation.to_string(),
+        category: category.to_string(),
+        entity_type: entity_type.map(str::to_string),
+        entity_id,
+        input_summary,
+        metadata,
+    })
+}
+
+async fn finish_observation<T>(
+    state: &State<'_, AppState>,
+    span: Option<SpanContext>,
+    result: &AppResult<T>,
+    output_summary: Option<String>,
+) {
+    let (status, error) = match result {
+        Ok(_) => ("ok", None),
+        Err(err) => ("error", Some(err.to_string())),
+    };
+    state
+        .observability
+        .lock()
+        .await
+        .finish_span(span, status, output_summary, error);
+}
+
+fn count_summary<T>(items: &[T]) -> String {
+    format!("count={}", items.len())
 }
 
 #[tauri::command]
 async fn list_items(state: State<'_, AppState>, kind: Option<String>) -> AppResult<Vec<Item>> {
-    state.db.lock().await.list_items(kind.as_deref())
+    let span = start_observation(
+        &state,
+        "list_items",
+        "db",
+        Some("item"),
+        None,
+        kind.as_ref().map(|value| format!("kind={value}")),
+        serde_json::json!({}),
+        None,
+    )
+    .await;
+    let result = state.db.lock().await.list_items(kind.as_deref());
+    let output = result.as_ref().ok().map(|items| count_summary(items));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
 async fn search_items(state: State<'_, AppState>, query: String) -> AppResult<Vec<Item>> {
-    state.db.lock().await.search_items(&query)
+    let span = start_observation(
+        &state,
+        "search_items",
+        "db",
+        Some("item"),
+        None,
+        Some(format!("query_chars={}", query.chars().count())),
+        serde_json::json!({}),
+        None,
+    )
+    .await;
+    let result = state.db.lock().await.search_items(&query);
+    let output = result.as_ref().ok().map(|items| count_summary(items));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
 async fn create_item(state: State<'_, AppState>, draft: ItemDraft) -> AppResult<Item> {
-    state.db.lock().await.create_item(draft)
+    let span = start_observation(
+        &state,
+        "create_item",
+        "db",
+        Some("item"),
+        None,
+        Some(format!("kind={}", draft.kind)),
+        serde_json::json!({ "title_chars": draft.title.chars().count() }),
+        None,
+    )
+    .await;
+    let result = state.db.lock().await.create_item(draft);
+    let output = result.as_ref().ok().map(|item| format!("item_id={}", item.id));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
 async fn update_item(state: State<'_, AppState>, patch: ItemPatch) -> AppResult<Item> {
-    state.db.lock().await.update_item(patch)
+    let entity_id = patch.id.clone();
+    let span = start_observation(
+        &state,
+        "update_item",
+        "db",
+        Some("item"),
+        Some(entity_id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(entity_id),
+    )
+    .await;
+    let result = state.db.lock().await.update_item(patch);
+    let output = result.as_ref().ok().map(|item| format!("item_id={}", item.id));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
 async fn delete_item(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.db.lock().await.delete_item(&id)
+    let span = start_observation(
+        &state,
+        "delete_item",
+        "db",
+        Some("item"),
+        Some(id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(id.clone()),
+    )
+    .await;
+    let result = state.db.lock().await.delete_item(&id);
+    finish_observation(&state, span, &result, Some("deleted=true".to_string())).await;
+    result
 }
 
 #[tauri::command]
@@ -95,12 +213,43 @@ async fn create_conversation(
     state: State<'_, AppState>,
     draft: ConversationDraft,
 ) -> AppResult<Conversation> {
-    state.db.lock().await.create_conversation(draft)
+    let project_path = draft.project_path.clone();
+    let span = start_observation(
+        &state,
+        "create_conversation",
+        "db",
+        Some("conversation"),
+        project_path.clone(),
+        draft.title.as_ref().map(|title| format!("title_chars={}", title.chars().count())),
+        serde_json::json!({ "project_path": project_path }),
+        None,
+    )
+    .await;
+    let result = state.db.lock().await.create_conversation(draft);
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|conversation| format!("conversation_id={}", conversation.id));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
 async fn delete_conversation(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.db.lock().await.delete_conversation(&id)
+    let span = start_observation(
+        &state,
+        "delete_conversation",
+        "db",
+        Some("conversation"),
+        Some(id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(id.clone()),
+    )
+    .await;
+    let result = state.db.lock().await.delete_conversation(&id);
+    finish_observation(&state, span, &result, Some("deleted=true".to_string())).await;
+    result
 }
 
 #[tauri::command]
@@ -126,12 +275,45 @@ async fn list_messages(
     state: State<'_, AppState>,
     conversation_id: String,
 ) -> AppResult<Vec<Message>> {
-    state.db.lock().await.list_messages(&conversation_id)
+    let span = start_observation(
+        &state,
+        "list_messages",
+        "db",
+        Some("conversation"),
+        Some(conversation_id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(conversation_id.clone()),
+    )
+    .await;
+    let result = state.db.lock().await.list_messages(&conversation_id);
+    let output = result.as_ref().ok().map(|messages| count_summary(messages));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
 async fn append_message(state: State<'_, AppState>, draft: MessageDraft) -> AppResult<Message> {
-    state.db.lock().await.append_message(draft)
+    let span = start_observation(
+        &state,
+        "append_message",
+        "db",
+        Some("message"),
+        Some(draft.conversation_id.clone()),
+        Some(format!("role={}", draft.role)),
+        serde_json::json!({ "content_chars": draft.content.chars().count() }),
+        Some(draft.conversation_id.clone()),
+    )
+    .await;
+    let result = state.db.lock().await.append_message(draft);
+    let output = result.as_ref().ok().map(|message| {
+        format!(
+            "message_id={}, conversation_id={}",
+            message.id, message.conversation_id
+        )
+    });
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
@@ -166,10 +348,25 @@ async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<()> 
 
 #[tauri::command]
 async fn internet_search(
+    state: State<'_, AppState>,
     query: String,
     tavily_api_key: Option<String>,
 ) -> AppResult<Vec<WebSearchResult>> {
-    run_internet_search(&query, tavily_api_key.as_deref()).await
+    let span = start_observation(
+        &state,
+        "internet_search",
+        "external",
+        Some("web_search"),
+        None,
+        Some(format!("query_chars={}", query.chars().count())),
+        serde_json::json!({ "has_tavily_key": tavily_api_key.as_deref().is_some_and(|key| !key.trim().is_empty()) }),
+        None,
+    )
+    .await;
+    let result = run_internet_search(&query, tavily_api_key.as_deref()).await;
+    let output = result.as_ref().ok().map(|items| count_summary(items));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
@@ -178,19 +375,42 @@ async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
 }
 
 #[tauri::command]
-async fn list_local_skills() -> AppResult<(String, Vec<GitHubSkill>)> {
-    skills::list_local_skills().await
+async fn list_local_skills(app: AppHandle) -> AppResult<(String, Vec<GitHubSkill>)> {
+    skills::list_local_skills(&app).await
 }
 
 #[tauri::command]
 async fn chat(state: State<'_, AppState>, request: ChatRequest) -> AppResult<ChatResponse> {
-    let config = state
-        .db
-        .lock()
-        .await
-        .get_model_config(&request.model_config_id)?;
-
-    send_chat_completion(config, request).await
+    let model_config_id = request.model_config_id.clone();
+    let trace_id = request.trace_id.clone();
+    let span = start_observation(
+        &state,
+        "chat",
+        "llm",
+        Some("model_config"),
+        Some(model_config_id.clone()),
+        Some(format!("messages={}", request.messages.len())),
+        serde_json::json!({ "temperature": request.temperature }),
+        trace_id,
+    )
+    .await;
+    let config_result = {
+        state
+            .db
+            .lock()
+            .await
+            .get_model_config(&model_config_id)
+    };
+    let result = match config_result {
+        Ok(config) => send_chat_completion(config, request).await,
+        Err(err) => Err(err),
+    };
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|response| format!("content_chars={}", response.content.chars().count()));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
@@ -199,13 +419,32 @@ async fn chat_stream(
     state: State<'_, AppState>,
     request: ChatStreamRequest,
 ) -> AppResult<()> {
-    let config = state
-        .db
-        .lock()
-        .await
-        .get_model_config(&request.model_config_id)?;
-
-    send_chat_completion_stream(app, config, request).await
+    let model_config_id = request.model_config_id.clone();
+    let trace_id = request.trace_id.clone().unwrap_or_else(|| request.request_id.clone());
+    let span = start_observation(
+        &state,
+        "chat_stream",
+        "llm",
+        Some("chat_request"),
+        Some(request.request_id.clone()),
+        Some(format!("messages={}", request.messages.len())),
+        serde_json::json!({ "temperature": request.temperature }),
+        Some(trace_id),
+    )
+    .await;
+    let config_result = {
+        state
+            .db
+            .lock()
+            .await
+            .get_model_config(&model_config_id)
+    };
+    let result = match config_result {
+        Ok(config) => send_chat_completion_stream(app, config, request).await,
+        Err(err) => Err(err),
+    };
+    finish_observation(&state, span, &result, None).await;
+    result
 }
 
 #[cfg(target_os = "windows")]
@@ -707,71 +946,146 @@ fn content_hash(content: &str) -> String {
 }
 
 #[tauri::command]
-async fn execute_bash_command(project_path: String, command: String) -> AppResult<String> {
-    let root = project_root(&project_path)?;
-    let mut c = if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("powershell.exe");
-        cmd.arg("-NoProfile")
-           .arg("-Command")
-           .arg(&command);
-        cmd
-    } else {
-        let mut cmd = std::process::Command::new("sh");
-        cmd.arg("-c")
-           .arg(&command);
-        cmd
-    };
+async fn execute_bash_command(
+    state: State<'_, AppState>,
+    project_path: String,
+    command: String,
+) -> AppResult<String> {
+    let span = start_observation(
+        &state,
+        "execute_bash_command",
+        "tool",
+        Some("project"),
+        Some(project_path.clone()),
+        Some(format!("command_chars={}", command.chars().count())),
+        serde_json::json!({ "project_path": project_path.clone() }),
+        None,
+    )
+    .await;
+    let result = (|| -> AppResult<String> {
+        let root = project_root(&project_path)?;
+        let mut c = if cfg!(target_os = "windows") {
+            let mut cmd = std::process::Command::new("powershell.exe");
+            cmd.arg("-NoProfile").arg("-Command").arg(&command);
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            cmd
+        } else {
+            let mut cmd = std::process::Command::new("sh");
+            cmd.arg("-c").arg(&command);
+            cmd
+        };
 
-    c.current_dir(root);
-    let output = c.output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        c.current_dir(root);
+        let output = c.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    if output.status.success() {
-        Ok(stdout)
-    } else {
-        Err(crate::error::AppError::Message(format!(
-            "Command failed with code {:?}\nStdout: {}\nStderr: {}",
-            output.status.code(),
-            stdout,
-            stderr
-        )))
-    }
+        if output.status.success() {
+            Ok(stdout)
+        } else {
+            Err(crate::error::AppError::Message(format!(
+                "Command failed with code {:?}\nStdout: {}\nStderr: {}",
+                output.status.code(),
+                stdout,
+                stderr
+            )))
+        }
+    })();
+    let summary = result
+        .as_ref()
+        .ok()
+        .map(|stdout| format!("stdout_chars={}", stdout.chars().count()));
+    finish_observation(&state, span, &result, summary).await;
+    result
 }
 
 #[tauri::command]
-async fn write_local_file(project_path: String, path: String, content: String) -> AppResult<()> {
-    let root = project_root(&project_path)?;
-    let target_path = resolve_project_relative_path(&root, &path)?;
-
-    if let Some(parent) = target_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    std::fs::write(target_path, content.as_bytes())?;
-    Ok(())
+async fn write_local_file(
+    state: State<'_, AppState>,
+    project_path: String,
+    path: String,
+    content: String,
+) -> AppResult<()> {
+    let span = start_observation(
+        &state,
+        "write_local_file",
+        "tool",
+        Some("file"),
+        Some(path.clone()),
+        Some(format!("content_chars={}", content.chars().count())),
+        serde_json::json!({ "project_path": project_path.clone() }),
+        None,
+    )
+    .await;
+    let result = (|| -> AppResult<()> {
+        let root = project_root(&project_path)?;
+        let target_path = resolve_project_relative_path(&root, &path)?;
+        if let Some(parent) = target_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(target_path, content.as_bytes())?;
+        Ok(())
+    })();
+    finish_observation(&state, span, &result, Some("written=true".to_string())).await;
+    result
 }
 
 #[tauri::command]
-async fn read_local_file(project_path: String, path: String) -> AppResult<String> {
-    const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
+async fn read_local_file(
+    state: State<'_, AppState>,
+    project_path: String,
+    path: String,
+) -> AppResult<String> {
+    let span = start_observation(
+        &state,
+        "read_local_file",
+        "tool",
+        Some("file"),
+        Some(path.clone()),
+        None,
+        serde_json::json!({ "project_path": project_path.clone() }),
+        None,
+    )
+    .await;
+    let result = (|| -> AppResult<String> {
+        const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
 
-    let root = project_root(&project_path)?;
-    let target_path = resolve_project_relative_path(&root, &path)?;
-    let metadata = std::fs::metadata(&target_path)?;
-    if !metadata.is_file() {
-        return Err(crate::error::AppError::Message(
-            "Can only read regular files".to_string(),
-        ));
-    }
-    if metadata.len() > MAX_TEXT_FILE_BYTES {
-        return Err(crate::error::AppError::Message(
-            "File exceeds 1MB; please use an appropriate skill".to_string(),
-        ));
-    }
+        let root = project_root(&project_path)?;
+        let target_path = resolve_project_relative_path(&root, &path)?;
+        let metadata = std::fs::metadata(&target_path)?;
+        if !metadata.is_file() {
+            return Err(crate::error::AppError::Message(
+                "Can only read regular files".to_string(),
+            ));
+        }
+        if metadata.len() > MAX_TEXT_FILE_BYTES {
+            return Err(crate::error::AppError::Message(
+                "File exceeds 1MB; please use an appropriate skill".to_string(),
+            ));
+        }
 
-    let content = std::fs::read_to_string(target_path)?;
-    Ok(content)
+        Ok(std::fs::read_to_string(target_path)?)
+    })();
+    let summary = result
+        .as_ref()
+        .ok()
+        .map(|content| format!("content_chars={}", content.chars().count()));
+    finish_observation(&state, span, &result, summary).await;
+    result
+}
+
+#[tauri::command]
+async fn list_observability_spans(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+) -> AppResult<Vec<ObservabilitySpan>> {
+    state.observability.lock().await.list_spans(limit)
+}
+
+#[tauri::command]
+async fn clear_observability_spans(state: State<'_, AppState>) -> AppResult<()> {
+    state.observability.lock().await.clear()
 }
 
 pub fn run() {
@@ -785,10 +1099,24 @@ pub fn run() {
                 .map_err(|err| format!("failed to resolve app data directory: {err}"))?;
             std::fs::create_dir_all(&data_dir)
                 .map_err(|err| format!("failed to create app data directory: {err}"))?;
+            let temp_dir = data_dir.join("temp");
+            std::fs::create_dir_all(&temp_dir)
+                .map_err(|err| format!("failed to create temp directory: {err}"))?;
             let db_path = data_dir.join("nano-agent.sqlite3");
             let db = Database::open(db_path).map_err(|err| err.to_string())?;
+            let observability_path = data_dir.join("nano-agent-observability.sqlite3");
+            let observability = match SqliteObservabilitySink::open(observability_path) {
+                Ok(sink) => ObservabilityPipeline::new(vec![Box::new(sink)]),
+                Err(err) => {
+                    eprintln!("observability disabled: {err}");
+                    ObservabilityPipeline::disabled()
+                }
+            };
 
-            app.manage(AppState { db: Mutex::new(db) });
+            app.manage(AppState {
+                db: Mutex::new(db),
+                observability: Mutex::new(observability),
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -831,7 +1159,9 @@ pub fn run() {
             rename_project_file,
             execute_bash_command,
             write_local_file,
-            read_local_file
+            read_local_file,
+            list_observability_spans,
+            clear_observability_spans
         ])
         .run(tauri::generate_context!())
         .expect("error while running NanoAgent");

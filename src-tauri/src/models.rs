@@ -182,6 +182,7 @@ pub struct ChatRequest {
     pub model_config_id: String,
     pub messages: Vec<ChatMessage>,
     pub temperature: Option<f32>,
+    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +191,7 @@ pub struct ChatStreamRequest {
     pub model_config_id: String,
     pub messages: Vec<ChatMessage>,
     pub temperature: Option<f32>,
+    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

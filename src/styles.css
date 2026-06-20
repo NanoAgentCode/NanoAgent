@@ -2189,6 +2189,207 @@ button.danger:active:not(:disabled) {
   padding: 0 12px !important;
 }
 
+.observability-tab-content {
+  overflow: hidden !important;
+}
+
+.observability-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.observability-header h3 {
+  margin-bottom: 8px;
+}
+
+.observability-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.observability-actions button {
+  gap: 6px;
+}
+
+.observability-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+
+.observability-trace-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-pane);
+}
+
+.observability-trace-row {
+  width: 100%;
+  min-height: 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  text-align: left;
+}
+
+.observability-trace-row:hover,
+.observability-trace-row.active {
+  border-color: var(--accent-cyan);
+  background: var(--option-bg-selected);
+}
+
+.observability-trace-row strong,
+.observability-trace-row span,
+.observability-trace-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-trace-row strong {
+  display: block;
+  font-size: var(--font-size-md);
+}
+
+.observability-trace-row span,
+.observability-trace-row small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.observability-span-list {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+}
+
+.observability-trace-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+
+.observability-trace-summary strong,
+.observability-trace-summary span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-trace-summary span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  flex-shrink: 0;
+}
+
+.observability-timeline {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+
+.observability-span-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 16px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.observability-span-row.error {
+  border-color: var(--control-danger-border);
+  background: var(--control-danger-soft-bg);
+}
+
+.observability-span-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.observability-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent-emerald);
+  flex-shrink: 0;
+}
+
+.observability-span-row.error .observability-status-dot {
+  background: var(--accent-danger);
+}
+
+.observability-span-main strong,
+.observability-span-main small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-span-main small,
+.observability-span-meta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.observability-span-meta {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.observability-span-row pre {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--bg-pane);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Skills management styling */
 .skills-config-grid {
   flex: 1;
@@ -3125,11 +3326,11 @@ button.danger:active:not(:disabled) {
   color: var(--control-text);
 }
 
-.custom-context-menu-item.danger {
+.custom-context-menu-item.danger-action {
   color: var(--control-danger-text);
 }
 
-.custom-context-menu-item.danger:hover {
+.custom-context-menu-item.danger-action:hover {
   background-color: var(--control-danger-soft-bg);
   color: var(--control-danger-text);
 }

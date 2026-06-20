@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
+  Activity,
   Bot,
   Brain,
   ChevronDown,
@@ -60,7 +61,9 @@ import {
   updateItem,
   updateMemory,
   checkEnv,
-  installEnv
+  installEnv,
+  listObservabilitySpans,
+  clearObservabilitySpans
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import type {
@@ -72,6 +75,7 @@ import type {
   Memory,
   ModelConfig,
   ModelConfigDraft,
+  ObservabilitySpan,
   ProjectEntry,
   ProjectFileEntry,
   PersistedMessage,
@@ -102,7 +106,8 @@ type SettingsTab =
   | "archive"
   | "model"
   | "skills"
-  | "mcp";
+  | "mcp"
+  | "observability";
 
 const workspaceLabels: Record<WorkspaceView, string> = {
   all: "全部",
@@ -382,6 +387,9 @@ function App() {
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("task");
+  const [observabilitySpans, setObservabilitySpans] = useState<ObservabilitySpan[]>([]);
+  const [selectedTraceId, setSelectedTraceId] = useState("");
+  const [isLoadingObservability, setIsLoadingObservability] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem("nano-agent-skills");
     if (saved) {
@@ -466,6 +474,36 @@ function App() {
     [activeProjectId, projects]
   );
   const selectedItemIsTask = selectedItem?.kind === "task";
+  const traceGroups = useMemo(() => {
+    const groups = new Map<string, ObservabilitySpan[]>();
+    for (const span of observabilitySpans) {
+      const current = groups.get(span.trace_id) || [];
+      current.push(span);
+      groups.set(span.trace_id, current);
+    }
+
+    return Array.from(groups.entries())
+      .map(([traceId, spans]) => {
+        const sorted = [...spans].sort(
+          (left, right) => Date.parse(left.started_at) - Date.parse(right.started_at)
+        );
+        const errors = sorted.filter((span) => span.status === "error").length;
+        const duration = sorted.reduce((sum, span) => sum + (span.duration_ms || 0), 0);
+        const startedAt = sorted[0]?.started_at || "";
+        const lastSpan = sorted[sorted.length - 1];
+        return {
+          traceId,
+          spans: sorted,
+          errors,
+          duration,
+          startedAt,
+          lastOperation: lastSpan?.operation || ""
+        };
+      })
+      .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+  }, [observabilitySpans]);
+  const selectedTrace =
+    traceGroups.find((trace) => trace.traceId === selectedTraceId) || traceGroups[0] || null;
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -617,6 +655,43 @@ function App() {
 
     void loadMessages(activeConversationId);
   }, [activeConversationId]);
+
+  useEffect(() => {
+    if (showModelConfig && activeSettingsTab === "observability") {
+      void refreshObservability();
+    }
+  }, [showModelConfig, activeSettingsTab]);
+
+  async function refreshObservability() {
+    setIsLoadingObservability(true);
+    try {
+      const spans = await listObservabilitySpans(200);
+      setObservabilitySpans(spans);
+      setSelectedTraceId((current) =>
+        current && spans.some((span) => span.trace_id === current)
+          ? current
+          : spans[0]?.trace_id || ""
+      );
+    } catch (error) {
+      setNotice(String(error));
+    } finally {
+      setIsLoadingObservability(false);
+    }
+  }
+
+  async function handleClearObservability() {
+    if (!confirm("Clear all observability spans?")) {
+      return;
+    }
+
+    try {
+      await clearObservabilitySpans();
+      setObservabilitySpans([]);
+      setSelectedTraceId("");
+    } catch (error) {
+      setNotice(String(error));
+    }
+  }
 
   async function loadAll() {
     try {
@@ -1794,7 +1869,7 @@ function App() {
 
     try {
       setBusy(true);
-      await chatStream(requestId, activeModelId, modelMessages);
+      await chatStream(requestId, activeModelId, modelMessages, 0.4, conversationId);
     } catch (err) {
       streamFailed = true;
       console.error("Continue streaming failed:", err);
@@ -2004,7 +2079,7 @@ function App() {
             const summaryPrompt = "请简明扼要地对以下对话历史进行上下文摘要（限 150 字内），保留关键事实、用户偏好和核心讨论点，以便作为后续对话的背景。请直接输出摘要，不要有任何多余的解释：\n\n" +
               messagesToCompress.map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`).join("\n");
 
-            const summaryResponse = await chat(activeModelId, [{ role: "user", content: summaryPrompt }]);
+            const summaryResponse = await chat(activeModelId, [{ role: "user", content: summaryPrompt }], 0.4, conversationId);
             const summaryText = summaryResponse.content.trim();
 
             if (summaryText) {
@@ -2080,7 +2155,7 @@ function App() {
         }
       });
 
-      await chatStream(requestId, activeModelId, modelMessages);
+      await chatStream(requestId, activeModelId, modelMessages, 0.4, conversationId);
       unlisten();
 
       if (!streamedContent.trim()) {
@@ -2302,6 +2377,94 @@ function App() {
           )}
         </section>
       </section>
+    );
+  }
+
+  function renderObservabilityPanel() {
+    return (
+      <div className="settings-tab-content observability-tab-content">
+        <div className="observability-header">
+          <div>
+            <h3>链路追踪</h3>
+            <p className="description">查看最近的本地调用链路、耗时和错误状态。</p>
+          </div>
+          <div className="observability-actions">
+            <button className="secondary compact-btn" onClick={() => void refreshObservability()} disabled={isLoadingObservability} type="button">
+              <RotateCcw size={14} />
+              <span>{isLoadingObservability ? "刷新中" : "刷新"}</span>
+            </button>
+            <button className="danger compact-btn" onClick={() => void handleClearObservability()} disabled={observabilitySpans.length === 0} type="button">
+              <Trash2 size={14} />
+              <span>清空</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="observability-grid">
+          <aside className="observability-trace-list">
+            {traceGroups.map((trace) => (
+              <button
+                key={trace.traceId}
+                className={selectedTrace?.traceId === trace.traceId ? "observability-trace-row active" : "observability-trace-row"}
+                onClick={() => setSelectedTraceId(trace.traceId)}
+                type="button"
+              >
+                <div>
+                  <strong>{trace.lastOperation || "trace"}</strong>
+                  <span>{trace.traceId}</span>
+                </div>
+                <small>
+                  {trace.spans.length} spans · {trace.duration} ms
+                  {trace.errors > 0 ? ` · ${trace.errors} errors` : ""}
+                </small>
+              </button>
+            ))}
+            {traceGroups.length === 0 && (
+              <div className="empty">暂无链路记录</div>
+            )}
+          </aside>
+
+          <section className="observability-span-list">
+            {selectedTrace ? (
+              <>
+                <div className="observability-trace-summary">
+                  <strong>{selectedTrace.traceId}</strong>
+                  <span>{selectedTrace.spans.length} spans · {selectedTrace.duration} ms</span>
+                </div>
+                <div className="observability-timeline">
+                  {selectedTrace.spans.map((span) => (
+                    <div key={span.id} className={`observability-span-row ${span.status}`}>
+                      <div className="observability-span-main">
+                        <span className="observability-status-dot" />
+                        <div>
+                          <strong>{span.operation}</strong>
+                          <small>{span.category}{span.entity_type ? ` / ${span.entity_type}` : ""}</small>
+                        </div>
+                      </div>
+                      <div className="observability-span-meta">
+                        <span>{span.duration_ms ?? 0} ms</span>
+                        <span>{new Date(span.started_at).toLocaleString()}</span>
+                      </div>
+                      {(span.input_summary || span.output_summary || span.error) && (
+                        <pre>
+                          {[span.input_summary, span.output_summary, span.error ? `error: ${span.error}` : ""]
+                            .filter(Boolean)
+                            .join("\n")}
+                        </pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="archive-preview-placeholder">
+                <Activity size={48} className="placeholder-icon" />
+                <p>暂无可查看的链路</p>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
     );
   }
 
@@ -2607,6 +2770,13 @@ function App() {
                 >
                   <Sparkles size={16} />
                   <span>Skills管理</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "observability" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("observability")}
+                >
+                  <Activity size={16} />
+                  <span>链路追踪</span>
                 </button>
                 <button
                   className={activeSettingsTab === "mcp" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3082,7 +3252,9 @@ function App() {
                   </div>
                 )}
 
-                {activeSettingsTab === "mcp" && (
+                                {activeSettingsTab === "observability" && renderObservabilityPanel()}
+
+{activeSettingsTab === "mcp" && (
                   <div className="settings-tab-content placeholder-tab-content">
                     <h3>MCP 配置 (Model Context Protocol)</h3>
                     <p className="description">连接符合 Model Context Protocol 规范的外部工具服务器，为大模型注入实时上下文。</p>
@@ -3456,7 +3628,7 @@ function App() {
                 <span>归档会话</span>
               </button>
               <button
-                className="custom-context-menu-item danger"
+                className="custom-context-menu-item danger-action"
                 onClick={() => {
                   if (contextMenu.conversation) {
                     void handleContextDeleteConversation(contextMenu.conversation);
@@ -3473,7 +3645,7 @@ function App() {
 
           {contextMenu.project && (
             <button
-              className="custom-context-menu-item danger"
+              className="custom-context-menu-item danger-action"
               onClick={() => {
                 if (contextMenu.project) {
                   handleRemoveProjectApproval(contextMenu.project);

@@ -1,6 +1,7 @@
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tauri::Manager;
 use tokio::sync::Semaphore;
 
 use crate::error::{AppError, AppResult};
@@ -208,12 +209,12 @@ fn fallback_description(slug: &str) -> String {
     format!("来自 Anthropic 官方仓库的 \"{slug}\" 技能。")
 }
 
-pub async fn list_local_skills() -> AppResult<(String, Vec<GitHubSkill>)> {
-    let exe_path = std::env::current_exe()?;
-    let install_dir = exe_path
-        .parent()
-        .ok_or_else(|| AppError::Message("Failed to get executable parent directory".to_string()))?;
-    let skills_dir = install_dir.join("skills");
+pub async fn list_local_skills(app: &tauri::AppHandle) -> AppResult<(String, Vec<GitHubSkill>)> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| AppError::Message(format!("failed to resolve app data directory: {err}")))?;
+    let skills_dir = data_dir.join("skills");
 
     if !skills_dir.exists() {
         std::fs::create_dir_all(&skills_dir)?;

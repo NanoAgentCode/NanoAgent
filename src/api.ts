@@ -18,6 +18,7 @@ import type {
   ProjectFileEntry,
   ProjectFileMoveRequest,
   ProjectFileWriteRequest,
+  ObservabilitySpan,
   WebSearchResult
 } from "./types";
 
@@ -121,12 +122,18 @@ export function listLocalSkills() {
   return invoke<[string, GitHubSkill[]]>("list_local_skills");
 }
 
-export function chat(modelConfigId: string, messages: ChatMessage[], temperature = 0.4) {
+export function chat(
+  modelConfigId: string,
+  messages: ChatMessage[],
+  temperature = 0.4,
+  traceId?: string
+) {
   return invoke<{ content: string }>("chat", {
     request: {
       model_config_id: modelConfigId,
       messages,
-      temperature
+      temperature,
+      trace_id: traceId || null
     }
   });
 }
@@ -135,14 +142,16 @@ export function chatStream(
   requestId: string,
   modelConfigId: string,
   messages: ChatMessage[],
-  temperature = 0.4
+  temperature = 0.4,
+  traceId?: string
 ) {
   return invoke<void>("chat_stream", {
     request: {
       request_id: requestId,
       model_config_id: modelConfigId,
       messages,
-      temperature
+      temperature,
+      trace_id: traceId || null
     }
   });
 }
@@ -200,4 +209,12 @@ export function writeLocalFile(projectPath: string, path: string, content: strin
 
 export function readLocalFile(projectPath: string, path: string) {
   return invoke<string>("read_local_file", { projectPath, path });
+}
+
+export function listObservabilitySpans(limit = 200) {
+  return invoke<ObservabilitySpan[]>("list_observability_spans", { limit });
+}
+
+export function clearObservabilitySpans() {
+  return invoke<void>("clear_observability_spans");
 }
