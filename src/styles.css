@@ -103,6 +103,15 @@
   --notification-warning-border: rgba(251, 191, 36, 0.35);
   --notification-warning-text: var(--accent-warning);
 
+  /* Chat & Render colors */
+  --chat-user-bg: #2563eb;
+  --chat-user-text: #ffffff;
+  --chat-user-shadow: 0 4px 12px rgba(37, 99, 235, 0.18);
+  --code-inline-bg: rgba(56, 189, 248, 0.10);
+  --code-inline-border: rgba(56, 189, 248, 0.25);
+  --code-inline-text: #38bdf8;
+  --table-th-bg: rgba(56, 189, 248, 0.08);
+
   color-scheme: dark;
   color: var(--text-primary);
   background: var(--bg-app);
@@ -151,6 +160,15 @@
   --notification-info-border: rgba(8, 145, 178, 0.24);
   --notification-warning-bg: rgba(217, 119, 6, 0.08);
   --notification-warning-border: rgba(217, 119, 6, 0.3);
+
+  /* Chat & Render colors */
+  --chat-user-bg: #2563eb;
+  --chat-user-text: #ffffff;
+  --chat-user-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
+  --code-inline-bg: rgba(2, 132, 199, 0.06);
+  --code-inline-border: rgba(2, 132, 199, 0.15);
+  --code-inline-text: #0284c7;
+  --table-th-bg: rgba(2, 132, 199, 0.06);
 
   color-scheme: light;
 }
@@ -1346,7 +1364,7 @@ button.danger:active:not(:disabled) {
 }
 
 .chat-message th {
-  background: rgba(56, 189, 248, 0.08);
+  background: var(--table-th-bg);
   color: var(--text-primary);
   font-weight: var(--font-weight-semibold);
 }
@@ -1398,10 +1416,10 @@ button.danger:active:not(:disabled) {
 
 .inline-code {
   padding: 2px 6px;
-  border: 1px solid rgba(56, 189, 248, 0.25);
+  border: 1px solid var(--code-inline-border);
   border-radius: 4px;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.1);
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
   font-family: var(--font-mono);
   font-size: 0.92em;
 }
@@ -1445,11 +1463,11 @@ button.danger:active:not(:disabled) {
 
 .chat-message.user {
   align-self: flex-end;
-  color: #ffffff;
-  background: var(--accent-indigo);
+  color: var(--chat-user-text);
+  background: var(--chat-user-bg);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-bottom-right-radius: 2px;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  box-shadow: var(--chat-user-shadow);
 }
 
 .chat-message.assistant {
