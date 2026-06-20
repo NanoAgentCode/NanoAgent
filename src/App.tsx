@@ -25,7 +25,11 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  X
+  X,
+  CloudSnow,
+  Flame,
+  Terminal,
+  Leaf
 } from "lucide-react";
 import {
   appendMessage,
@@ -97,7 +101,7 @@ const statusLabels: Record<string, string> = {
 };
 
 type WorkspaceView = ItemKind | "all" | "memory";
-type ThemeMode = "system" | "light" | "dark";
+type ThemeMode = "system" | "light" | "dark" | "nord" | "dracula" | "cyberpunk" | "forest";
 type SettingsTab =
   | "task"
   | "prompt"
@@ -157,8 +161,12 @@ const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "mode
 
 const themeLabels: Record<ThemeMode, string> = {
   system: "跟随系统",
-  light: "白天",
-  dark: "夜晚"
+  light: "经典白天",
+  dark: "经典夜晚",
+  nord: "北欧极地 (Nord)",
+  dracula: "吸血鬼 (Dracula)",
+  cyberpunk: "赛博朋克 (Cyberpunk)",
+  forest: "静谧森林 (Forest)"
 };
 
 const projectStorageKey = "nano-agent-projects";
@@ -584,11 +592,18 @@ function App() {
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
-      const resolvedTheme = themeMode === "system" ? (media.matches ? "dark" : "light") : themeMode;
+      let resolvedTheme = themeMode;
+      if (themeMode === "system") {
+        resolvedTheme = media.matches ? "dark" : "light";
+      }
       document.documentElement.dataset.theme = resolvedTheme;
       document.documentElement.dataset.themeMode = themeMode;
       localStorage.setItem("nano-agent-theme", themeMode);
-      void setTheme(themeMode === "system" ? null : themeMode);
+      
+      const tauriTheme = (resolvedTheme === "light" || resolvedTheme === "dark")
+        ? resolvedTheme
+        : (["nord", "dracula", "cyberpunk", "forest"].includes(resolvedTheme) ? "dark" : null);
+      void setTheme(tauriTheme);
     };
 
     applyTheme();
@@ -2817,8 +2832,21 @@ function App() {
                     <h3>主题选择</h3>
                     <p className="description">自定义NanoAgent的外观显示，适配各种工作环境。</p>
                     <div className="theme-switcher" role="group" aria-label="主题切换">
-                      {(["system", "light", "dark"] as ThemeMode[]).map((mode) => {
-                        const Icon = mode === "system" ? Monitor : mode === "light" ? Sun : Moon;
+                      {(["system", "light", "dark", "nord", "dracula", "cyberpunk", "forest"] as ThemeMode[]).map((mode) => {
+                        const Icon =
+                          mode === "system"
+                            ? Monitor
+                            : mode === "light"
+                            ? Sun
+                            : mode === "dark"
+                            ? Moon
+                            : mode === "nord"
+                            ? CloudSnow
+                            : mode === "dracula"
+                            ? Flame
+                            : mode === "cyberpunk"
+                            ? Terminal
+                            : Leaf;
                         return (
                           <button
                             key={mode}
