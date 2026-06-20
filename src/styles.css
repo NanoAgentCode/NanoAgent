@@ -104,9 +104,10 @@
   --notification-warning-text: var(--accent-warning);
 
   /* Chat & Render colors */
-  --chat-user-bg: #2563eb;
-  --chat-user-text: #ffffff;
-  --chat-user-shadow: 0 4px 12px rgba(37, 99, 235, 0.18);
+  --chat-user-bg: rgba(37, 99, 235, 0.12);
+  --chat-user-text: #93c5fd;
+  --chat-user-border: rgba(37, 99, 235, 0.35);
+  --chat-user-shadow: none;
   --code-inline-bg: rgba(56, 189, 248, 0.10);
   --code-inline-border: rgba(56, 189, 248, 0.25);
   --code-inline-text: #38bdf8;
@@ -164,6 +165,7 @@
   /* Chat & Render colors */
   --chat-user-bg: #2563eb;
   --chat-user-text: #ffffff;
+  --chat-user-border: rgba(37, 99, 235, 0.1);
   --chat-user-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
   --code-inline-bg: rgba(2, 132, 199, 0.06);
   --code-inline-border: rgba(2, 132, 199, 0.15);
@@ -1465,7 +1467,7 @@ button.danger:active:not(:disabled) {
   align-self: flex-end;
   color: var(--chat-user-text);
   background: var(--chat-user-bg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--chat-user-border);
   border-bottom-right-radius: 2px;
   box-shadow: var(--chat-user-shadow);
 }
