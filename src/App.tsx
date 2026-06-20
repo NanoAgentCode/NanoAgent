@@ -662,6 +662,19 @@ function App() {
   }, [activeConversationId]);
 
   useEffect(() => {
+    const conversationModelId = activeConversation?.model_config_id || "";
+    if (!conversationModelId) {
+      return;
+    }
+    if (!models.some((model) => model.id === conversationModelId)) {
+      return;
+    }
+    if (conversationModelId !== activeModelId) {
+      setActiveModelId(conversationModelId);
+    }
+  }, [activeConversation?.id, activeConversation?.model_config_id, activeModelId, models]);
+
+  useEffect(() => {
     if (showModelConfig && activeSettingsTab === "observability") {
       void refreshObservability();
     }
@@ -908,6 +921,18 @@ function App() {
     return conversation?.project_path
       ? projects.find((project) => project.path === conversation.project_path) || null
       : null;
+  }
+
+  function resolveConversationModelId(conversationId?: string | null) {
+    const savedModelId =
+      (conversationId ? findConversationById(conversationId)?.model_config_id : activeConversation?.model_config_id) ||
+      "";
+
+    if (savedModelId && models.some((model) => model.id === savedModelId)) {
+      return savedModelId;
+    }
+
+    return activeModelId;
   }
 
   function upsertProject(path: string) {
@@ -1821,6 +1846,7 @@ function App() {
     projectHint: ProjectEntry | null = null
   ) {
     const projectForRequest = resolveConversationProject(conversationId, projectHint);
+    const modelConfigId = resolveConversationModelId(conversationId);
     const enabledMemories = await listEnabledMemories();
     const webResults: any[] = [];
     let projectFiles: ProjectFileEntry[] = [];
@@ -1884,7 +1910,7 @@ function App() {
 
     try {
       setBusy(true);
-      await chatStream(requestId, activeModelId, modelMessages, 0.4, conversationId);
+      await chatStream(requestId, modelConfigId, modelMessages, 0.4, conversationId);
     } catch (err) {
       streamFailed = true;
       console.error("Continue streaming failed:", err);
@@ -2024,6 +2050,8 @@ function App() {
     const content = chatInput.trim();
     const memoryDraft = extractMemoryDraft(content);
     const reminderDraft = extractReminderDraft(content);
+    const effectiveModelId = resolveConversationModelId(activeConversationId);
+    const activeModelId = effectiveModelId;
 
     if (!content || (!activeModelId && !memoryDraft && !reminderDraft)) {
       setNotice(activeModelId ? "" : "请先保存并选择一个模型");
