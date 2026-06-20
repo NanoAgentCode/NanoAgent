@@ -283,10 +283,21 @@ async fn install_env(tech: String) -> AppResult<bool> {
     #[cfg(target_os = "windows")]
     c.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-    match c.status() {
-        Ok(s) => Ok(s.success()),
-        Err(e) => Err(crate::error::AppError::Message(e.to_string())),
+    let output = c
+        .output()
+        .map_err(|err| crate::error::AppError::Message(err.to_string()))?;
+    if output.status.success() {
+        return Ok(true);
     }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(crate::error::AppError::Message(format!(
+        "install failed with code {:?}\nStdout: {}\nStderr: {}",
+        output.status.code(),
+        stdout,
+        stderr
+    )))
 }
 
 #[tauri::command]
@@ -697,6 +708,7 @@ fn content_hash(content: &str) -> String {
 
 #[tauri::command]
 async fn execute_bash_command(project_path: String, command: String) -> AppResult<String> {
+    let root = project_root(&project_path)?;
     let mut c = if cfg!(target_os = "windows") {
         let mut cmd = std::process::Command::new("powershell.exe");
         cmd.arg("-NoProfile")
@@ -710,12 +722,7 @@ async fn execute_bash_command(project_path: String, command: String) -> AppResul
         cmd
     };
 
-    let proj = std::path::Path::new(&project_path);
-    if !proj.exists() {
-        std::fs::create_dir_all(proj)?;
-    }
-
-    c.current_dir(&project_path);
+    c.current_dir(root);
     let output = c.output()?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -734,17 +741,8 @@ async fn execute_bash_command(project_path: String, command: String) -> AppResul
 
 #[tauri::command]
 async fn write_local_file(project_path: String, path: String, content: String) -> AppResult<()> {
-    let proj = std::path::Path::new(&project_path);
-    if !proj.exists() {
-        std::fs::create_dir_all(proj)?;
-    }
-
-    let p = std::path::Path::new(&path);
-    let target_path = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new(&project_path).join(p)
-    };
+    let root = project_root(&project_path)?;
+    let target_path = resolve_project_relative_path(&root, &path)?;
 
     if let Some(parent) = target_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -756,17 +754,21 @@ async fn write_local_file(project_path: String, path: String, content: String) -
 
 #[tauri::command]
 async fn read_local_file(project_path: String, path: String) -> AppResult<String> {
-    let proj = std::path::Path::new(&project_path);
-    if !proj.exists() {
-        std::fs::create_dir_all(proj)?;
-    }
+    const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
 
-    let p = std::path::Path::new(&path);
-    let target_path = if p.is_absolute() {
-        p.to_path_buf()
-    } else {
-        std::path::Path::new(&project_path).join(p)
-    };
+    let root = project_root(&project_path)?;
+    let target_path = resolve_project_relative_path(&root, &path)?;
+    let metadata = std::fs::metadata(&target_path)?;
+    if !metadata.is_file() {
+        return Err(crate::error::AppError::Message(
+            "Can only read regular files".to_string(),
+        ));
+    }
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
+        return Err(crate::error::AppError::Message(
+            "File exceeds 1MB; please use an appropriate skill".to_string(),
+        ));
+    }
 
     let content = std::fs::read_to_string(target_path)?;
     Ok(content)

@@ -324,7 +324,7 @@ function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [activeKind, setActiveKind] = useState<WorkspaceView>("all");
+  const [activeKind, setActiveKind] = useState<WorkspaceView>("task");
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -461,6 +461,11 @@ function App() {
         : null,
     [activeConversation, projects]
   );
+  const activeProject = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) || null,
+    [activeProjectId, projects]
+  );
+  const selectedItemIsTask = selectedItem?.kind === "task";
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -1282,14 +1287,15 @@ function App() {
       return;
     }
 
+    const isTask = selectedItem.kind === "task";
     await updateItem({
       id: selectedItem.id,
       title,
       body,
       status,
       tags: parseTags(tagsText),
-      reminder_at: activeKind === "task" ? fromLocalDateTimeInput(reminderAt) : null,
-      repeat_rule: activeKind === "task" && repeatRule !== "none" ? repeatRule : null
+      reminder_at: isTask ? fromLocalDateTimeInput(reminderAt) : null,
+      repeat_rule: isTask && repeatRule !== "none" ? repeatRule : null
     });
 
     await refreshItems(query, activeKind);
@@ -1396,13 +1402,11 @@ function App() {
 
   async function handleEditModel(id: string) {
     if (!id) {
-      setActiveModelId("");
       setModelDraft(emptyModelDraft);
       return;
     }
     const model = models.find((item) => item.id === id);
     if (model) {
-      setActiveModelId(model.id);
       setModelDraft({ ...model });
     }
   }
@@ -1427,7 +1431,9 @@ function App() {
     await deleteModelConfig(modelDraft.id);
     const nextModels = await listModelConfigs();
     setModels(nextModels);
-    setActiveModelId(nextModels[0]?.id || "");
+    if (modelDraft.id === activeModelId) {
+      setActiveModelId(nextModels[0]?.id || "");
+    }
     setModelDraft(emptyModelDraft);
   }
 
@@ -1449,7 +1455,28 @@ function App() {
     }));
   }
 
+  async function createConversationForCurrentScope(project: ProjectEntry | null = activeProject) {
+    const conversation = await createConversation({
+      model_config_id: activeModelId || null,
+      project_path: project?.path || null
+    });
+
+    if (project) {
+      await refreshProjectConversationMap(projects);
+    } else {
+      await refreshConversations(conversation.id);
+    }
+    return conversation;
+  }
+
   async function handleNewConversation() {
+    {
+      const scopedConversation = await createConversationForCurrentScope();
+      setActiveConversationId(scopedConversation.id);
+      setMessages([]);
+      return;
+    }
+
     const conversation = await createConversation({
       title: "新对话",
       model_config_id: activeModelId || null
@@ -1459,6 +1486,14 @@ function App() {
   }
 
   async function handleNewProjectConversation(project: ProjectEntry) {
+    {
+      selectProject(project);
+      const scopedConversation = await createConversationForCurrentScope(project);
+      setActiveConversationId(scopedConversation.id);
+      setMessages([]);
+      return;
+    }
+
     selectProject(project);
     const conversation = await createConversation({
       title: "新对话",
@@ -1655,14 +1690,18 @@ function App() {
     };
   }, []);
 
-  async function handleDeleteArchivedConversation(id: string) {
-    await deleteConversation(id);
-    setArchivedConversations((current) => current.filter((item) => item.id !== id));
-    if (activeConversationId === id) {
+  async function handleDeleteArchivedConversation(conversation: Conversation) {
+    if (!confirm(`Delete conversation "${conversation.title}"?`)) {
+      return;
+    }
+
+    await deleteConversation(conversation.id);
+    setArchivedConversations((current) => current.filter((item) => item.id !== conversation.id));
+    if (activeConversationId === conversation.id) {
       setActiveConversationId("");
       setMessages([]);
     }
-    if (previewArchivedId === id) {
+    if (previewArchivedId === conversation.id) {
       setPreviewArchivedId("");
       setPreviewMessages([]);
     }
@@ -1671,6 +1710,12 @@ function App() {
   async function ensureConversation() {
     if (activeConversationId) {
       return activeConversationId;
+    }
+
+    {
+      const scopedConversation = await createConversationForCurrentScope();
+      setActiveConversationId(scopedConversation.id);
+      return scopedConversation.id;
     }
 
     const conversation = await createConversation({
@@ -1708,6 +1753,7 @@ function App() {
     const requestId = crypto.randomUUID();
     let streamedContent = "";
     let streamedReasoning = "";
+    let streamFailed = false;
     const temporaryAssistantMessage: PersistedMessage = {
       id: requestId,
       conversation_id: conversationId,
@@ -1741,6 +1787,7 @@ function App() {
       }
 
       if (event.payload.type === "error") {
+        streamFailed = true;
         setNotice(event.payload.message);
       }
     });
@@ -1749,13 +1796,36 @@ function App() {
       setBusy(true);
       await chatStream(requestId, activeModelId, modelMessages);
     } catch (err) {
+      streamFailed = true;
       console.error("Continue streaming failed:", err);
-      setNotice(`对话回复失败：${String(err)}`);
+      setNotice(`Conversation reply failed: ${String(err)}`);
     } finally {
       unlisten();
       setBusy(false);
+      let assistantMessage: PersistedMessage | null = null;
+      if (!streamFailed && streamedContent.trim()) {
+        assistantMessage = await appendMessage({
+          conversation_id: conversationId,
+          role: "assistant",
+          content: streamedContent
+        });
+      }
       const finalMessages = await listMessages(conversationId);
       setMessages(finalMessages);
+      if (assistantMessage && streamedReasoning.trim()) {
+        setMessageReasoning((current) => {
+          const { [requestId]: _, ...rest } = current;
+          return {
+            ...rest,
+            [assistantMessage.id]: streamedReasoning
+          };
+        });
+      } else {
+        setMessageReasoning((current) => {
+          const { [requestId]: _, ...rest } = current;
+          return rest;
+        });
+      }
       if (projectForRequest) {
         await refreshProjectConversationMap(projects);
       } else {
@@ -1782,7 +1852,7 @@ function App() {
         const content = toolCall.args.content || "";
         if (!path) throw new Error("缺少 path 参数");
         await writeLocalFile(projectPath, path, content);
-        resultText = `文件 ${path} 写入成功，内容长度为 ${content.length} 字符。`;
+        resultText = `File ${path} written successfully; content length: ${content.length} characters.`;
       } else if (toolCall.name === "read_file") {
         const path = toolCall.args.path;
         if (!path) throw new Error("缺少 path 参数");
@@ -2114,7 +2184,7 @@ function App() {
             <div style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", justifyContent: "center" }}>
               <button 
                 className="icon-only-btn" 
-                onClick={() => void handleNewItem(activeKind as ItemKind)} 
+                onClick={() => void handleNewItem(activeKind === "all" ? "note" : activeKind as ItemKind)}
                 title={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
                 aria-label={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
                 type="button"
@@ -2199,7 +2269,7 @@ function App() {
                 placeholder="在此编写笔记、备忘录详情或提示词模板..."
                 disabled={!selectedItem}
               />
-              {activeKind === "task" && (
+              {selectedItemIsTask && (
                 <div className="reminder-controls">
                   <label>
                     <span>提醒时间</span>
@@ -2621,7 +2691,7 @@ function App() {
                                 className="icon-only-btn danger-btn"
                                 aria-label="删除归档对话"
                                 title="删除归档对话"
-                                onClick={() => void handleDeleteArchivedConversation(conversation.id)}
+                                onClick={() => void handleDeleteArchivedConversation(conversation)}
                                 type="button"
                               >
                                 <Trash2 />
@@ -2689,10 +2759,7 @@ function App() {
                           <button
                             key={model.id}
                             className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
-                            onClick={() => {
-                              setModelDraft({ ...model });
-                              setActiveModelId(model.id);
-                            }}
+                            onClick={() => setModelDraft({ ...model })}
                           >
                             <strong>{model.name}</strong>
                             <span>{model.provider} / {model.model}</span>
@@ -3184,7 +3251,7 @@ function App() {
               >
                 联网
               </button>
-              <select value={activeModelId} onChange={(event) => handleEditModel(event.target.value)}>
+              <select value={activeModelId} onChange={(event) => setActiveModelId(event.target.value)}>
                 <option value="">选择模型</option>
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>{model.name}</option>

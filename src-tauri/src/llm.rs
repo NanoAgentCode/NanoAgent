@@ -203,7 +203,7 @@ async fn send_openai_chat_completion_stream(
 ) -> AppResult<()> {
     if let Err(err) = ensure_api_key(&config) {
         emit_stream_error(&app, &request.request_id, &err.to_string());
-        return Ok(());
+        return Err(err);
     }
 
     let endpoint = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
@@ -233,7 +233,7 @@ async fn send_anthropic_chat_completion_stream(
 ) -> AppResult<()> {
     if let Err(err) = ensure_api_key(&config) {
         emit_stream_error(&app, &request.request_id, &err.to_string());
-        return Ok(());
+        return Err(err);
     }
 
     let endpoint = anthropic_messages_endpoint(&config.base_url);
@@ -263,7 +263,7 @@ async fn stream_sse_response(
         Ok(response) => response,
         Err(err) => {
             emit_stream_error(&app, &request_id, &err.to_string());
-            return Ok(());
+            return Err(AppError::from(err));
         }
     };
     let status = response.status();
@@ -275,7 +275,9 @@ async fn stream_sse_response(
             &request_id,
             &format!("model request failed with {status}: {text}"),
         );
-        return Ok(());
+        return Err(AppError::Message(format!(
+            "model request failed with {status}: {text}"
+        )));
     }
 
     let mut buffer = String::new();
@@ -287,7 +289,7 @@ async fn stream_sse_response(
             Ok(chunk) => chunk,
             Err(err) => {
                 emit_stream_error(&app, &request_id, &err.to_string());
-                return Ok(());
+                return Err(AppError::from(err));
             }
         };
 

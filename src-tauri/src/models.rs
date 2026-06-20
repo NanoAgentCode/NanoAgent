@@ -1,5 +1,48 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+#[derive(Debug, Clone)]
+pub enum PatchField<T> {
+    Missing,
+    Null,
+    Value(T),
+}
+
+impl<T> Default for PatchField<T> {
+    fn default() -> Self {
+        Self::Missing
+    }
+}
+
+impl<'de, T> Deserialize<'de> for PatchField<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Option::<T>::deserialize(deserializer).map(|value| match value {
+            Some(value) => Self::Value(value),
+            None => Self::Null,
+        })
+    }
+}
+
+impl<T> Serialize for PatchField<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Missing | Self::Null => serializer.serialize_none(),
+            Self::Value(value) => value.serialize(serializer),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
@@ -35,9 +78,12 @@ pub struct ItemPatch {
     pub body: Option<String>,
     pub status: Option<String>,
     pub tags: Option<Vec<String>>,
-    pub reminder_at: Option<DateTime<Utc>>,
-    pub repeat_rule: Option<String>,
-    pub last_reminded_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub reminder_at: PatchField<DateTime<Utc>>,
+    #[serde(default)]
+    pub repeat_rule: PatchField<String>,
+    #[serde(default)]
+    pub last_reminded_at: PatchField<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

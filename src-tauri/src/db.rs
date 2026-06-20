@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
-    Message, MessageDraft, ModelConfig, ModelConfigDraft,
+    Message, MessageDraft, ModelConfig, ModelConfigDraft, PatchField,
 };
 
 pub struct Database {
@@ -211,9 +211,9 @@ impl Database {
             body: patch.body.unwrap_or(current.body),
             status: patch.status.unwrap_or(current.status),
             tags: patch.tags.unwrap_or(current.tags),
-            reminder_at: patch.reminder_at.or(current.reminder_at),
-            repeat_rule: patch.repeat_rule.or(current.repeat_rule),
-            last_reminded_at: patch.last_reminded_at.or(current.last_reminded_at),
+            reminder_at: apply_patch_field(patch.reminder_at, current.reminder_at),
+            repeat_rule: apply_patch_field(patch.repeat_rule, current.repeat_rule),
+            last_reminded_at: apply_patch_field(patch.last_reminded_at, current.last_reminded_at),
             created_at: current.created_at,
             updated_at: Utc::now(),
         };
@@ -225,8 +225,10 @@ impl Database {
     pub fn delete_item(&self, id: &str) -> AppResult<()> {
         self.conn
             .execute("DELETE FROM items_fts WHERE id = ?1", params![id])?;
-        self.conn
+        let affected = self
+            .conn
             .execute("DELETE FROM items WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "item not found")?;
         Ok(())
     }
 
@@ -316,8 +318,10 @@ impl Database {
     }
 
     pub fn delete_model_config(&self, id: &str) -> AppResult<()> {
-        self.conn
+        let affected = self
+            .conn
             .execute("DELETE FROM model_configs WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "model config not found")?;
         Ok(())
     }
 
@@ -404,7 +408,7 @@ impl Database {
 
     pub fn archive_conversation(&self, id: &str, archived: bool) -> AppResult<()> {
         let now = Utc::now();
-        self.conn.execute(
+        let affected = self.conn.execute(
             "
             UPDATE conversations
             SET archived = ?2,
@@ -423,12 +427,13 @@ impl Database {
                 now.to_rfc3339()
             ],
         )?;
+        ensure_affected(affected, "conversation not found")?;
         Ok(())
     }
 
     pub fn rename_conversation(&self, id: &str, title: &str) -> AppResult<()> {
         let now = Utc::now();
-        self.conn.execute(
+        let affected = self.conn.execute(
             "
             UPDATE conversations
             SET title = ?2,
@@ -437,12 +442,15 @@ impl Database {
             ",
             params![id, title, now.to_rfc3339()],
         )?;
+        ensure_affected(affected, "conversation not found")?;
         Ok(())
     }
 
     pub fn delete_conversation(&self, id: &str) -> AppResult<()> {
-        self.conn
+        let affected = self
+            .conn
             .execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "conversation not found")?;
         Ok(())
     }
 
@@ -525,7 +533,10 @@ impl Database {
         let query = format!("DELETE FROM messages WHERE id IN ({})", placeholders);
         let mut stmt = self.conn.prepare(&query)?;
         let params = rusqlite::params_from_iter(ids);
-        stmt.execute(params)?;
+        let affected = stmt.execute(params)?;
+        if affected != ids.len() {
+            return Err(AppError::Message("message not found".to_string()));
+        }
         Ok(())
     }
 
@@ -634,8 +645,10 @@ impl Database {
     pub fn delete_memory(&self, id: &str) -> AppResult<()> {
         self.conn
             .execute("DELETE FROM memories_fts WHERE id = ?1", params![id])?;
-        self.conn
+        let affected = self
+            .conn
             .execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "memory not found")?;
         Ok(())
     }
 
@@ -858,4 +871,19 @@ fn clean_or_default(value: String, default: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+fn apply_patch_field<T>(field: PatchField<T>, current: Option<T>) -> Option<T> {
+    match field {
+        PatchField::Missing => current,
+        PatchField::Null => None,
+        PatchField::Value(value) => Some(value),
+    }
+}
+
+fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
+    if affected == 0 {
+        return Err(AppError::Message(message.to_string()));
+    }
+    Ok(())
 }
