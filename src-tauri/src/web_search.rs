@@ -4,21 +4,58 @@ use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
 use crate::error::{AppError, AppResult};
-use crate::models::WebSearchResult;
+use crate::models::{WebSearchResponse, WebSearchResult, WebSearchStatus};
 
-pub async fn internet_search(query: &str, tavily_api_key: Option<&str>) -> AppResult<Vec<WebSearchResult>> {
+pub async fn internet_search(
+    query: &str,
+    tavily_api_key: Option<&str>,
+) -> AppResult<WebSearchResponse> {
     let query = query.trim();
     if query.is_empty() {
-        return Ok(Vec::new());
+        return Ok(WebSearchResponse {
+            results: Vec::new(),
+            status: WebSearchStatus {
+                engine: "none".to_string(),
+                used_fallback: false,
+                fallback_reason: None,
+            },
+        });
     }
 
-    if let Ok(results) = tavily_search(query, tavily_api_key).await {
-        if !results.is_empty() {
-            return Ok(results);
+    match tavily_search(query, tavily_api_key).await {
+        Ok(results) if !results.is_empty() => {
+            return Ok(WebSearchResponse {
+                results,
+                status: WebSearchStatus {
+                    engine: "tavily".to_string(),
+                    used_fallback: false,
+                    fallback_reason: None,
+                },
+            });
+        }
+        Ok(_) => {}
+        Err(error) => {
+            let results = duckduckgo_search(query).await?;
+            return Ok(WebSearchResponse {
+                results,
+                status: WebSearchStatus {
+                    engine: "duckduckgo".to_string(),
+                    used_fallback: true,
+                    fallback_reason: Some(error.to_string()),
+                },
+            });
         }
     }
 
-    duckduckgo_search(query).await
+    let results = duckduckgo_search(query).await?;
+    Ok(WebSearchResponse {
+        results,
+        status: WebSearchStatus {
+            engine: "duckduckgo".to_string(),
+            used_fallback: true,
+            fallback_reason: Some("Tavily returned no results".to_string()),
+        },
+    })
 }
 
 async fn tavily_search(query: &str, tavily_api_key: Option<&str>) -> AppResult<Vec<WebSearchResult>> {

@@ -139,6 +139,7 @@ pub struct Message {
     pub conversation_id: String,
     pub role: String,
     pub content: String,
+    pub metadata: Option<MessageMetadata>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -147,6 +148,7 @@ pub struct MessageDraft {
     pub conversation_id: String,
     pub role: String,
     pub content: String,
+    pub metadata: Option<MessageMetadata>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,6 +215,32 @@ pub struct WebSearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchStatus {
+    pub engine: String,
+    pub used_fallback: bool,
+    pub fallback_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchResponse {
+    pub results: Vec<WebSearchResult>,
+    pub status: WebSearchStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageMetadata {
+    pub web_search: Option<MessageWebSearchMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageWebSearchMetadata {
+    pub engine: String,
+    pub used_fallback: bool,
+    pub fallback_reason: Option<String>,
+    pub result_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

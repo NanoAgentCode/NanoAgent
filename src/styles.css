@@ -1505,6 +1505,39 @@ button.danger:active:not(:disabled) {
   margin-bottom: 0;
 }
 
+.web-search-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.web-search-status.primary {
+  border: 1px solid rgba(47, 129, 247, 0.22);
+  background: rgba(47, 129, 247, 0.08);
+  color: #7bc1ff;
+}
+
+.web-search-status.fallback {
+  border: 1px solid rgba(242, 201, 76, 0.24);
+  background: rgba(242, 201, 76, 0.09);
+  color: #f5d778;
+}
+
+.web-search-status span {
+  font-weight: 600;
+}
+
+.web-search-status small {
+  opacity: 0.88;
+  word-break: break-word;
+}
+
 .inline-code {
   padding: 2px 6px;
   border: 1px solid var(--code-inline-border);

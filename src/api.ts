@@ -14,12 +14,12 @@ import type {
   ModelConfigDraft,
   PersistedMessage,
   GitHubSkill,
+  WebSearchResponse,
   ProjectFileContent,
   ProjectFileEntry,
   ProjectFileMoveRequest,
   ProjectFileWriteRequest,
   ObservabilitySpan,
-  WebSearchResult
 } from "./types";
 
 export function listItems(kind?: string) {
@@ -111,7 +111,7 @@ export function deleteMemory(id: string) {
 }
 
 export function internetSearch(query: string, tavilyApiKey?: string) {
-  return invoke<WebSearchResult[]>("internet_search", {
+  return invoke<WebSearchResponse>("internet_search", {
     query,
     tavilyApiKey: tavilyApiKey?.trim() || null
   });

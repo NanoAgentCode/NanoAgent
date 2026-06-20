@@ -83,6 +83,7 @@ export interface PersistedMessage {
   conversation_id: string;
   role: "system" | "user" | "assistant";
   content: string;
+  metadata?: MessageMetadata | null;
   created_at: string;
 }
 
@@ -90,6 +91,7 @@ export interface MessageDraft {
   conversation_id: string;
   role: "system" | "user" | "assistant";
   content: string;
+  metadata?: MessageMetadata | null;
 }
 
 export interface Memory {
@@ -127,6 +129,28 @@ export interface WebSearchResult {
   title: string;
   url: string;
   snippet: string;
+}
+
+export interface WebSearchStatus {
+  engine: string;
+  used_fallback: boolean;
+  fallback_reason?: string | null;
+}
+
+export interface WebSearchResponse {
+  results: WebSearchResult[];
+  status: WebSearchStatus;
+}
+
+export interface MessageMetadata {
+  web_search?: MessageWebSearchMetadata | null;
+}
+
+export interface MessageWebSearchMetadata {
+  engine: string;
+  used_fallback: boolean;
+  fallback_reason?: string | null;
+  result_count: number;
 }
 
 export interface GitHubSkill {

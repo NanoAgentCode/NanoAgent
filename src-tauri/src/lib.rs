@@ -13,7 +13,7 @@ use models::{
     ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
     ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft, ModelConfig,
     ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
-    ProjectFileWriteRequest, WebSearchResult,
+    ProjectFileWriteRequest, WebSearchResponse,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -351,7 +351,7 @@ async fn internet_search(
     state: State<'_, AppState>,
     query: String,
     tavily_api_key: Option<String>,
-) -> AppResult<Vec<WebSearchResult>> {
+) -> AppResult<WebSearchResponse> {
     let span = start_observation(
         &state,
         "internet_search",
@@ -364,7 +364,10 @@ async fn internet_search(
     )
     .await;
     let result = run_internet_search(&query, tavily_api_key.as_deref()).await;
-    let output = result.as_ref().ok().map(|items| count_summary(items));
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|response| count_summary(&response.results));
     finish_observation(&state, span, &result, output).await;
     result
 }

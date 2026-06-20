@@ -72,6 +72,7 @@ import type {
   Conversation,
   Item,
   ItemKind,
+  MessageMetadata,
   Memory,
   ModelConfig,
   ModelConfigDraft,
@@ -79,7 +80,9 @@ import type {
   ProjectEntry,
   ProjectFileEntry,
   PersistedMessage,
-  WebSearchResult
+  WebSearchResponse,
+  WebSearchResult,
+  WebSearchStatus
 } from "./types";
 
 const kindLabels: Record<ItemKind, string> = {
@@ -108,6 +111,44 @@ type SettingsTab =
   | "skills"
   | "mcp"
   | "observability";
+
+const emptyWebSearchResponse = (): WebSearchResponse => ({
+  results: [],
+  status: {
+    engine: "none",
+    used_fallback: false,
+    fallback_reason: null
+  }
+});
+
+function buildWebSearchMetadata(response: WebSearchResponse): MessageMetadata | null {
+  if (response.status.engine === "none") {
+    return null;
+  }
+
+  return {
+    web_search: {
+      engine: response.status.engine,
+      used_fallback: response.status.used_fallback,
+      fallback_reason: response.status.fallback_reason || null,
+      result_count: response.results.length
+    }
+  };
+}
+
+function getWebSearchEngineLabel(engine: string) {
+  if (engine === "tavily") return "Tavily";
+  if (engine === "duckduckgo") return "DuckDuckGo";
+  return engine || "未知引擎";
+}
+
+function formatWebSearchBadge(status: WebSearchStatus, resultCount: number) {
+  const engineLabel = getWebSearchEngineLabel(status.engine);
+  if (status.used_fallback) {
+    return `网络检索: 已回退到 ${engineLabel} (${resultCount} 条结果)`;
+  }
+  return `网络检索: ${engineLabel} (${resultCount} 条结果)`;
+}
 
 const workspaceLabels: Record<WorkspaceView, string> = {
   all: "全部",
@@ -1848,7 +1889,8 @@ function App() {
     const projectForRequest = resolveConversationProject(conversationId, projectHint);
     const modelConfigId = resolveConversationModelId(conversationId);
     const enabledMemories = await listEnabledMemories();
-    const webResults: any[] = [];
+    const webSearchResponse = emptyWebSearchResponse();
+    const webResults = webSearchResponse.results;
     let projectFiles: ProjectFileEntry[] = [];
     if (projectForRequest?.path) {
       try {
@@ -1859,7 +1901,15 @@ function App() {
     }
 
     const modelMessages: ChatMessage[] = [
-      buildSystemMessage(enabledMemories, webResults, projectForRequest, projectFiles, skills, tempDir),
+      buildSystemMessage(
+        enabledMemories,
+        webResults,
+        webSearchResponse.status,
+        projectForRequest,
+        projectFiles,
+        skills,
+        tempDir
+      ),
       ...currentMessages.map((message) => ({
         role: message.role,
         content: message.content
@@ -2103,7 +2153,10 @@ function App() {
       }
 
       const enabledMemories = await listEnabledMemories();
-      const webResults = webSearchEnabled ? await internetSearch(content, tavilyApiKey) : [];
+      const webSearchResponse = webSearchEnabled
+        ? await internetSearch(content, tavilyApiKey)
+        : emptyWebSearchResponse();
+      const webResults = webSearchResponse.results;
       let projectFiles: ProjectFileEntry[] = [];
       if (projectForRequest?.path) {
         try {
@@ -2154,7 +2207,15 @@ function App() {
       }
 
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(enabledMemories, webResults, projectForRequest, projectFiles, skills, tempDir),
+        buildSystemMessage(
+          enabledMemories,
+          webResults,
+          webSearchResponse.status,
+          projectForRequest,
+          projectFiles,
+          skills,
+          tempDir
+        ),
         ...currentMessages.map((message) => ({
           role: message.role,
           content: message.content
@@ -2169,6 +2230,7 @@ function App() {
         conversation_id: conversationId,
         role: "assistant",
         content: "",
+        metadata: buildWebSearchMetadata(webSearchResponse) || undefined,
         created_at: new Date().toISOString()
       };
       setMessages([...currentMessages, temporaryAssistantMessage]);
@@ -2220,7 +2282,8 @@ function App() {
       const assistantMessage = await appendMessage({
         conversation_id: conversationId,
         role: "assistant",
-        content: streamedContent
+        content: streamedContent,
+        metadata: buildWebSearchMetadata(webSearchResponse) || undefined
       });
 
       if (activeConversationIdRef.current === conversationId) {
@@ -2951,11 +3014,24 @@ function App() {
                             </div>
                             <div className="archive-preview-messages-container">
                               <div className="chat-log">
-                                {previewMessages.map((message) => (
-                                  <div key={message.id} className={`chat-message ${message.role}`}>
-                                    <MarkdownMessage content={message.content} />
-                                  </div>
-                                ))}
+                                {previewMessages.map((message) => {
+                                  const webSearchMeta = message.metadata?.web_search;
+                                  return (
+                                    <div key={message.id} className={`chat-message ${message.role}`}>
+                                      {message.role === "assistant" && webSearchMeta && (
+                                        <div className={`web-search-status ${webSearchMeta.used_fallback ? "fallback" : "primary"}`}>
+                                          <span>{formatWebSearchBadge(webSearchMeta, webSearchMeta.result_count)}</span>
+                                          {webSearchMeta.used_fallback && webSearchMeta.fallback_reason && (
+                                            <small title={webSearchMeta.fallback_reason}>
+                                              {webSearchMeta.fallback_reason}
+                                            </small>
+                                          )}
+                                        </div>
+                                      )}
+                                      <MarkdownMessage content={message.content} />
+                                    </div>
+                                  );
+                                })}
                                 {previewMessages.length === 0 && <div className="empty">该对话无消息记录</div>}
                               </div>
                             </div>
@@ -3377,6 +3453,7 @@ function App() {
         <div className="chat-log">
           {messages.map((message) => {
             const toolCall = message.role === "assistant" ? parseToolCall(message.content) : null;
+            const webSearchMeta = message.metadata?.web_search;
             const isExecuted = toolCall ? messages.slice(messages.indexOf(message) + 1).some((m) =>
               m.role === "user" && m.content.startsWith(`[工具执行结果: ${toolCall.name}]`)
             ) : false;
@@ -3388,6 +3465,16 @@ function App() {
                     <summary className="reasoning-title">思考过程</summary>
                     <MarkdownMessage content={messageReasoning[message.id]} />
                   </details>
+                )}
+                {message.role === "assistant" && webSearchMeta && (
+                  <div className={`web-search-status ${webSearchMeta.used_fallback ? "fallback" : "primary"}`}>
+                    <span>{formatWebSearchBadge(webSearchMeta, webSearchMeta.result_count)}</span>
+                    {webSearchMeta.used_fallback && webSearchMeta.fallback_reason && (
+                      <small title={webSearchMeta.fallback_reason}>
+                        {webSearchMeta.fallback_reason}
+                      </small>
+                    )}
+                  </div>
                 )}
                 <MarkdownMessage content={message.content} />
                 
@@ -3877,6 +3964,7 @@ function getNextReminderAt(value?: string | null, repeatRule?: string | null) {
 function buildSystemMessage(
   memories: Memory[],
   webResults: WebSearchResult[] = [],
+  webSearchStatus: WebSearchStatus = emptyWebSearchResponse().status,
   activeProject: ProjectEntry | null = null,
   projectFiles: ProjectFileEntry[] = [],
   skills: Skill[] = [],
@@ -3894,6 +3982,13 @@ function buildSystemMessage(
       return `${index + 1}. ${result.title}\n   链接: ${result.url}${snippet}`;
     })
     .join("\n");
+  const webStatusContext = webSearchStatus.engine !== "none"
+    ? `本次互联网检索实际使用引擎：${getWebSearchEngineLabel(webSearchStatus.engine)}${
+      webSearchStatus.used_fallback
+        ? `（已从 Tavily 回退，原因：${webSearchStatus.fallback_reason || "Tavily 不可用"}）`
+        : ""
+    }`
+    : "";
 
   const projectContext = activeProject
     ? [
@@ -3967,7 +4062,12 @@ function buildSystemMessage(
     projectContext,
     skillsContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext}\n\n${toolsSystemInstruction}` : "",
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
-    webContext ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${webContext}` : ""
+    webContext || webStatusContext
+      ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${[
+          webStatusContext,
+          webContext
+        ].filter(Boolean).join("\n")}`
+      : ""
   ].filter(Boolean);
 
   return {

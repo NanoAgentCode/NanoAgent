@@ -7,7 +7,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
-    Message, MessageDraft, ModelConfig, ModelConfigDraft, PatchField,
+    Message, MessageDraft, MessageMetadata, ModelConfig, ModelConfigDraft, PatchField,
 };
 
 pub struct Database {
@@ -77,6 +77,7 @@ impl Database {
                 conversation_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
+                metadata_json TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
             );
@@ -108,6 +109,7 @@ impl Database {
         self.ensure_column("items", "reminder_at", "TEXT")?;
         self.ensure_column("items", "repeat_rule", "TEXT")?;
         self.ensure_column("items", "last_reminded_at", "TEXT")?;
+        self.ensure_column("messages", "metadata_json", "TEXT")?;
         Ok(())
     }
 
@@ -457,7 +459,7 @@ impl Database {
     pub fn list_messages(&self, conversation_id: &str) -> AppResult<Vec<Message>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, conversation_id, role, content, created_at
+            SELECT id, conversation_id, role, content, metadata_json, created_at
             FROM messages
             WHERE conversation_id = ?1
             ORDER BY created_at ASC
@@ -479,19 +481,21 @@ impl Database {
             conversation_id: draft.conversation_id,
             role: clean_or_default(draft.role, "user"),
             content: draft.content,
+            metadata: draft.metadata,
             created_at: now,
         };
 
         self.conn.execute(
             "
-            INSERT INTO messages (id, conversation_id, role, content, created_at)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO messages (id, conversation_id, role, content, metadata_json, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             ",
             params![
                 message.id,
                 message.conversation_id,
                 message.role,
                 message.content,
+                serialize_metadata(&message.metadata)?,
                 message.created_at.to_rfc3339()
             ],
         )?;
@@ -823,13 +827,15 @@ impl Database {
     }
 
     fn row_to_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
-        let created_at: String = row.get(4)?;
+        let metadata_json: Option<String> = row.get(4)?;
+        let created_at: String = row.get(5)?;
 
         Ok(Message {
             id: row.get(0)?,
             conversation_id: row.get(1)?,
             role: row.get(2)?,
             content: row.get(3)?,
+            metadata: deserialize_metadata(metadata_json),
             created_at: parse_time_for_row(&created_at)?,
         })
     }
@@ -879,6 +885,18 @@ fn apply_patch_field<T>(field: PatchField<T>, current: Option<T>) -> Option<T> {
         PatchField::Null => None,
         PatchField::Value(value) => Some(value),
     }
+}
+
+fn serialize_metadata(metadata: &Option<MessageMetadata>) -> AppResult<Option<String>> {
+    metadata
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(AppError::from)
+}
+
+fn deserialize_metadata(metadata_json: Option<String>) -> Option<MessageMetadata> {
+    metadata_json.and_then(|json| serde_json::from_str(&json).ok())
 }
 
 fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
