@@ -25,11 +25,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  X,
-  CloudSnow,
-  Flame,
-  Terminal,
-  Leaf
+  X
 } from "lucide-react";
 import {
   appendMessage,
@@ -101,7 +97,7 @@ const statusLabels: Record<string, string> = {
 };
 
 type WorkspaceView = ItemKind | "all" | "memory";
-type ThemeMode = "system" | "light" | "dark" | "nord" | "dracula" | "cyberpunk" | "forest";
+type ThemeMode = "system" | "light" | "dark";
 type SettingsTab =
   | "task"
   | "prompt"
@@ -161,12 +157,8 @@ const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "mode
 
 const themeLabels: Record<ThemeMode, string> = {
   system: "跟随系统",
-  light: "经典白天",
-  dark: "经典夜晚",
-  nord: "北欧极地 (Nord)",
-  dracula: "吸血鬼 (Dracula)",
-  cyberpunk: "赛博朋克 (Cyberpunk)",
-  forest: "静谧森林 (Forest)"
+  light: "白天主题",
+  dark: "夜晚主题"
 };
 
 const projectStorageKey = "nano-agent-projects";
@@ -600,9 +592,7 @@ function App() {
       document.documentElement.dataset.themeMode = themeMode;
       localStorage.setItem("nano-agent-theme", themeMode);
       
-      const tauriTheme = (resolvedTheme === "light" || resolvedTheme === "dark")
-        ? resolvedTheme
-        : (["nord", "dracula", "cyberpunk", "forest"].includes(resolvedTheme) ? "dark" : null);
+      const tauriTheme = resolvedTheme === "light" ? "light" : "dark";
       void setTheme(tauriTheme);
     };
 
@@ -2832,21 +2822,13 @@ function App() {
                     <h3>主题选择</h3>
                     <p className="description">自定义NanoAgent的外观显示，适配各种工作环境。</p>
                     <div className="theme-switcher" role="group" aria-label="主题切换">
-                      {(["system", "light", "dark", "nord", "dracula", "cyberpunk", "forest"] as ThemeMode[]).map((mode) => {
+                      {(["system", "light", "dark"] as ThemeMode[]).map((mode) => {
                         const Icon =
                           mode === "system"
                             ? Monitor
                             : mode === "light"
                             ? Sun
-                            : mode === "dark"
-                            ? Moon
-                            : mode === "nord"
-                            ? CloudSnow
-                            : mode === "dracula"
-                            ? Flame
-                            : mode === "cyberpunk"
-                            ? Terminal
-                            : Leaf;
+                            : Moon;
                         return (
                           <button
                             key={mode}
