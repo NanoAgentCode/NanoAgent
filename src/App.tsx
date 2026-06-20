@@ -1549,6 +1549,13 @@ function App() {
     return conversation;
   }
 
+  function resolveConversationProject(
+    conversationId: string,
+    projectHint: ProjectEntry | null = null
+  ) {
+    return findConversationProject(findConversationById(conversationId)) || projectHint;
+  }
+
   async function handleNewConversation() {
     {
       const scopedConversation = await createConversationForCurrentScope();
@@ -1787,13 +1794,13 @@ function App() {
     }
   }
 
-  async function ensureConversation() {
+  async function ensureConversation(project: ProjectEntry | null = activeProject) {
     if (activeConversationId) {
       return activeConversationId;
     }
 
     {
-      const scopedConversation = await createConversationForCurrentScope();
+      const scopedConversation = await createConversationForCurrentScope(project);
       setActiveConversationId(scopedConversation.id);
       return scopedConversation.id;
     }
@@ -1808,9 +1815,12 @@ function App() {
 
   const [executingToolMessageId, setExecutingToolMessageId] = useState<string | null>(null);
 
-  async function triggerLlmContinue(conversationId: string, currentMessages: PersistedMessage[]) {
-    const conversationForRequest = findConversationById(conversationId);
-    const projectForRequest = findConversationProject(conversationForRequest);
+  async function triggerLlmContinue(
+    conversationId: string,
+    currentMessages: PersistedMessage[],
+    projectHint: ProjectEntry | null = null
+  ) {
+    const projectForRequest = resolveConversationProject(conversationId, projectHint);
     const enabledMemories = await listEnabledMemories();
     const webResults: any[] = [];
     let projectFiles: ProjectFileEntry[] = [];
@@ -1920,9 +1930,9 @@ function App() {
     setBusy(true);
 
     try {
-      const conversationId = await ensureConversation();
-      const conversationForRequest = findConversationById(conversationId);
-      const projectForRequest = findConversationProject(conversationForRequest);
+      const projectHint = activeConversationId ? null : activeProject;
+      const conversationId = await ensureConversation(projectHint);
+      const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const projectPath = projectForRequest?.path || tempDir;
 
       let resultText = "";
@@ -1960,13 +1970,15 @@ function App() {
       const updatedMessages = await listMessages(conversationId);
       setMessages(updatedMessages);
 
-      void triggerLlmContinue(conversationId, updatedMessages);
+      void triggerLlmContinue(conversationId, updatedMessages, projectForRequest);
     } catch (error) {
       console.error("Tool execution failed:", error);
       setNotice(`工具执行失败: ${String(error)}`);
       
       try {
-        const conversationId = await ensureConversation();
+        const projectHint = activeConversationId ? null : activeProject;
+        const conversationId = await ensureConversation(projectHint);
+        const projectForRequest = resolveConversationProject(conversationId, projectHint);
         await appendMessage({
           conversation_id: conversationId,
           role: "user",
@@ -1974,7 +1986,7 @@ function App() {
         });
         const updatedMessages = await listMessages(conversationId);
         setMessages(updatedMessages);
-        void triggerLlmContinue(conversationId, updatedMessages);
+        void triggerLlmContinue(conversationId, updatedMessages, projectForRequest);
       } catch (e) {
         console.error("Failed to append tool error message:", e);
       }
@@ -1987,7 +1999,8 @@ function App() {
   async function handleRejectTool(messageId: string, toolCall: ParsedToolCall) {
     setBusy(true);
     try {
-      const conversationId = await ensureConversation();
+      const projectHint = activeConversationId ? null : activeProject;
+      const conversationId = await ensureConversation(projectHint);
       await appendMessage({
         conversation_id: conversationId,
         role: "user",
@@ -1995,7 +2008,11 @@ function App() {
       });
       const updatedMessages = await listMessages(conversationId);
       setMessages(updatedMessages);
-      void triggerLlmContinue(conversationId, updatedMessages);
+      void triggerLlmContinue(
+        conversationId,
+        updatedMessages,
+        resolveConversationProject(conversationId, projectHint)
+      );
     } catch (error) {
       console.error("Reject tool failed:", error);
     } finally {
@@ -2017,9 +2034,9 @@ function App() {
     setBusy(true);
 
     try {
-      const conversationId = await ensureConversation();
-      const conversationForRequest = findConversationById(conversationId);
-      const projectForRequest = findConversationProject(conversationForRequest);
+      const projectHint = activeConversationId ? null : activeProject;
+      const conversationId = await ensureConversation(projectHint);
+      const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const persistedMessages = await listMessages(conversationId);
       const userMessage = await appendMessage({
         conversation_id: conversationId,
