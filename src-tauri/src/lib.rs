@@ -520,6 +520,44 @@ async fn update_agent_tool_call(
 }
 
 #[tauri::command]
+async fn approve_agent_tool_call(
+    state: State<'_, AppState>,
+    id: String,
+) -> AppResult<AgentToolCall> {
+    let runtime = state.runtime.lock().await;
+    let tool_call = runtime.approve_tool_call(&id)?;
+    runtime.record_step(AgentStepDraft {
+        run_id: tool_call.run_id.clone(),
+        kind: "approval".to_string(),
+        status: "approved".to_string(),
+        input_summary: Some(tool_call.name.clone()),
+        output_summary: Some("user_approved".to_string()),
+        metadata_json: Some(serde_json::json!({ "tool_call_id": tool_call.id }).to_string()),
+    })?;
+    Ok(tool_call)
+}
+
+#[tauri::command]
+async fn reject_agent_tool_call(
+    state: State<'_, AppState>,
+    id: String,
+    reason: Option<String>,
+) -> AppResult<AgentToolCall> {
+    let runtime = state.runtime.lock().await;
+    let tool_call = runtime.reject_tool_call(&id, reason.clone())?;
+    runtime.record_step(AgentStepDraft {
+        run_id: tool_call.run_id.clone(),
+        kind: "approval".to_string(),
+        status: "rejected".to_string(),
+        input_summary: Some(tool_call.name.clone()),
+        output_summary: reason.or_else(|| Some("user_rejected".to_string())),
+        metadata_json: Some(serde_json::json!({ "tool_call_id": tool_call.id }).to_string()),
+    })?;
+    runtime.finish_run(&tool_call.run_id, "rejected", None)?;
+    Ok(tool_call)
+}
+
+#[tauri::command]
 async fn list_agent_tool_definitions() -> AppResult<Vec<AgentToolDefinition>> {
     Ok(agent_runner::tool_definitions())
 }
@@ -593,6 +631,12 @@ async fn execute_agent_tool_call(
     let running_tool_call = {
         let runtime = state.runtime.lock().await;
         let tool_call = runtime.get_tool_call(&request.tool_call_id)?;
+        if tool_call.status != "approved" {
+            return Err(crate::error::AppError::Message(format!(
+                "tool call must be approved before execution; current status: {}",
+                tool_call.status
+            )));
+        }
         runtime.update_tool_call(&tool_call.id, "running", None, None)?
     };
 
@@ -1472,6 +1516,8 @@ pub fn run() {
             record_agent_step,
             create_agent_tool_call,
             update_agent_tool_call,
+            approve_agent_tool_call,
+            reject_agent_tool_call,
             list_agent_tool_definitions,
             resolve_agent_model_output,
             execute_agent_tool_call,

@@ -338,11 +338,12 @@ impl RuntimeStore {
     ) -> AppResult<AgentToolCall> {
         let now = Utc::now();
         let status = clean_status(status);
-        let completed_at = if status == "pending_approval" || status == "running" {
-            None
-        } else {
-            Some(now)
-        };
+        let completed_at =
+            if status == "pending_approval" || status == "approved" || status == "running" {
+                None
+            } else {
+                Some(now)
+            };
 
         self.conn.execute(
             "
@@ -364,6 +365,33 @@ impl RuntimeStore {
             ],
         )?;
         self.get_tool_call(id)
+    }
+
+    pub fn approve_tool_call(&self, id: &str) -> AppResult<AgentToolCall> {
+        let tool_call = self.get_tool_call(id)?;
+        if tool_call.status != "pending_approval" {
+            return Err(AppError::Message(format!(
+                "tool call cannot be approved from status: {}",
+                tool_call.status
+            )));
+        }
+        self.update_tool_call(id, "approved", Some("user_approved".to_string()), None)
+    }
+
+    pub fn reject_tool_call(&self, id: &str, reason: Option<String>) -> AppResult<AgentToolCall> {
+        let tool_call = self.get_tool_call(id)?;
+        if tool_call.status != "pending_approval" && tool_call.status != "approved" {
+            return Err(AppError::Message(format!(
+                "tool call cannot be rejected from status: {}",
+                tool_call.status
+            )));
+        }
+        self.update_tool_call(
+            id,
+            "rejected",
+            Some(reason.unwrap_or_else(|| "user_rejected".to_string())),
+            None,
+        )
     }
 
     pub fn get_tool_call(&self, id: &str) -> AppResult<AgentToolCall> {

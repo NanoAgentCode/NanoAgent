@@ -267,6 +267,17 @@ export function updateAgentToolCall(
   });
 }
 
+export function approveAgentToolCall(id: string) {
+  return invoke<AgentToolCall>("approve_agent_tool_call", { id });
+}
+
+export function rejectAgentToolCall(id: string, reason?: string | null) {
+  return invoke<AgentToolCall>("reject_agent_tool_call", {
+    id,
+    reason: reason || null
+  });
+}
+
 export function listAgentToolDefinitions() {
   return invoke<AgentToolDefinition[]>("list_agent_tool_definitions");
 }

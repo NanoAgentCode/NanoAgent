@@ -66,6 +66,8 @@ import {
   recordAgentStep,
   createAgentToolCall,
   updateAgentToolCall,
+  approveAgentToolCall,
+  rejectAgentToolCall,
   resolveAgentModelOutput,
   executeAgentToolCall
 } from "./api";
@@ -2098,6 +2100,15 @@ function App() {
       if (!activeToolCall) {
         throw new Error("工具调用记录创建失败");
       }
+      const approvedToolCall = await safeApproveAgentToolCall(activeToolCall.id);
+      if (!approvedToolCall) {
+        throw new Error("工具审批失败");
+      }
+      activeToolCall = approvedToolCall;
+      setMessageToolCalls((current) => ({
+        ...current,
+        [messageId]: approvedToolCall
+      }));
       const isBashEnabled = skills.find((s) => s.id === "bash_tool")?.enabled === true;
       const execution = await safeExecuteAgentToolCall({
         tool_call_id: activeToolCall.id,
@@ -2198,28 +2209,20 @@ function App() {
           args_json: JSON.stringify(toolCall.args)
         });
       }
-      if (activeRunId) {
-        void safeRecordAgentStep({
-          run_id: activeRunId,
-          kind: "approval",
-          status: "rejected",
-          input_summary: toolCall.name,
-          output_summary: "user_rejected",
-          metadata_json: JSON.stringify({ message_id: messageId })
-        });
-      }
       if (activeToolCall) {
-        const updatedToolCall = await safeUpdateAgentToolCall(
-          activeToolCall.id,
-          "rejected",
-          "user_rejected"
-        );
+        const updatedToolCall = await safeRejectAgentToolCall(activeToolCall.id, "user_rejected");
         if (updatedToolCall) {
           setMessageToolCalls((current) => ({
             ...current,
             [messageId]: updatedToolCall
           }));
         }
+      }
+      if (activeRunId) {
+        setConversationRunIds((current) => {
+          const { [conversationId]: _, ...rest } = current;
+          return rest;
+        });
       }
       await appendMessage({
         conversation_id: conversationId,
@@ -4406,6 +4409,27 @@ async function safeExecuteAgentToolCall(request: AgentToolExecutionRequest) {
     return await executeAgentToolCall(request);
   } catch (error) {
     console.error("Failed to execute agent tool call:", error);
+    return null;
+  }
+}
+
+async function safeApproveAgentToolCall(id: string): Promise<AgentToolCall | null> {
+  try {
+    return await approveAgentToolCall(id);
+  } catch (error) {
+    console.error("Failed to approve agent tool call:", error);
+    return null;
+  }
+}
+
+async function safeRejectAgentToolCall(
+  id: string,
+  reason?: string | null
+): Promise<AgentToolCall | null> {
+  try {
+    return await rejectAgentToolCall(id, reason);
+  } catch (error) {
+    console.error("Failed to reject agent tool call:", error);
     return null;
   }
 }
