@@ -20,6 +20,12 @@ import type {
   ProjectFileMoveRequest,
   ProjectFileWriteRequest,
   ObservabilitySpan,
+  AgentRun,
+  AgentRunDraft,
+  AgentStep,
+  AgentStepDraft,
+  AgentToolCall,
+  AgentToolCallDraft,
 } from "./types";
 
 export function listItems(kind?: string) {
@@ -217,4 +223,42 @@ export function listObservabilitySpans(limit = 200) {
 
 export function clearObservabilitySpans() {
   return invoke<void>("clear_observability_spans");
+}
+
+export function createAgentRun(draft: AgentRunDraft) {
+  return invoke<AgentRun>("create_agent_run", { draft });
+}
+
+export function finishAgentRun(id: string, status: string, error?: string | null) {
+  return invoke<AgentRun>("finish_agent_run", {
+    id,
+    status,
+    error: error || null
+  });
+}
+
+export function listAgentRuns(conversationId: string, limit = 50) {
+  return invoke<AgentRun[]>("list_agent_runs", { conversationId, limit });
+}
+
+export function recordAgentStep(draft: AgentStepDraft) {
+  return invoke<AgentStep>("record_agent_step", { draft });
+}
+
+export function createAgentToolCall(draft: AgentToolCallDraft) {
+  return invoke<AgentToolCall>("create_agent_tool_call", { draft });
+}
+
+export function updateAgentToolCall(
+  id: string,
+  status: string,
+  resultSummary?: string | null,
+  error?: string | null
+) {
+  return invoke<AgentToolCall>("update_agent_tool_call", {
+    id,
+    status,
+    resultSummary: resultSummary || null,
+    error: error || null
+  });
 }

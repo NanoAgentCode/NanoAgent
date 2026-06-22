@@ -211,3 +211,65 @@ export interface ObservabilitySpan {
   error?: string | null;
   metadata_json?: string | null;
 }
+
+export interface AgentRun {
+  id: string;
+  conversation_id: string;
+  project_path?: string | null;
+  model_config_id?: string | null;
+  trigger_message_id?: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  error?: string | null;
+}
+
+export interface AgentRunDraft {
+  conversation_id: string;
+  project_path?: string | null;
+  model_config_id?: string | null;
+  trigger_message_id?: string | null;
+}
+
+export interface AgentStep {
+  id: string;
+  run_id: string;
+  kind: string;
+  status: string;
+  input_summary?: string | null;
+  output_summary?: string | null;
+  metadata_json?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface AgentStepDraft {
+  run_id: string;
+  kind: string;
+  status: string;
+  input_summary?: string | null;
+  output_summary?: string | null;
+  metadata_json?: string | null;
+}
+
+export interface AgentToolCall {
+  id: string;
+  run_id: string;
+  message_id: string;
+  name: string;
+  args_json: string;
+  status: string;
+  result_summary?: string | null;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+}
+
+export interface AgentToolCallDraft {
+  run_id: string;
+  message_id: string;
+  name: string;
+  args_json: string;
+}

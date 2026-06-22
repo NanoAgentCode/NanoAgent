@@ -1,6 +1,7 @@
 node_modules
 dist
 target
+.codegraph/
 src-tauri/target
 src-tauri/gen
 *.log

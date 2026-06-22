@@ -63,12 +63,22 @@ import {
   checkEnv,
   installEnv,
   listObservabilitySpans,
-  clearObservabilitySpans
+  clearObservabilitySpans,
+  createAgentRun,
+  finishAgentRun,
+  recordAgentStep,
+  createAgentToolCall,
+  updateAgentToolCall
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import type {
   ChatMessage,
   ChatStreamEvent,
+  AgentRun,
+  AgentRunDraft,
+  AgentStepDraft,
+  AgentToolCallDraft,
+  AgentToolCall,
   Conversation,
   Item,
   ItemKind,
@@ -1880,11 +1890,14 @@ function App() {
   }
 
   const [executingToolMessageId, setExecutingToolMessageId] = useState<string | null>(null);
+  const [messageToolCalls, setMessageToolCalls] = useState<Record<string, AgentToolCall>>({});
+  const [conversationRunIds, setConversationRunIds] = useState<Record<string, string>>({});
 
   async function triggerLlmContinue(
     conversationId: string,
     currentMessages: PersistedMessage[],
-    projectHint: ProjectEntry | null = null
+    projectHint: ProjectEntry | null = null,
+    runId?: string | null
   ) {
     const projectForRequest = resolveConversationProject(conversationId, projectHint);
     const modelConfigId = resolveConversationModelId(conversationId);
@@ -1960,11 +1973,30 @@ function App() {
 
     try {
       setBusy(true);
+      if (runId) {
+        void safeRecordAgentStep({
+          run_id: runId,
+          kind: "model_continue",
+          status: "running",
+          input_summary: `messages=${modelMessages.length}`,
+          metadata_json: JSON.stringify({ conversation_id: conversationId })
+        });
+      }
       await chatStream(requestId, modelConfigId, modelMessages, 0.4, conversationId);
     } catch (err) {
       streamFailed = true;
       console.error("Continue streaming failed:", err);
       setNotice(`Conversation reply failed: ${String(err)}`);
+      if (runId) {
+        void safeRecordAgentStep({
+          run_id: runId,
+          kind: "model_continue",
+          status: "failed",
+          input_summary: `messages=${modelMessages.length}`,
+          output_summary: String(err)
+        });
+        void safeFinishAgentRun(runId, "failed", String(err));
+      }
     } finally {
       unlisten();
       setBusy(false);
@@ -1975,6 +2007,37 @@ function App() {
           role: "assistant",
           content: streamedContent
         });
+      }
+      if (runId && assistantMessage) {
+        void safeRecordAgentStep({
+          run_id: runId,
+          kind: "model_continue",
+          status: "completed",
+          input_summary: `messages=${modelMessages.length}`,
+          output_summary: `content_chars=${streamedContent.length}`
+        });
+        const nextToolCall = parseToolCall(streamedContent);
+        if (nextToolCall) {
+          const storedToolCall = await safeCreateAgentToolCall({
+            run_id: runId,
+            message_id: assistantMessage.id,
+            name: nextToolCall.name,
+            args_json: JSON.stringify(nextToolCall.args)
+          });
+          if (storedToolCall) {
+            setMessageToolCalls((current) => ({
+              ...current,
+              [assistantMessage.id]: storedToolCall
+            }));
+          }
+          void safeFinishAgentRun(runId, "awaiting_tool");
+        } else {
+          void safeFinishAgentRun(runId, "completed");
+          setConversationRunIds((current) => {
+            const { [conversationId]: _, ...rest } = current;
+            return rest;
+          });
+        }
       }
       const finalMessages = await listMessages(conversationId);
       setMessages(finalMessages);
@@ -2004,12 +2067,49 @@ function App() {
     if (executingToolMessageId) return;
     setExecutingToolMessageId(messageId);
     setBusy(true);
+    let activeRunId: string | null = null;
+    let activeToolCall: AgentToolCall | null = messageToolCalls[messageId] || null;
 
     try {
       const projectHint = activeConversationId ? null : activeProject;
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const projectPath = projectForRequest?.path || tempDir;
+      activeRunId = activeToolCall?.run_id || conversationRunIds[conversationId] || null;
+      if (!activeRunId) {
+        const run = await safeCreateAgentRun({
+          conversation_id: conversationId,
+          project_path: projectForRequest?.path || null,
+          model_config_id: resolveConversationModelId(conversationId) || null,
+          trigger_message_id: messageId
+        });
+        activeRunId = run?.id || null;
+      }
+      if (activeRunId && !activeToolCall) {
+        activeToolCall = await safeCreateAgentToolCall({
+          run_id: activeRunId,
+          message_id: messageId,
+          name: toolCall.name,
+          args_json: JSON.stringify(toolCall.args)
+        });
+        if (activeToolCall) {
+          const storedToolCall = activeToolCall;
+          setMessageToolCalls((current) => ({
+            ...current,
+            [messageId]: storedToolCall
+          }));
+        }
+      }
+      if (activeRunId) {
+        setConversationRunIds((current) => ({
+          ...current,
+          [conversationId]: activeRunId as string
+        }));
+      }
+      if (activeToolCall) {
+        const updatedToolCall = await safeUpdateAgentToolCall(activeToolCall.id, "running");
+        activeToolCall = updatedToolCall || activeToolCall;
+      }
 
       let resultText = "";
 
@@ -2036,6 +2136,29 @@ function App() {
       } else {
         throw new Error(`未知的工具类型: ${toolCall.name}`);
       }
+      if (activeRunId) {
+        void safeRecordAgentStep({
+          run_id: activeRunId,
+          kind: "tool",
+          status: "completed",
+          input_summary: toolCall.name,
+          output_summary: summarizeForRuntime(resultText),
+          metadata_json: JSON.stringify({ message_id: messageId })
+        });
+      }
+      if (activeToolCall) {
+        const updatedToolCall = await safeUpdateAgentToolCall(
+          activeToolCall.id,
+          "completed",
+          summarizeForRuntime(resultText)
+        );
+        if (updatedToolCall) {
+          setMessageToolCalls((current) => ({
+            ...current,
+            [messageId]: updatedToolCall
+          }));
+        }
+      }
 
       const userMessage = await appendMessage({
         conversation_id: conversationId,
@@ -2046,10 +2169,34 @@ function App() {
       const updatedMessages = await listMessages(conversationId);
       setMessages(updatedMessages);
 
-      void triggerLlmContinue(conversationId, updatedMessages, projectForRequest);
+      void triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
     } catch (error) {
       console.error("Tool execution failed:", error);
       setNotice(`工具执行失败: ${String(error)}`);
+      if (activeRunId) {
+        void safeRecordAgentStep({
+          run_id: activeRunId,
+          kind: "tool",
+          status: "failed",
+          input_summary: toolCall.name,
+          output_summary: String(error),
+          metadata_json: JSON.stringify({ message_id: messageId })
+        });
+      }
+      if (activeToolCall) {
+        const updatedToolCall = await safeUpdateAgentToolCall(
+          activeToolCall.id,
+          "failed",
+          null,
+          String(error)
+        );
+        if (updatedToolCall) {
+          setMessageToolCalls((current) => ({
+            ...current,
+            [messageId]: updatedToolCall
+          }));
+        }
+      }
       
       try {
         const projectHint = activeConversationId ? null : activeProject;
@@ -2062,7 +2209,7 @@ function App() {
         });
         const updatedMessages = await listMessages(conversationId);
         setMessages(updatedMessages);
-        void triggerLlmContinue(conversationId, updatedMessages, projectForRequest);
+        void triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
       } catch (e) {
         console.error("Failed to append tool error message:", e);
       }
@@ -2077,6 +2224,49 @@ function App() {
     try {
       const projectHint = activeConversationId ? null : activeProject;
       const conversationId = await ensureConversation(projectHint);
+      const projectForRequest = resolveConversationProject(conversationId, projectHint);
+      let activeRunId = messageToolCalls[messageId]?.run_id || conversationRunIds[conversationId] || null;
+      let activeToolCall: AgentToolCall | null = messageToolCalls[messageId] || null;
+      if (!activeRunId) {
+        const run = await safeCreateAgentRun({
+          conversation_id: conversationId,
+          project_path: projectForRequest?.path || null,
+          model_config_id: resolveConversationModelId(conversationId) || null,
+          trigger_message_id: messageId
+        });
+        activeRunId = run?.id || null;
+      }
+      if (activeRunId && !activeToolCall) {
+        activeToolCall = await safeCreateAgentToolCall({
+          run_id: activeRunId,
+          message_id: messageId,
+          name: toolCall.name,
+          args_json: JSON.stringify(toolCall.args)
+        });
+      }
+      if (activeRunId) {
+        void safeRecordAgentStep({
+          run_id: activeRunId,
+          kind: "approval",
+          status: "rejected",
+          input_summary: toolCall.name,
+          output_summary: "user_rejected",
+          metadata_json: JSON.stringify({ message_id: messageId })
+        });
+      }
+      if (activeToolCall) {
+        const updatedToolCall = await safeUpdateAgentToolCall(
+          activeToolCall.id,
+          "rejected",
+          "user_rejected"
+        );
+        if (updatedToolCall) {
+          setMessageToolCalls((current) => ({
+            ...current,
+            [messageId]: updatedToolCall
+          }));
+        }
+      }
       await appendMessage({
         conversation_id: conversationId,
         role: "user",
@@ -2087,7 +2277,8 @@ function App() {
       void triggerLlmContinue(
         conversationId,
         updatedMessages,
-        resolveConversationProject(conversationId, projectHint)
+        projectForRequest,
+        activeRunId
       );
     } catch (error) {
       console.error("Reject tool failed:", error);
@@ -2110,6 +2301,7 @@ function App() {
 
     setChatInput("");
     setBusy(true);
+    let agentRun: AgentRun | null = null;
 
     try {
       const projectHint = activeConversationId ? null : activeProject;
@@ -2121,10 +2313,33 @@ function App() {
         role: "user",
         content
       });
+      agentRun = await safeCreateAgentRun({
+        conversation_id: conversationId,
+        project_path: projectForRequest?.path || null,
+        model_config_id: activeModelId || null,
+        trigger_message_id: userMessage.id
+      });
+      if (agentRun) {
+        const runId = agentRun.id;
+        setConversationRunIds((current) => ({
+          ...current,
+          [conversationId]: runId
+        }));
+        void safeRecordAgentStep({
+          run_id: runId,
+          kind: "message",
+          status: "completed",
+          input_summary: `user_chars=${content.length}`,
+          output_summary: `message_id=${userMessage.id}`
+        });
+      }
       const nextMessages = [...persistedMessages, userMessage];
       setMessages(nextMessages);
 
       if (reminderDraft) {
+        if (agentRun) {
+          void safeFinishAgentRun(agentRun.id, "completed");
+        }
         setPendingReminder(reminderDraft);
         setBusy(false);
         return;
@@ -2144,6 +2359,16 @@ function App() {
         });
 
         setMessages([...nextMessages, assistantMessage]);
+        if (agentRun) {
+          void safeRecordAgentStep({
+            run_id: agentRun.id,
+            kind: "memory",
+            status: "completed",
+            input_summary: savedMemory.title,
+            output_summary: `memory_id=${savedMemory.id}`
+          });
+          void safeFinishAgentRun(agentRun.id, "completed");
+        }
         if (projectForRequest) {
           await refreshProjectConversationMap(projects);
         } else {
@@ -2267,10 +2492,32 @@ function App() {
         }
       });
 
+      if (agentRun) {
+        void safeRecordAgentStep({
+          run_id: agentRun.id,
+          kind: "model",
+          status: "running",
+          input_summary: `messages=${modelMessages.length}`,
+          metadata_json: JSON.stringify({
+            model_config_id: activeModelId,
+            web_results: webResults.length
+          })
+        });
+      }
       await chatStream(requestId, activeModelId, modelMessages, 0.4, conversationId);
       unlisten();
 
       if (!streamedContent.trim()) {
+        if (agentRun) {
+          void safeRecordAgentStep({
+            run_id: agentRun.id,
+            kind: "model",
+            status: "failed",
+            input_summary: `messages=${modelMessages.length}`,
+            output_summary: "empty_response"
+          });
+          void safeFinishAgentRun(agentRun.id, "failed", "empty_response");
+        }
         setMessages(currentMessages);
         setMessageReasoning((current) => {
           const { [requestId]: _, ...rest } = current;
@@ -2285,6 +2532,37 @@ function App() {
         content: streamedContent,
         metadata: buildWebSearchMetadata(webSearchResponse) || undefined
       });
+      if (agentRun) {
+        void safeRecordAgentStep({
+          run_id: agentRun.id,
+          kind: "model",
+          status: "completed",
+          input_summary: `messages=${modelMessages.length}`,
+          output_summary: `content_chars=${streamedContent.length}`
+        });
+        const assistantToolCall = parseToolCall(streamedContent);
+        if (assistantToolCall) {
+          const storedToolCall = await safeCreateAgentToolCall({
+            run_id: agentRun.id,
+            message_id: assistantMessage.id,
+            name: assistantToolCall.name,
+            args_json: JSON.stringify(assistantToolCall.args)
+          });
+          if (storedToolCall) {
+            setMessageToolCalls((current) => ({
+              ...current,
+              [assistantMessage.id]: storedToolCall
+            }));
+          }
+          void safeFinishAgentRun(agentRun.id, "awaiting_tool");
+        } else {
+          void safeFinishAgentRun(agentRun.id, "completed");
+          setConversationRunIds((current) => {
+            const { [conversationId]: _, ...rest } = current;
+            return rest;
+          });
+        }
+      }
 
       if (activeConversationIdRef.current === conversationId) {
         setMessages([...currentMessages, assistantMessage]);
@@ -2304,6 +2582,16 @@ function App() {
         await refreshConversations(conversationId);
       }
     } catch (error) {
+      if (agentRun) {
+        void safeRecordAgentStep({
+          run_id: agentRun.id,
+          kind: "error",
+          status: "failed",
+          input_summary: "handle_send_message",
+          output_summary: String(error)
+        });
+        void safeFinishAgentRun(agentRun.id, "failed", String(error));
+      }
       setNotice(String(error));
     } finally {
       setBusy(false);
@@ -4122,6 +4410,70 @@ function estimateTokens(content: string): number {
   const chineseChars = content.match(/[\u4e00-\u9fa5]/g) || [];
   const englishWords = content.replace(/[\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(Boolean);
   return chineseChars.length + Math.ceil(englishWords.length * 1.3);
+}
+
+function summarizeForRuntime(content: string, maxLength = 500): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+async function safeCreateAgentRun(draft: AgentRunDraft): Promise<AgentRun | null> {
+  try {
+    return await createAgentRun(draft);
+  } catch (error) {
+    console.error("Failed to create agent run:", error);
+    return null;
+  }
+}
+
+async function safeFinishAgentRun(
+  id: string,
+  status: string,
+  error?: string | null
+): Promise<AgentRun | null> {
+  try {
+    return await finishAgentRun(id, status, error);
+  } catch (err) {
+    console.error("Failed to finish agent run:", err);
+    return null;
+  }
+}
+
+async function safeRecordAgentStep(draft: AgentStepDraft) {
+  try {
+    return await recordAgentStep(draft);
+  } catch (error) {
+    console.error("Failed to record agent step:", error);
+    return null;
+  }
+}
+
+async function safeCreateAgentToolCall(
+  draft: AgentToolCallDraft
+): Promise<AgentToolCall | null> {
+  try {
+    return await createAgentToolCall(draft);
+  } catch (error) {
+    console.error("Failed to create agent tool call:", error);
+    return null;
+  }
+}
+
+async function safeUpdateAgentToolCall(
+  id: string,
+  status: string,
+  resultSummary?: string | null,
+  error?: string | null
+): Promise<AgentToolCall | null> {
+  try {
+    return await updateAgentToolCall(id, status, resultSummary, error);
+  } catch (err) {
+    console.error("Failed to update agent tool call:", err);
+    return null;
+  }
 }
 
 export default App;

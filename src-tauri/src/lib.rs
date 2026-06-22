@@ -3,6 +3,7 @@ mod error;
 mod llm;
 mod models;
 mod observability;
+mod runtime;
 mod skills;
 mod web_search;
 
@@ -18,6 +19,10 @@ use models::{
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
 };
+use runtime::{
+    AgentRun, AgentRunDraft, AgentStep, AgentStepDraft, AgentToolCall, AgentToolCallDraft,
+    RuntimeStore,
+};
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
@@ -26,6 +31,7 @@ use web_search::internet_search as run_internet_search;
 struct AppState {
     db: Mutex<Database>,
     observability: Mutex<ObservabilityPipeline>,
+    runtime: Mutex<RuntimeStore>,
 }
 
 async fn start_observation(
@@ -123,7 +129,10 @@ async fn create_item(state: State<'_, AppState>, draft: ItemDraft) -> AppResult<
     )
     .await;
     let result = state.db.lock().await.create_item(draft);
-    let output = result.as_ref().ok().map(|item| format!("item_id={}", item.id));
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|item| format!("item_id={}", item.id));
     finish_observation(&state, span, &result, output).await;
     result
 }
@@ -143,7 +152,10 @@ async fn update_item(state: State<'_, AppState>, patch: ItemPatch) -> AppResult<
     )
     .await;
     let result = state.db.lock().await.update_item(patch);
-    let output = result.as_ref().ok().map(|item| format!("item_id={}", item.id));
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|item| format!("item_id={}", item.id));
     finish_observation(&state, span, &result, output).await;
     result
 }
@@ -220,7 +232,10 @@ async fn create_conversation(
         "db",
         Some("conversation"),
         project_path.clone(),
-        draft.title.as_ref().map(|title| format!("title_chars={}", title.chars().count())),
+        draft
+            .title
+            .as_ref()
+            .map(|title| format!("title_chars={}", title.chars().count())),
         serde_json::json!({ "project_path": project_path }),
         None,
     )
@@ -397,13 +412,7 @@ async fn chat(state: State<'_, AppState>, request: ChatRequest) -> AppResult<Cha
         trace_id,
     )
     .await;
-    let config_result = {
-        state
-            .db
-            .lock()
-            .await
-            .get_model_config(&model_config_id)
-    };
+    let config_result = { state.db.lock().await.get_model_config(&model_config_id) };
     let result = match config_result {
         Ok(config) => send_chat_completion(config, request).await,
         Err(err) => Err(err),
@@ -423,7 +432,10 @@ async fn chat_stream(
     request: ChatStreamRequest,
 ) -> AppResult<()> {
     let model_config_id = request.model_config_id.clone();
-    let trace_id = request.trace_id.clone().unwrap_or_else(|| request.request_id.clone());
+    let trace_id = request
+        .trace_id
+        .clone()
+        .unwrap_or_else(|| request.request_id.clone());
     let span = start_observation(
         &state,
         "chat_stream",
@@ -435,19 +447,72 @@ async fn chat_stream(
         Some(trace_id),
     )
     .await;
-    let config_result = {
-        state
-            .db
-            .lock()
-            .await
-            .get_model_config(&model_config_id)
-    };
+    let config_result = { state.db.lock().await.get_model_config(&model_config_id) };
     let result = match config_result {
         Ok(config) => send_chat_completion_stream(app, config, request).await,
         Err(err) => Err(err),
     };
     finish_observation(&state, span, &result, None).await;
     result
+}
+
+#[tauri::command]
+async fn create_agent_run(state: State<'_, AppState>, draft: AgentRunDraft) -> AppResult<AgentRun> {
+    state.runtime.lock().await.create_run(draft)
+}
+
+#[tauri::command]
+async fn finish_agent_run(
+    state: State<'_, AppState>,
+    id: String,
+    status: String,
+    error: Option<String>,
+) -> AppResult<AgentRun> {
+    state.runtime.lock().await.finish_run(&id, &status, error)
+}
+
+#[tauri::command]
+async fn list_agent_runs(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    limit: Option<i64>,
+) -> AppResult<Vec<AgentRun>> {
+    state
+        .runtime
+        .lock()
+        .await
+        .list_runs(&conversation_id, limit.unwrap_or(50))
+}
+
+#[tauri::command]
+async fn record_agent_step(
+    state: State<'_, AppState>,
+    draft: AgentStepDraft,
+) -> AppResult<AgentStep> {
+    state.runtime.lock().await.record_step(draft)
+}
+
+#[tauri::command]
+async fn create_agent_tool_call(
+    state: State<'_, AppState>,
+    draft: AgentToolCallDraft,
+) -> AppResult<AgentToolCall> {
+    state.runtime.lock().await.create_tool_call(draft)
+}
+
+#[tauri::command]
+async fn update_agent_tool_call(
+    state: State<'_, AppState>,
+    id: String,
+    status: String,
+    result_summary: Option<String>,
+    error: Option<String>,
+) -> AppResult<AgentToolCall> {
+    state
+        .runtime
+        .lock()
+        .await
+        .update_tool_call(&id, &status, result_summary, error)
 }
 
 #[cfg(target_os = "windows")]
@@ -1107,6 +1172,8 @@ pub fn run() {
                 .map_err(|err| format!("failed to create temp directory: {err}"))?;
             let db_path = data_dir.join("nano-agent.sqlite3");
             let db = Database::open(db_path).map_err(|err| err.to_string())?;
+            let runtime_path = data_dir.join("nano-agent-runtime.sqlite3");
+            let runtime = RuntimeStore::open(runtime_path).map_err(|err| err.to_string())?;
             let observability_path = data_dir.join("nano-agent-observability.sqlite3");
             let observability = match SqliteObservabilitySink::open(observability_path) {
                 Ok(sink) => ObservabilityPipeline::new(vec![Box::new(sink)]),
@@ -1119,6 +1186,7 @@ pub fn run() {
             app.manage(AppState {
                 db: Mutex::new(db),
                 observability: Mutex::new(observability),
+                runtime: Mutex::new(runtime),
             });
             Ok(())
         })
@@ -1151,6 +1219,12 @@ pub fn run() {
             list_local_skills,
             chat,
             chat_stream,
+            create_agent_run,
+            finish_agent_run,
+            list_agent_runs,
+            record_agent_step,
+            create_agent_tool_call,
+            update_agent_tool_call,
             check_env,
             install_env,
             create_project_directory,
