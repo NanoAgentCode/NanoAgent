@@ -26,6 +26,10 @@ import type {
   AgentStepDraft,
   AgentToolCall,
   AgentToolCallDraft,
+  AgentToolDefinition,
+  AgentModelOutputResolution,
+  AgentToolExecution,
+  AgentToolExecutionRequest,
 } from "./types";
 
 export function listItems(kind?: string) {
@@ -261,4 +265,28 @@ export function updateAgentToolCall(
     resultSummary: resultSummary || null,
     error: error || null
   });
+}
+
+export function listAgentToolDefinitions() {
+  return invoke<AgentToolDefinition[]>("list_agent_tool_definitions");
+}
+
+export function resolveAgentModelOutput(
+  runId: string,
+  messageId: string,
+  content: string,
+  stepKind?: string | null,
+  inputSummary?: string | null
+) {
+  return invoke<AgentModelOutputResolution>("resolve_agent_model_output", {
+    runId,
+    messageId,
+    content,
+    stepKind: stepKind || null,
+    inputSummary: inputSummary || null
+  });
+}
+
+export function executeAgentToolCall(request: AgentToolExecutionRequest) {
+  return invoke<AgentToolExecution>("execute_agent_tool_call", { request });
 }

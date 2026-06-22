@@ -273,3 +273,28 @@ export interface AgentToolCallDraft {
   name: string;
   args_json: string;
 }
+
+export interface AgentToolDefinition {
+  name: string;
+  description: string;
+  risk: string;
+  requires_approval: boolean;
+  parameters_json: string;
+}
+
+export interface AgentModelOutputResolution {
+  run_id: string;
+  status: string;
+  tool_call?: AgentToolCall | null;
+}
+
+export interface AgentToolExecutionRequest {
+  tool_call_id: string;
+  project_path: string;
+  allow_command: boolean;
+}
+
+export interface AgentToolExecution {
+  tool_call: AgentToolCall;
+  result_text: string;
+}

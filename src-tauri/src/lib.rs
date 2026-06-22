@@ -1,3 +1,4 @@
+mod agent_runner;
 mod db;
 mod error;
 mod llm;
@@ -7,6 +8,9 @@ mod runtime;
 mod skills;
 mod web_search;
 
+use agent_runner::{
+    AgentModelOutputResolution, AgentToolDefinition, AgentToolExecution, AgentToolExecutionRequest,
+};
 use db::Database;
 use error::AppResult;
 use llm::{send_chat_completion, send_chat_completion_stream};
@@ -513,6 +517,249 @@ async fn update_agent_tool_call(
         .lock()
         .await
         .update_tool_call(&id, &status, result_summary, error)
+}
+
+#[tauri::command]
+async fn list_agent_tool_definitions() -> AppResult<Vec<AgentToolDefinition>> {
+    Ok(agent_runner::tool_definitions())
+}
+
+#[tauri::command]
+async fn resolve_agent_model_output(
+    state: State<'_, AppState>,
+    run_id: String,
+    message_id: String,
+    content: String,
+    step_kind: Option<String>,
+    input_summary: Option<String>,
+) -> AppResult<AgentModelOutputResolution> {
+    let parsed = match agent_runner::parse_tool_call(&content) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            let runtime = state.runtime.lock().await;
+            let _ = runtime.record_step(AgentStepDraft {
+                run_id: run_id.clone(),
+                kind: step_kind.unwrap_or_else(|| "model".to_string()),
+                status: "failed".to_string(),
+                input_summary,
+                output_summary: Some(err.to_string()),
+                metadata_json: Some(serde_json::json!({ "message_id": message_id }).to_string()),
+            });
+            let _ = runtime.finish_run(&run_id, "failed", Some(err.to_string()));
+            return Err(err);
+        }
+    };
+
+    let runtime = state.runtime.lock().await;
+    runtime.record_step(AgentStepDraft {
+        run_id: run_id.clone(),
+        kind: step_kind.unwrap_or_else(|| "model".to_string()),
+        status: "completed".to_string(),
+        input_summary,
+        output_summary: Some(format!("content_chars={}", content.chars().count())),
+        metadata_json: Some(serde_json::json!({ "message_id": message_id }).to_string()),
+    })?;
+
+    let tool_call = if let Some(parsed) = parsed {
+        let tool_call = runtime.create_tool_call(AgentToolCallDraft {
+            run_id: run_id.clone(),
+            message_id,
+            name: parsed.name,
+            args_json: agent_runner::args_to_json(&parsed.args)?,
+        })?;
+        runtime.finish_run(&run_id, "awaiting_tool", None)?;
+        Some(tool_call)
+    } else {
+        runtime.finish_run(&run_id, "completed", None)?;
+        None
+    };
+
+    Ok(AgentModelOutputResolution {
+        run_id,
+        status: if tool_call.is_some() {
+            "awaiting_tool".to_string()
+        } else {
+            "completed".to_string()
+        },
+        tool_call,
+    })
+}
+
+#[tauri::command]
+async fn execute_agent_tool_call(
+    state: State<'_, AppState>,
+    request: AgentToolExecutionRequest,
+) -> AppResult<AgentToolExecution> {
+    let running_tool_call = {
+        let runtime = state.runtime.lock().await;
+        let tool_call = runtime.get_tool_call(&request.tool_call_id)?;
+        runtime.update_tool_call(&tool_call.id, "running", None, None)?
+    };
+
+    let result = execute_registered_tool(
+        &running_tool_call,
+        &request.project_path,
+        request.allow_command,
+    );
+
+    match result {
+        Ok(result_text) => {
+            let runtime = state.runtime.lock().await;
+            runtime.record_step(AgentStepDraft {
+                run_id: running_tool_call.run_id.clone(),
+                kind: "tool".to_string(),
+                status: "completed".to_string(),
+                input_summary: Some(running_tool_call.name.clone()),
+                output_summary: Some(agent_runner::summarize(&result_text, 500)),
+                metadata_json: Some(
+                    serde_json::json!({ "tool_call_id": running_tool_call.id }).to_string(),
+                ),
+            })?;
+            let tool_call = runtime.update_tool_call(
+                &running_tool_call.id,
+                "completed",
+                Some(agent_runner::summarize(&result_text, 500)),
+                None,
+            )?;
+            Ok(AgentToolExecution {
+                tool_call,
+                result_text,
+            })
+        }
+        Err(err) => {
+            let runtime = state.runtime.lock().await;
+            let _ = runtime.record_step(AgentStepDraft {
+                run_id: running_tool_call.run_id.clone(),
+                kind: "tool".to_string(),
+                status: "failed".to_string(),
+                input_summary: Some(running_tool_call.name.clone()),
+                output_summary: Some(err.to_string()),
+                metadata_json: Some(
+                    serde_json::json!({ "tool_call_id": running_tool_call.id }).to_string(),
+                ),
+            });
+            let _ = runtime.update_tool_call(
+                &running_tool_call.id,
+                "failed",
+                None,
+                Some(err.to_string()),
+            );
+            Err(err)
+        }
+    }
+}
+
+fn execute_registered_tool(
+    tool_call: &AgentToolCall,
+    project_path: &str,
+    allow_command: bool,
+) -> AppResult<String> {
+    let args = agent_runner::parse_args_json(&tool_call.args_json)?;
+    agent_runner::validate_tool_args(&tool_call.name, &args)?;
+
+    match tool_call.name.as_str() {
+        "read_file" => {
+            let relative_path = required_tool_arg(&args, "path")?;
+            let content = read_project_text(project_path, relative_path)?;
+            Ok(format!(
+                "读取文件 {relative_path} 成功，内容如下：\n\n```\n{content}\n```"
+            ))
+        }
+        "write_file" => {
+            let relative_path = required_tool_arg(&args, "path")?;
+            let content = required_tool_arg(&args, "content")?;
+            write_project_text(project_path, relative_path, content)?;
+            Ok(format!(
+                "File {relative_path} written successfully; content length: {} characters.",
+                content.chars().count()
+            ))
+        }
+        "execute_command" => {
+            if !allow_command {
+                return Err(crate::error::AppError::Message(
+                    "Bash Tool 技能已被禁用，请在设置中启用后再试。".to_string(),
+                ));
+            }
+            let command = required_tool_arg(&args, "command")?;
+            let output = run_project_command(project_path, command)?;
+            Ok(format!(
+                "命令执行成功，输出结果如下：\n\n```\n{output}\n```"
+            ))
+        }
+        _ => Err(crate::error::AppError::Message(format!(
+            "unknown tool: {}",
+            tool_call.name
+        ))),
+    }
+}
+
+fn required_tool_arg<'a>(
+    args: &'a std::collections::BTreeMap<String, String>,
+    name: &str,
+) -> AppResult<&'a str> {
+    args.get(name)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| crate::error::AppError::Message(format!("missing tool argument: {name}")))
+}
+
+fn read_project_text(project_path: &str, relative_path: &str) -> AppResult<String> {
+    const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
+
+    let root = project_root(project_path)?;
+    let target_path = resolve_project_relative_path(&root, relative_path)?;
+    let metadata = std::fs::metadata(&target_path)?;
+    if !metadata.is_file() {
+        return Err(crate::error::AppError::Message(
+            "Can only read regular files".to_string(),
+        ));
+    }
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
+        return Err(crate::error::AppError::Message(
+            "File exceeds 1MB; please use an appropriate skill".to_string(),
+        ));
+    }
+    std::fs::read_to_string(target_path).map_err(crate::error::AppError::from)
+}
+
+fn write_project_text(project_path: &str, relative_path: &str, content: &str) -> AppResult<()> {
+    let root = project_root(project_path)?;
+    let target_path = resolve_project_relative_path(&root, relative_path)?;
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(target_path, content.as_bytes()).map_err(crate::error::AppError::from)
+}
+
+fn run_project_command(project_path: &str, command: &str) -> AppResult<String> {
+    let root = project_root(project_path)?;
+    let mut c = if cfg!(target_os = "windows") {
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.arg("-NoProfile").arg("-Command").arg(command);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
+        cmd
+    } else {
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c").arg(command);
+        cmd
+    };
+
+    c.current_dir(root);
+    let output = c.output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() {
+        Ok(stdout)
+    } else {
+        Err(crate::error::AppError::Message(format!(
+            "Command failed with code {:?}\nStdout: {}\nStderr: {}",
+            output.status.code(),
+            stdout,
+            stderr
+        )))
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -1225,6 +1472,9 @@ pub fn run() {
             record_agent_step,
             create_agent_tool_call,
             update_agent_tool_call,
+            list_agent_tool_definitions,
+            resolve_agent_model_output,
+            execute_agent_tool_call,
             check_env,
             install_env,
             create_project_directory,

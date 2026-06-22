@@ -55,9 +55,6 @@ import {
   searchItems,
   searchMemories,
   listLocalSkills,
-  executeBashCommand,
-  writeLocalFile,
-  readLocalFile,
   updateItem,
   updateMemory,
   checkEnv,
@@ -68,7 +65,9 @@ import {
   finishAgentRun,
   recordAgentStep,
   createAgentToolCall,
-  updateAgentToolCall
+  updateAgentToolCall,
+  resolveAgentModelOutput,
+  executeAgentToolCall
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import type {
@@ -79,6 +78,7 @@ import type {
   AgentStepDraft,
   AgentToolCallDraft,
   AgentToolCall,
+  AgentToolExecutionRequest,
   Conversation,
   Item,
   ItemKind,
@@ -2009,30 +2009,19 @@ function App() {
         });
       }
       if (runId && assistantMessage) {
-        void safeRecordAgentStep({
-          run_id: runId,
-          kind: "model_continue",
-          status: "completed",
-          input_summary: `messages=${modelMessages.length}`,
-          output_summary: `content_chars=${streamedContent.length}`
-        });
-        const nextToolCall = parseToolCall(streamedContent);
-        if (nextToolCall) {
-          const storedToolCall = await safeCreateAgentToolCall({
-            run_id: runId,
-            message_id: assistantMessage.id,
-            name: nextToolCall.name,
-            args_json: JSON.stringify(nextToolCall.args)
-          });
-          if (storedToolCall) {
-            setMessageToolCalls((current) => ({
-              ...current,
-              [assistantMessage.id]: storedToolCall
-            }));
-          }
-          void safeFinishAgentRun(runId, "awaiting_tool");
-        } else {
-          void safeFinishAgentRun(runId, "completed");
+        const resolution = await safeResolveAgentModelOutput(
+          runId,
+          assistantMessage.id,
+          streamedContent,
+          "model_continue",
+          `messages=${modelMessages.length}`
+        );
+        if (resolution?.tool_call) {
+          setMessageToolCalls((current) => ({
+            ...current,
+            [assistantMessage.id]: resolution.tool_call as AgentToolCall
+          }));
+        } else if (resolution?.status === "completed") {
           setConversationRunIds((current) => {
             const { [conversationId]: _, ...rest } = current;
             return rest;
@@ -2106,59 +2095,24 @@ function App() {
           [conversationId]: activeRunId as string
         }));
       }
-      if (activeToolCall) {
-        const updatedToolCall = await safeUpdateAgentToolCall(activeToolCall.id, "running");
-        activeToolCall = updatedToolCall || activeToolCall;
+      if (!activeToolCall) {
+        throw new Error("工具调用记录创建失败");
       }
-
-      let resultText = "";
-
-      if (toolCall.name === "write_file") {
-        const path = toolCall.args.path;
-        const content = toolCall.args.content || "";
-        if (!path) throw new Error("缺少 path 参数");
-        await writeLocalFile(projectPath, path, content);
-        resultText = `File ${path} written successfully; content length: ${content.length} characters.`;
-      } else if (toolCall.name === "read_file") {
-        const path = toolCall.args.path;
-        if (!path) throw new Error("缺少 path 参数");
-        const content = await readLocalFile(projectPath, path);
-        resultText = `读取文件 ${path} 成功，内容如下：\n\n\`\`\`\n${content}\n\`\`\``;
-      } else if (toolCall.name === "execute_command") {
-        const command = toolCall.args.command;
-        if (!command) throw new Error("缺少 command 参数");
-        const isBashEnabled = skills.find((s) => s.id === "bash_tool")?.enabled;
-        if (!isBashEnabled) {
-          throw new Error("Bash Tool 技能已被禁用，请在设置中启用后再试。");
-        }
-        const output = await executeBashCommand(projectPath, command);
-        resultText = `命令执行成功，输出结果如下：\n\n\`\`\`\n${output}\n\`\`\``;
-      } else {
-        throw new Error(`未知的工具类型: ${toolCall.name}`);
+      const isBashEnabled = skills.find((s) => s.id === "bash_tool")?.enabled === true;
+      const execution = await safeExecuteAgentToolCall({
+        tool_call_id: activeToolCall.id,
+        project_path: projectPath,
+        allow_command: isBashEnabled
+      });
+      if (!execution) {
+        throw new Error("工具执行失败");
       }
-      if (activeRunId) {
-        void safeRecordAgentStep({
-          run_id: activeRunId,
-          kind: "tool",
-          status: "completed",
-          input_summary: toolCall.name,
-          output_summary: summarizeForRuntime(resultText),
-          metadata_json: JSON.stringify({ message_id: messageId })
-        });
-      }
-      if (activeToolCall) {
-        const updatedToolCall = await safeUpdateAgentToolCall(
-          activeToolCall.id,
-          "completed",
-          summarizeForRuntime(resultText)
-        );
-        if (updatedToolCall) {
-          setMessageToolCalls((current) => ({
-            ...current,
-            [messageId]: updatedToolCall
-          }));
-        }
-      }
+      activeToolCall = execution.tool_call;
+      setMessageToolCalls((current) => ({
+        ...current,
+        [messageId]: execution.tool_call
+      }));
+      const resultText = execution.result_text;
 
       const userMessage = await appendMessage({
         conversation_id: conversationId,
@@ -2533,30 +2487,19 @@ function App() {
         metadata: buildWebSearchMetadata(webSearchResponse) || undefined
       });
       if (agentRun) {
-        void safeRecordAgentStep({
-          run_id: agentRun.id,
-          kind: "model",
-          status: "completed",
-          input_summary: `messages=${modelMessages.length}`,
-          output_summary: `content_chars=${streamedContent.length}`
-        });
-        const assistantToolCall = parseToolCall(streamedContent);
-        if (assistantToolCall) {
-          const storedToolCall = await safeCreateAgentToolCall({
-            run_id: agentRun.id,
-            message_id: assistantMessage.id,
-            name: assistantToolCall.name,
-            args_json: JSON.stringify(assistantToolCall.args)
-          });
-          if (storedToolCall) {
-            setMessageToolCalls((current) => ({
-              ...current,
-              [assistantMessage.id]: storedToolCall
-            }));
-          }
-          void safeFinishAgentRun(agentRun.id, "awaiting_tool");
-        } else {
-          void safeFinishAgentRun(agentRun.id, "completed");
+        const resolution = await safeResolveAgentModelOutput(
+          agentRun.id,
+          assistantMessage.id,
+          streamedContent,
+          "model",
+          `messages=${modelMessages.length}`
+        );
+        if (resolution?.tool_call) {
+          setMessageToolCalls((current) => ({
+            ...current,
+            [assistantMessage.id]: resolution.tool_call as AgentToolCall
+          }));
+        } else if (resolution?.status === "completed") {
           setConversationRunIds((current) => {
             const { [conversationId]: _, ...rest } = current;
             return rest;
@@ -4412,14 +4355,6 @@ function estimateTokens(content: string): number {
   return chineseChars.length + Math.ceil(englishWords.length * 1.3);
 }
 
-function summarizeForRuntime(content: string, maxLength = 500): string {
-  const normalized = content.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  return `${normalized.slice(0, maxLength)}...`;
-}
-
 async function safeCreateAgentRun(draft: AgentRunDraft): Promise<AgentRun | null> {
   try {
     return await createAgentRun(draft);
@@ -4447,6 +4382,30 @@ async function safeRecordAgentStep(draft: AgentStepDraft) {
     return await recordAgentStep(draft);
   } catch (error) {
     console.error("Failed to record agent step:", error);
+    return null;
+  }
+}
+
+async function safeResolveAgentModelOutput(
+  runId: string,
+  messageId: string,
+  content: string,
+  stepKind: string,
+  inputSummary: string
+) {
+  try {
+    return await resolveAgentModelOutput(runId, messageId, content, stepKind, inputSummary);
+  } catch (error) {
+    console.error("Failed to resolve agent model output:", error);
+    return null;
+  }
+}
+
+async function safeExecuteAgentToolCall(request: AgentToolExecutionRequest) {
+  try {
+    return await executeAgentToolCall(request);
+  } catch (error) {
+    console.error("Failed to execute agent tool call:", error);
     return null;
   }
 }
