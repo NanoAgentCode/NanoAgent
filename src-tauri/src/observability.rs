@@ -91,7 +91,10 @@ impl ObservabilityPipeline {
 
         let span = SpanContext {
             id: Uuid::new_v4().to_string(),
-            trace_id: start.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()),
+            trace_id: start
+                .trace_id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
             started_at: Utc::now(),
             started: Instant::now(),
         };

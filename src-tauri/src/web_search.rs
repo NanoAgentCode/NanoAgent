@@ -58,7 +58,10 @@ pub async fn internet_search(
     })
 }
 
-async fn tavily_search(query: &str, tavily_api_key: Option<&str>) -> AppResult<Vec<WebSearchResult>> {
+async fn tavily_search(
+    query: &str,
+    tavily_api_key: Option<&str>,
+) -> AppResult<Vec<WebSearchResult>> {
     let mut last_error = None;
     for command in tavily_commands() {
         match run_tavily_command(command, query, tavily_api_key).await {

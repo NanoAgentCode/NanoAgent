@@ -65,9 +65,7 @@ pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
                 let _permit = sem.acquire_owned().await;
                 let (name, description) = fetch_skill_frontmatter(&client, &slug)
                     .await
-                    .unwrap_or_else(|_| {
-                        (title_from_slug(&slug), fallback_description(&slug))
-                    });
+                    .unwrap_or_else(|_| (title_from_slug(&slug), fallback_description(&slug)));
                 GitHubSkill {
                     doc_url: format!(
                         "https://github.com/anthropics/skills/tree/main/skills/{}",
@@ -228,7 +226,11 @@ pub async fn list_local_skills(app: &tauri::AppHandle) -> AppResult<(String, Vec
 
     for skill_md_path in skill_md_files {
         let parent_dir = skill_md_path.parent().unwrap();
-        let slug = parent_dir.file_name().unwrap().to_string_lossy().to_string();
+        let slug = parent_dir
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
 
         if let Ok(markdown) = std::fs::read_to_string(&skill_md_path) {
             let (name, description) = parse_frontmatter(&markdown);
@@ -239,7 +241,10 @@ pub async fn list_local_skills(app: &tauri::AppHandle) -> AppResult<(String, Vec
                 slug,
                 name,
                 description,
-                doc_url: format!("file:///{}", skill_md_path.to_string_lossy().replace('\\', "/")),
+                doc_url: format!(
+                    "file:///{}",
+                    skill_md_path.to_string_lossy().replace('\\', "/")
+                ),
             });
         }
     }
