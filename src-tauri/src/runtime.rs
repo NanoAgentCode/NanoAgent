@@ -49,6 +49,13 @@ pub struct AgentToolCall {
     pub completed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AgentRunTimeline {
+    pub run: AgentRun,
+    pub steps: Vec<AgentStep>,
+    pub tool_calls: Vec<AgentToolCall>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentRunDraft {
     pub conversation_id: String,
@@ -248,6 +255,61 @@ impl RuntimeStore {
         Ok(runs)
     }
 
+    pub fn list_run_timelines(
+        &self,
+        conversation_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<AgentRunTimeline>> {
+        let runs = self.list_runs(conversation_id, limit)?;
+        runs.into_iter()
+            .map(|run| {
+                let steps = self.list_steps(&run.id)?;
+                let tool_calls = self.list_tool_calls(&run.id)?;
+                Ok(AgentRunTimeline {
+                    run,
+                    steps,
+                    tool_calls,
+                })
+            })
+            .collect()
+    }
+
+    pub fn list_steps(&self, run_id: &str) -> AppResult<Vec<AgentStep>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, run_id, kind, status, input_summary, output_summary,
+                   metadata_json, created_at, completed_at
+            FROM agent_steps
+            WHERE run_id = ?1
+            ORDER BY created_at ASC
+            ",
+        )?;
+
+        let steps = stmt
+            .query_map(params![run_id], row_to_step)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        Ok(steps)
+    }
+
+    pub fn list_tool_calls(&self, run_id: &str) -> AppResult<Vec<AgentToolCall>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, run_id, message_id, name, args_json, status, result_summary,
+                   error, created_at, updated_at, completed_at
+            FROM agent_tool_calls
+            WHERE run_id = ?1
+            ORDER BY created_at ASC
+            ",
+        )?;
+
+        let tool_calls = stmt
+            .query_map(params![run_id], row_to_tool_call)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        Ok(tool_calls)
+    }
+
     pub fn record_step(&self, draft: AgentStepDraft) -> AppResult<AgentStep> {
         let now = Utc::now();
         let completed_at = if draft.status == "running" {
@@ -427,6 +489,24 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRun> {
             .map(|value| parse_time_for_row(&value))
             .transpose()?,
         error: row.get(9)?,
+    })
+}
+
+fn row_to_step(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentStep> {
+    let created_at: String = row.get(7)?;
+    let completed_at: Option<String> = row.get(8)?;
+    Ok(AgentStep {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        kind: row.get(2)?,
+        status: row.get(3)?,
+        input_summary: row.get(4)?,
+        output_summary: row.get(5)?,
+        metadata_json: row.get(6)?,
+        created_at: parse_time_for_row(&created_at)?,
+        completed_at: completed_at
+            .map(|value| parse_time_for_row(&value))
+            .transpose()?,
     })
 }
 

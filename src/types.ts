@@ -298,3 +298,9 @@ export interface AgentToolExecution {
   tool_call: AgentToolCall;
   result_text: string;
 }
+
+export interface AgentRunTimeline {
+  run: AgentRun;
+  steps: AgentStep[];
+  tool_calls: AgentToolCall[];
+}

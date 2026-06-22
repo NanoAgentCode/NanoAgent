@@ -61,6 +61,7 @@ import {
   installEnv,
   listObservabilitySpans,
   clearObservabilitySpans,
+  listAgentRunTimelines,
   createAgentRun,
   finishAgentRun,
   recordAgentStep,
@@ -76,7 +77,9 @@ import type {
   ChatMessage,
   ChatStreamEvent,
   AgentRun,
+  AgentRunTimeline,
   AgentRunDraft,
+  AgentStep,
   AgentStepDraft,
   AgentToolCallDraft,
   AgentToolCall,
@@ -113,6 +116,14 @@ const statusLabels: Record<string, string> = {
 
 type WorkspaceView = ItemKind | "all" | "memory";
 type ThemeMode = "system" | "light" | "dark";
+type AgentTimelineEvent = {
+  id: string;
+  time: string;
+  status: string;
+  title: string;
+  subtitle: string;
+  detail: string;
+};
 type SettingsTab =
   | "task"
   | "prompt"
@@ -441,6 +452,7 @@ function App() {
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("task");
   const [observabilitySpans, setObservabilitySpans] = useState<ObservabilitySpan[]>([]);
+  const [agentRunTimelines, setAgentRunTimelines] = useState<AgentRunTimeline[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState("");
   const [isLoadingObservability, setIsLoadingObservability] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => {
@@ -557,6 +569,11 @@ function App() {
   }, [observabilitySpans]);
   const selectedTrace =
     traceGroups.find((trace) => trace.traceId === selectedTraceId) || traceGroups[0] || null;
+  const activeRunTimeline = agentRunTimelines[0] || null;
+  const activeRunTimelineEvents = useMemo(
+    () => (activeRunTimeline ? buildAgentTimelineEvents(activeRunTimeline) : []),
+    [activeRunTimeline]
+  );
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -731,13 +748,18 @@ function App() {
     if (showModelConfig && activeSettingsTab === "observability") {
       void refreshObservability();
     }
-  }, [showModelConfig, activeSettingsTab]);
+  }, [showModelConfig, activeSettingsTab, activeConversationId]);
 
   async function refreshObservability() {
     setIsLoadingObservability(true);
     try {
       const spans = await listObservabilitySpans(200);
       setObservabilitySpans(spans);
+      if (activeConversationId) {
+        setAgentRunTimelines(await listAgentRunTimelines(activeConversationId, 20));
+      } else {
+        setAgentRunTimelines([]);
+      }
       setSelectedTraceId((current) =>
         current && spans.some((span) => span.trace_id === current)
           ? current
@@ -758,6 +780,7 @@ function App() {
     try {
       await clearObservabilitySpans();
       setObservabilitySpans([]);
+      setAgentRunTimelines([]);
       setSelectedTraceId("");
     } catch (error) {
       setNotice(String(error));
@@ -2772,6 +2795,56 @@ function App() {
           </aside>
 
           <section className="observability-span-list">
+            <section className="agent-runtime-panel">
+              <div className="observability-trace-summary">
+                <div>
+                  <strong>Agent Runtime</strong>
+                  <span>{activeConversation?.title || "当前会话"}</span>
+                </div>
+                <span>
+                  {activeRunTimeline
+                    ? `${agentRunTimelines.length} runs · ${activeRunTimeline.run.status}`
+                    : activeConversationId
+                      ? "暂无运行记录"
+                      : "未选择会话"}
+                </span>
+              </div>
+              {activeRunTimeline ? (
+                <div className="agent-run-timeline">
+                  <div className={`agent-run-header ${activeRunTimeline.run.status}`}>
+                    <div>
+                      <strong>{formatAgentRunTitle(activeRunTimeline.run)}</strong>
+                      <span>{activeRunTimeline.run.id}</span>
+                    </div>
+                    <small>{new Date(activeRunTimeline.run.created_at).toLocaleString()}</small>
+                  </div>
+                  {activeRunTimelineEvents.map((event) => (
+                    <div key={event.id} className={`agent-timeline-row ${event.status}`}>
+                      <div className="agent-timeline-main">
+                        <span className="observability-status-dot" />
+                        <div>
+                          <strong>{event.title}</strong>
+                          <small>{event.subtitle}</small>
+                        </div>
+                      </div>
+                      <div className="agent-timeline-meta">
+                        <span>{event.status}</span>
+                        <span>{new Date(event.time).toLocaleTimeString()}</span>
+                      </div>
+                      {event.detail && <pre>{event.detail}</pre>}
+                    </div>
+                  ))}
+                  {activeRunTimelineEvents.length === 0 && (
+                    <div className="empty">该 run 暂无步骤</div>
+                  )}
+                </div>
+              ) : (
+                <div className="empty">
+                  {activeConversationId ? "当前会话还没有 Agent Runtime 记录" : "选择一个会话后查看 Agent Runtime"}
+                </div>
+              )}
+            </section>
+
             {selectedTrace ? (
               <>
                 <div className="observability-trace-summary">
@@ -4356,6 +4429,70 @@ function estimateTokens(content: string): number {
   const chineseChars = content.match(/[\u4e00-\u9fa5]/g) || [];
   const englishWords = content.replace(/[\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(Boolean);
   return chineseChars.length + Math.ceil(englishWords.length * 1.3);
+}
+
+function buildAgentTimelineEvents(timeline: AgentRunTimeline): AgentTimelineEvent[] {
+  const stepEvents = timeline.steps.map((step) => ({
+    id: `step-${step.id}`,
+    time: step.created_at,
+    status: step.status,
+    title: formatAgentStepTitle(step),
+    subtitle: `step / ${step.kind}`,
+    detail: [step.input_summary, step.output_summary, step.metadata_json]
+      .filter(Boolean)
+      .join("\n")
+  }));
+
+  const toolEvents = timeline.tool_calls.map((toolCall) => ({
+    id: `tool-${toolCall.id}`,
+    time: toolCall.created_at,
+    status: toolCall.status,
+    title: `工具请求：${toolCall.name}`,
+    subtitle: `tool_call / message ${toolCall.message_id.slice(0, 8)}`,
+    detail: [
+      toolCall.args_json ? `args: ${toolCall.args_json}` : "",
+      toolCall.result_summary,
+      toolCall.error ? `error: ${toolCall.error}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n")
+  }));
+
+  return [...stepEvents, ...toolEvents].sort(
+    (left, right) => Date.parse(left.time) - Date.parse(right.time)
+  );
+}
+
+function formatAgentRunTitle(run: AgentRun) {
+  const trigger = run.trigger_message_id ? `message ${run.trigger_message_id.slice(0, 8)}` : "manual";
+  return `${formatRuntimeStatus(run.status)} · ${trigger}`;
+}
+
+function formatAgentStepTitle(step: AgentStep) {
+  const labels: Record<string, string> = {
+    message: "用户消息",
+    model: "模型调用",
+    model_continue: "模型继续",
+    tool: "工具执行",
+    approval: "审批",
+    memory: "记忆写入",
+    error: "错误"
+  };
+  return labels[step.kind] || step.kind;
+}
+
+function formatRuntimeStatus(status: string) {
+  const labels: Record<string, string> = {
+    running: "运行中",
+    awaiting_tool: "等待工具",
+    pending_approval: "等待审批",
+    approved: "已批准",
+    rejected: "已拒绝",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消"
+  };
+  return labels[status] || status;
 }
 
 async function safeCreateAgentRun(draft: AgentRunDraft): Promise<AgentRun | null> {

@@ -24,8 +24,8 @@ use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
 };
 use runtime::{
-    AgentRun, AgentRunDraft, AgentStep, AgentStepDraft, AgentToolCall, AgentToolCallDraft,
-    RuntimeStore,
+    AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
+    AgentToolCallDraft, RuntimeStore,
 };
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{AppHandle, Manager, State};
@@ -486,6 +486,19 @@ async fn list_agent_runs(
         .lock()
         .await
         .list_runs(&conversation_id, limit.unwrap_or(50))
+}
+
+#[tauri::command]
+async fn list_agent_run_timelines(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    limit: Option<i64>,
+) -> AppResult<Vec<AgentRunTimeline>> {
+    state
+        .runtime
+        .lock()
+        .await
+        .list_run_timelines(&conversation_id, limit.unwrap_or(20))
 }
 
 #[tauri::command]
@@ -1513,6 +1526,7 @@ pub fn run() {
             create_agent_run,
             finish_agent_run,
             list_agent_runs,
+            list_agent_run_timelines,
             record_agent_step,
             create_agent_tool_call,
             update_agent_tool_call,

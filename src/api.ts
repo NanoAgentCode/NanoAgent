@@ -30,6 +30,7 @@ import type {
   AgentModelOutputResolution,
   AgentToolExecution,
   AgentToolExecutionRequest,
+  AgentRunTimeline,
 } from "./types";
 
 export function listItems(kind?: string) {
@@ -243,6 +244,10 @@ export function finishAgentRun(id: string, status: string, error?: string | null
 
 export function listAgentRuns(conversationId: string, limit = 50) {
   return invoke<AgentRun[]>("list_agent_runs", { conversationId, limit });
+}
+
+export function listAgentRunTimelines(conversationId: string, limit = 20) {
+  return invoke<AgentRunTimeline[]>("list_agent_run_timelines", { conversationId, limit });
 }
 
 export function recordAgentStep(draft: AgentStepDraft) {
