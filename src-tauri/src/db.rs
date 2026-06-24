@@ -57,6 +57,7 @@ impl Database {
                 base_url TEXT NOT NULL,
                 model TEXT NOT NULL,
                 api_key TEXT NOT NULL,
+                embedding_provider TEXT NOT NULL DEFAULT 'openai-compatible',
                 embedding_base_url TEXT NOT NULL DEFAULT '',
                 embedding_model TEXT NOT NULL DEFAULT '',
                 embedding_api_key TEXT NOT NULL DEFAULT '',
@@ -167,6 +168,11 @@ impl Database {
         self.ensure_column("items", "repeat_rule", "TEXT")?;
         self.ensure_column("items", "last_reminded_at", "TEXT")?;
         self.ensure_column("messages", "metadata_json", "TEXT")?;
+        self.ensure_column(
+            "model_configs",
+            "embedding_provider",
+            "TEXT NOT NULL DEFAULT 'openai-compatible'",
+        )?;
         self.ensure_column(
             "model_configs",
             "embedding_base_url",
@@ -310,7 +316,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "
             SELECT id, name, provider, base_url, model, api_key,
-                   embedding_base_url, embedding_model, embedding_api_key,
+                   embedding_provider, embedding_base_url, embedding_model, embedding_api_key,
                    created_at, updated_at
             FROM model_configs
             ORDER BY updated_at DESC
@@ -330,7 +336,7 @@ impl Database {
             .query_row(
                 "
                 SELECT id, name, provider, base_url, model, api_key,
-                       embedding_base_url, embedding_model, embedding_api_key,
+                       embedding_provider, embedding_base_url, embedding_model, embedding_api_key,
                        created_at, updated_at
                 FROM model_configs WHERE id = ?1
                 ",
@@ -363,6 +369,7 @@ impl Database {
             base_url: clean_or_default(draft.base_url, "https://api.openai.com/v1"),
             model: clean_or_default(draft.model, "gpt-4o-mini"),
             api_key: draft.api_key,
+            embedding_provider: clean_or_default(draft.embedding_provider, "openai-compatible"),
             embedding_base_url: clean_optional_string(draft.embedding_base_url),
             embedding_model: clean_or_default(draft.embedding_model, "text-embedding-3-small"),
             embedding_api_key: clean_optional_string(draft.embedding_api_key),
@@ -374,15 +381,16 @@ impl Database {
             "
             INSERT INTO model_configs
                 (id, name, provider, base_url, model, api_key,
-                 embedding_base_url, embedding_model, embedding_api_key,
+                 embedding_provider, embedding_base_url, embedding_model, embedding_api_key,
                  created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 provider = excluded.provider,
                 base_url = excluded.base_url,
                 model = excluded.model,
                 api_key = excluded.api_key,
+                embedding_provider = excluded.embedding_provider,
                 embedding_base_url = excluded.embedding_base_url,
                 embedding_model = excluded.embedding_model,
                 embedding_api_key = excluded.embedding_api_key,
@@ -395,6 +403,7 @@ impl Database {
                 config.base_url,
                 config.model,
                 config.api_key,
+                config.embedding_provider,
                 config.embedding_base_url,
                 config.embedding_model,
                 config.embedding_api_key,
@@ -1090,8 +1099,8 @@ impl Database {
     }
 
     fn row_to_model_config(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelConfig> {
-        let created_at: String = row.get(9)?;
-        let updated_at: String = row.get(10)?;
+        let created_at: String = row.get(10)?;
+        let updated_at: String = row.get(11)?;
 
         Ok(ModelConfig {
             id: row.get(0)?,
@@ -1100,9 +1109,10 @@ impl Database {
             base_url: row.get(3)?,
             model: row.get(4)?,
             api_key: row.get(5)?,
-            embedding_base_url: row.get(6)?,
-            embedding_model: row.get(7)?,
-            embedding_api_key: row.get(8)?,
+            embedding_provider: row.get(6)?,
+            embedding_base_url: row.get(7)?,
+            embedding_model: row.get(8)?,
+            embedding_api_key: row.get(9)?,
             created_at: parse_time_for_row(&created_at)?,
             updated_at: parse_time_for_row(&updated_at)?,
         })

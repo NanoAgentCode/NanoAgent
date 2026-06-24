@@ -43,6 +43,7 @@ export interface ModelConfig {
   base_url: string;
   model: string;
   api_key: string;
+  embedding_provider: string;
   embedding_base_url: string;
   embedding_model: string;
   embedding_api_key: string;
@@ -57,6 +58,7 @@ export interface ModelConfigDraft {
   base_url: string;
   model: string;
   api_key: string;
+  embedding_provider: string;
   embedding_base_url: string;
   embedding_model: string;
   embedding_api_key: string;

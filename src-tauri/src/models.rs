@@ -94,6 +94,7 @@ pub struct ModelConfig {
     pub base_url: String,
     pub model: String,
     pub api_key: String,
+    pub embedding_provider: String,
     pub embedding_base_url: String,
     pub embedding_model: String,
     pub embedding_api_key: String,
@@ -109,6 +110,8 @@ pub struct ModelConfigDraft {
     pub base_url: String,
     pub model: String,
     pub api_key: String,
+    #[serde(default)]
+    pub embedding_provider: String,
     #[serde(default)]
     pub embedding_base_url: String,
     #[serde(default)]

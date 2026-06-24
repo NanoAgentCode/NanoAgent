@@ -212,6 +212,7 @@ const emptyModelDraft: ModelConfigDraft = {
   base_url: "https://api.openai.com/v1",
   model: "gpt-4o-mini",
   api_key: "",
+  embedding_provider: "openai-compatible",
   embedding_base_url: "https://api.openai.com/v1",
   embedding_model: "text-embedding-3-small",
   embedding_api_key: ""
@@ -227,6 +228,23 @@ const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "mode
     model: "claude-3-5-sonnet-latest"
   }
 };
+
+const embeddingProviderDefaults: Record<string, Pick<ModelConfigDraft, "embedding_base_url" | "embedding_model">> = {
+  "openai-compatible": {
+    embedding_base_url: "https://api.openai.com/v1",
+    embedding_model: "text-embedding-3-small"
+  }
+};
+
+function normalizeModelDraft(model: ModelConfig | ModelConfigDraft): ModelConfigDraft {
+  return {
+    ...model,
+    embedding_provider: model.embedding_provider || "openai-compatible",
+    embedding_base_url: model.embedding_base_url || "https://api.openai.com/v1",
+    embedding_model: model.embedding_model || "text-embedding-3-small",
+    embedding_api_key: model.embedding_api_key || ""
+  };
+}
 
 const themeLabels: Record<ThemeMode, string> = {
   system: "跟随系统",
@@ -1701,7 +1719,7 @@ function App() {
     const nextModels = await listModelConfigs();
     setModels(nextModels);
     setActiveModelId(saved.id);
-    setModelDraft({ ...saved });
+    setModelDraft(normalizeModelDraft(saved));
     setNotice("模型配置已保存");
   }
 
@@ -1712,13 +1730,13 @@ function App() {
     }
     const model = models.find((item) => item.id === id);
     if (model) {
-      setModelDraft({ ...model });
+      setModelDraft(normalizeModelDraft(model));
     }
   }
 
   function handleOpenModelConfig() {
     const model = models.find((item) => item.id === activeModelId);
-    setModelDraft(model ? { ...model } : emptyModelDraft);
+    setModelDraft(model ? normalizeModelDraft(model) : emptyModelDraft);
     setShowModelConfig(true);
   }
 
@@ -1757,6 +1775,22 @@ function App() {
         current.model === providerDefaults.anthropic.model
           ? defaults.model
           : current.model,
+    }));
+  }
+
+  function handleEmbeddingProviderChange(embeddingProvider: string) {
+    const defaults = embeddingProviderDefaults[embeddingProvider];
+    setModelDraft((current) => ({
+      ...current,
+      embedding_provider: embeddingProvider,
+      embedding_base_url:
+        current.embedding_base_url === embeddingProviderDefaults["openai-compatible"].embedding_base_url
+          ? defaults.embedding_base_url
+          : current.embedding_base_url,
+      embedding_model:
+        current.embedding_model === embeddingProviderDefaults["openai-compatible"].embedding_model
+          ? defaults.embedding_model
+          : current.embedding_model
     }));
   }
 
@@ -3511,7 +3545,7 @@ function App() {
                           <button
                             key={model.id}
                             className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
-                            onClick={() => setModelDraft({ ...model })}
+                            onClick={() => setModelDraft(normalizeModelDraft(model))}
                           >
                             <strong>{model.name}</strong>
                             <span>{model.provider} / {model.model}</span>
@@ -3571,6 +3605,15 @@ function App() {
 
                         <div className="model-form-card">
                           <div className="model-form-section-title">嵌入模型 API</div>
+                          <label>
+                            <span>协议类型</span>
+                            <select
+                              value={modelDraft.embedding_provider}
+                              onChange={(event) => handleEmbeddingProviderChange(event.target.value)}
+                            >
+                              <option value="openai-compatible">OpenAI 兼容协议</option>
+                            </select>
+                          </label>
                           <label>
                             <span>接口地址</span>
                             <input
