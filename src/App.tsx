@@ -651,6 +651,14 @@ function App() {
   }, [projects]);
 
   useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const timer = window.setTimeout(() => setNotice(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
     void loadAll();
     void checkLocalSkills();
     
@@ -886,7 +894,6 @@ function App() {
     const selectedFiles = Array.from(files).filter((file) => isSupportedRagFile(file.name));
     if (selectedFiles.length === 0) {
       setNotice("仅支持文本类文件：txt、md、json、csv、log、代码文件等。");
-      setTimeout(() => setNotice(""), 4000);
       return;
     }
 
@@ -913,11 +920,9 @@ function App() {
       }
       await refreshRagFiles(conversationId);
       setNotice(`已索引 ${selectedFiles.length} 个文件到当前对话。`);
-      setTimeout(() => setNotice(""), 3000);
     } catch (error) {
       console.error("Failed to index RAG file:", error);
       setNotice(`文件索引失败：${String(error)}`);
-      setTimeout(() => setNotice(""), 5000);
     } finally {
       setIndexingRagFileName("");
       setIsRagDragging(false);
@@ -950,7 +955,6 @@ function App() {
     } catch (error) {
       console.error("Failed to search RAG context:", error);
       setNotice(`文件检索失败，将跳过 RAG 上下文：${String(error)}`);
-      setTimeout(() => setNotice(""), 5000);
       return [];
     }
   }
@@ -1168,7 +1172,6 @@ function App() {
     setExpandedProjectIds((current) => (current.includes(nextProject.id) ? current : [...current, nextProject.id]));
     saveProjects(nextProjects, nextProject.id);
     setNotice(`已打开项目：${nextProject.name}`);
-    setTimeout(() => setNotice(""), 3000);
   }
 
   async function handleOpenProject() {
@@ -1184,7 +1187,6 @@ function App() {
       }
     } catch (error) {
       setNotice(`打开项目失败：${String(error)}`);
-      setTimeout(() => setNotice(""), 5000);
     }
   }
 
@@ -1201,7 +1203,6 @@ function App() {
       }
     } catch (error) {
       setNotice(`选择目录失败：${String(error)}`);
-      setTimeout(() => setNotice(""), 5000);
     }
   }
 
@@ -1209,7 +1210,6 @@ function App() {
     const name = newProjectName.trim();
     if (!newProjectParent || !name) {
       setNotice("请选择父目录并填写项目名称");
-      setTimeout(() => setNotice(""), 3000);
       return;
     }
 
@@ -1221,7 +1221,6 @@ function App() {
       setNewProjectName("");
     } catch (error) {
       setNotice(`新建项目失败：${String(error)}`);
-      setTimeout(() => setNotice(""), 5000);
     }
   }
 
@@ -1250,7 +1249,6 @@ function App() {
     setPendingProjectRemoval(null);
     setProjectApprovalText("");
     setNotice("项目入口已移除，磁盘文件未删除。");
-    setTimeout(() => setNotice(""), 3000);
   }
 
 
@@ -1374,7 +1372,6 @@ function App() {
     } finally {
       setIsInstallingEnv(false);
       setEnvInstallProgress("");
-      setTimeout(() => setNotice(""), 5000);
     }
   }
 
@@ -1400,7 +1397,6 @@ function App() {
       setNotice(`路径检测失败: ${String(e)}`);
     } finally {
       setIsCheckingEnv(false);
-      setTimeout(() => setNotice(""), 5000);
     }
   }
 
@@ -1414,7 +1410,6 @@ function App() {
       localStorage.removeItem(tavilyApiKeyStorageKey);
       setNotice("Tavily API Key 已清空，将使用系统环境变量或 DuckDuckGo 兜底。");
     }
-    setTimeout(() => setNotice(""), 3000);
   }
 
   function handleDeleteSkill(id: string) {
@@ -1426,7 +1421,6 @@ function App() {
         setSelectedSkillId(nextSkills.length > 0 ? nextSkills[0].id : "");
       }
       setNotice("技能已成功删除！");
-      setTimeout(() => setNotice(""), 3000);
     }
   }
 
@@ -1467,7 +1461,6 @@ function App() {
     });
 
     setNotice("自定义技能添加成功！");
-    setTimeout(() => setNotice(""), 3000);
   }
 
   async function refreshConversations(selectId?: string) {

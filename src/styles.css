@@ -4430,3 +4430,149 @@ button.success-btn:hover:not(:disabled) {
 .sidebar-project-item .project-add-chat-btn:active:not(:disabled) {
   transform: translateY(-50%) var(--control-icon-active-scale);
 }
+
+/* Final visual tuning */
+.primary,
+button.primary,
+.confirm-popover button:not(.ghost),
+.project-dialog footer .primary,
+.modal-actions button:first-child,
+.skills-add-btn,
+.mcp-add-btn,
+.chat-input-action.send {
+  background: rgba(31, 111, 235, 0.1);
+  color: var(--accent-indigo) !important;
+  border-color: rgba(31, 111, 235, 0.24);
+  box-shadow: none;
+}
+
+.primary:hover:not(:disabled),
+button.primary:hover:not(:disabled),
+.confirm-popover button:not(.ghost):hover:not(:disabled),
+.project-dialog footer .primary:hover:not(:disabled),
+.modal-actions button:first-child:hover:not(:disabled),
+.skills-add-btn:hover:not(:disabled),
+.mcp-add-btn:hover:not(:disabled),
+.chat-input-action.send:hover:not(:disabled) {
+  background: rgba(31, 111, 235, 0.16);
+  color: var(--accent-indigo) !important;
+  border-color: rgba(31, 111, 235, 0.34);
+  box-shadow: none;
+}
+
+.secondary,
+button.secondary,
+.project-dialog footer button,
+.project-path-picker button,
+.theme-switcher button,
+.env-action-btn,
+.skills-sync-btn,
+.observability-actions button,
+.compact-btn,
+.icon-text-btn,
+.icon-only-btn,
+.new-chat-btn,
+.project-expand-btn,
+.project-remove-btn,
+.project-add-chat-btn,
+.modal-close-btn,
+.chat-header-actions button,
+.rag-file-chip button,
+.chat-input-action.ghost {
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--control-text-muted) !important;
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: none;
+}
+
+.secondary:hover:not(:disabled),
+button.secondary:hover:not(:disabled),
+.project-dialog footer button:hover:not(:disabled),
+.project-path-picker button:hover:not(:disabled),
+.theme-switcher button:hover:not(:disabled),
+.env-action-btn:hover:not(:disabled),
+.skills-sync-btn:hover:not(:disabled),
+.observability-actions button:hover:not(:disabled),
+.compact-btn:hover:not(:disabled),
+.icon-text-btn:hover:not(:disabled),
+.icon-only-btn:hover:not(:disabled),
+.new-chat-btn:hover:not(:disabled),
+.project-expand-btn:hover:not(:disabled),
+.project-remove-btn:hover:not(:disabled),
+.project-add-chat-btn:hover:not(:disabled),
+.modal-close-btn:hover:not(:disabled),
+.chat-header-actions button:hover:not(:disabled),
+.rag-file-chip button:hover:not(:disabled),
+.chat-input-action.ghost:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--control-text) !important;
+  border-color: rgba(148, 163, 184, 0.32);
+  box-shadow: none;
+}
+
+.icon-text-btn.success-btn,
+button.success-btn,
+.icon-only-btn.success-btn {
+  background: rgba(46, 160, 67, 0.1);
+  color: var(--accent-emerald) !important;
+  border-color: rgba(46, 160, 67, 0.24);
+  box-shadow: none;
+}
+
+.icon-text-btn.success-btn:hover:not(:disabled),
+button.success-btn:hover:not(:disabled),
+.icon-only-btn.success-btn:hover:not(:disabled) {
+  background: rgba(46, 160, 67, 0.16);
+  color: var(--accent-emerald) !important;
+  border-color: rgba(46, 160, 67, 0.34);
+  box-shadow: none;
+}
+
+.danger,
+button.danger,
+.project-dialog footer .danger,
+.icon-only-btn.danger-btn,
+.icon-text-btn.danger-btn,
+.mcp-btn-danger,
+.custom-context-menu-item.danger-action {
+  background: rgba(248, 81, 73, 0.08);
+  color: var(--control-danger-text) !important;
+  border-color: rgba(248, 81, 73, 0.22);
+  box-shadow: none;
+}
+
+.danger:hover:not(:disabled),
+button.danger:hover:not(:disabled),
+.project-dialog footer .danger:hover:not(:disabled),
+.icon-only-btn.danger-btn:hover:not(:disabled),
+.icon-text-btn.danger-btn:hover:not(:disabled),
+.mcp-btn-danger:hover:not(:disabled),
+.custom-context-menu-item.danger-action:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.14);
+  color: var(--control-danger-text) !important;
+  border-color: rgba(248, 81, 73, 0.32);
+  box-shadow: none;
+}
+
+.notice {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translateX(-50%);
+  min-width: min(360px, calc(100vw - 40px));
+  max-width: min(560px, calc(100vw - 40px));
+  padding: 11px 16px;
+  text-align: center;
+  color: var(--text-primary);
+  border-color: rgba(88, 166, 255, 0.24);
+  background: color-mix(in srgb, var(--notification-bg) 92%, var(--bg-card));
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  z-index: 2000;
+}
+
+.notice:hover {
+  border-color: rgba(88, 166, 255, 0.36);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
+}
