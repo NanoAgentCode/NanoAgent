@@ -94,6 +94,9 @@ pub struct ModelConfig {
     pub base_url: String,
     pub model: String,
     pub api_key: String,
+    pub embedding_base_url: String,
+    pub embedding_model: String,
+    pub embedding_api_key: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -106,6 +109,12 @@ pub struct ModelConfigDraft {
     pub base_url: String,
     pub model: String,
     pub api_key: String,
+    #[serde(default)]
+    pub embedding_base_url: String,
+    #[serde(default)]
+    pub embedding_model: String,
+    #[serde(default)]
+    pub embedding_api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +250,40 @@ pub struct MessageWebSearchMetadata {
     pub used_fallback: bool,
     pub fallback_reason: Option<String>,
     pub result_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagFile {
+    pub id: String,
+    pub conversation_id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+    pub content_hash: String,
+    pub chunk_count: i64,
+    pub status: String,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagFileDraft {
+    pub conversation_id: String,
+    pub name: String,
+    pub mime: String,
+    pub size: i64,
+    pub content: String,
+    pub model_config_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagChunkMatch {
+    pub file_id: String,
+    pub file_name: String,
+    pub chunk_id: String,
+    pub chunk_index: i64,
+    pub text: String,
+    pub score: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

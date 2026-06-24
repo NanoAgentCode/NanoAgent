@@ -31,6 +31,9 @@ import type {
   AgentToolExecution,
   AgentToolExecutionRequest,
   AgentRunTimeline,
+  RagChunkMatch,
+  RagFile,
+  RagFileDraft,
 } from "./types";
 
 export function listItems(kind?: string) {
@@ -169,6 +172,32 @@ export function chatStream(
 
 export function deleteMessages(ids: string[]) {
   return invoke<void>("delete_messages", { ids });
+}
+
+export function listRagFiles(conversationId: string) {
+  return invoke<RagFile[]>("list_rag_files", { conversationId });
+}
+
+export function indexRagFile(draft: RagFileDraft) {
+  return invoke<RagFile>("index_rag_file", { draft });
+}
+
+export function deleteRagFile(id: string) {
+  return invoke<void>("delete_rag_file", { id });
+}
+
+export function searchRagContext(
+  conversationId: string,
+  query: string,
+  modelConfigId: string,
+  limit = 6
+) {
+  return invoke<RagChunkMatch[]>("search_rag_context", {
+    conversationId,
+    query,
+    modelConfigId,
+    limit
+  });
 }
 
 export function checkEnv(nodePath?: string, pythonPath?: string) {

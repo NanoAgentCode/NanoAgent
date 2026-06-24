@@ -42,6 +42,8 @@ import {
   deleteMemory,
   deleteMessages,
   deleteModelConfig,
+  deleteRagFile,
+  indexRagFile,
   internetSearch,
   listEnabledMemories,
   listArchivedConversations,
@@ -51,7 +53,9 @@ import {
   listMessages,
   listModelConfigs,
   listProjectFiles,
+  listRagFiles,
   saveModelConfig,
+  searchRagContext,
   searchItems,
   searchMemories,
   listLocalSkills,
@@ -95,6 +99,8 @@ import type {
   ProjectEntry,
   ProjectFileEntry,
   PersistedMessage,
+  RagChunkMatch,
+  RagFile,
   WebSearchResponse,
   WebSearchResult,
   WebSearchStatus
@@ -205,17 +211,24 @@ const emptyModelDraft: ModelConfigDraft = {
   provider: "openai-compatible",
   base_url: "https://api.openai.com/v1",
   model: "gpt-4o-mini",
-  api_key: ""
+  api_key: "",
+  embedding_base_url: "https://api.openai.com/v1",
+  embedding_model: "text-embedding-3-small",
+  embedding_api_key: ""
 };
 
-const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model">> = {
+const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model" | "embedding_base_url" | "embedding_model">> = {
   "openai-compatible": {
     base_url: "https://api.openai.com/v1",
-    model: "gpt-4o-mini"
+    model: "gpt-4o-mini",
+    embedding_base_url: "https://api.openai.com/v1",
+    embedding_model: "text-embedding-3-small"
   },
   anthropic: {
     base_url: "https://api.anthropic.com",
-    model: "claude-3-5-sonnet-latest"
+    model: "claude-3-5-sonnet-latest",
+    embedding_base_url: "https://api.openai.com/v1",
+    embedding_model: "text-embedding-3-small"
   }
 };
 
@@ -461,6 +474,9 @@ function App() {
   const [messages, setMessages] = useState<PersistedMessage[]>([]);
   const [messageReasoning, setMessageReasoning] = useState<Record<string, string>>({});
   const [chatInput, setChatInput] = useState("");
+  const [ragFiles, setRagFiles] = useState<RagFile[]>([]);
+  const [isRagDragging, setIsRagDragging] = useState(false);
+  const [indexingRagFileName, setIndexingRagFileName] = useState("");
   const [promptSuggestions, setPromptSuggestions] = useState<Item[]>([]);
   const [selectedPromptIndex, setSelectedPromptIndex] = useState(0);
   const [promptTriggerIndex, setPromptTriggerIndex] = useState(-1);
@@ -760,10 +776,12 @@ function App() {
     setMessageReasoning({});
     if (!activeConversationId) {
       setMessages([]);
+      setRagFiles([]);
       return;
     }
 
     void loadMessages(activeConversationId);
+    void refreshRagFiles(activeConversationId);
   }, [activeConversationId]);
 
   useEffect(() => {
@@ -856,6 +874,88 @@ function App() {
       if (requestId === messageLoadRequestRef.current) {
         setNotice(String(error));
       }
+    }
+  }
+
+  async function refreshRagFiles(conversationId: string) {
+    try {
+      setRagFiles(await listRagFiles(conversationId));
+    } catch (error) {
+      console.error("Failed to list RAG files:", error);
+      setRagFiles([]);
+    }
+  }
+
+  async function handleRagFiles(files: FileList | File[]) {
+    const selectedFiles = Array.from(files).filter((file) => isSupportedRagFile(file.name));
+    if (selectedFiles.length === 0) {
+      setNotice("仅支持文本类文件：txt、md、json、csv、log、代码文件等。");
+      setTimeout(() => setNotice(""), 4000);
+      return;
+    }
+
+    const modelConfigId = resolveConversationModelId(activeConversationId);
+    if (!modelConfigId) {
+      setNotice("请先保存并选择一个模型配置。");
+      return;
+    }
+
+    const projectHint = activeConversationProject || activeProject;
+    const conversationId = await ensureConversation(projectHint);
+    try {
+      for (const file of selectedFiles) {
+        setIndexingRagFileName(file.name);
+        const content = await file.text();
+        await indexRagFile({
+          conversation_id: conversationId,
+          name: file.name,
+          mime: file.type || "text/plain",
+          size: file.size,
+          content,
+          model_config_id: modelConfigId
+        });
+      }
+      await refreshRagFiles(conversationId);
+      setNotice(`已索引 ${selectedFiles.length} 个文件到当前对话。`);
+      setTimeout(() => setNotice(""), 3000);
+    } catch (error) {
+      console.error("Failed to index RAG file:", error);
+      setNotice(`文件索引失败：${String(error)}`);
+      setTimeout(() => setNotice(""), 5000);
+    } finally {
+      setIndexingRagFileName("");
+      setIsRagDragging(false);
+    }
+  }
+
+  async function handleDeleteRagFile(id: string) {
+    try {
+      await deleteRagFile(id);
+      if (activeConversationId) {
+        await refreshRagFiles(activeConversationId);
+      }
+    } catch (error) {
+      console.error("Failed to delete RAG file:", error);
+      setNotice(`删除文件索引失败：${String(error)}`);
+    }
+  }
+
+  async function loadRagMatches(
+    conversationId: string,
+    queryText: string,
+    modelConfigId: string
+  ): Promise<RagChunkMatch[]> {
+    if (!conversationId || !queryText.trim() || !modelConfigId || ragFiles.length === 0) {
+      return [];
+    }
+
+    try {
+      return await searchRagContext(conversationId, queryText, modelConfigId, 6);
+    } catch (error) {
+      console.error("Failed to search RAG context:", error);
+      setNotice(`文件检索失败，将跳过 RAG 上下文：${String(error)}`);
+      setTimeout(() => setNotice(""), 5000);
+      return [];
     }
   }
 
@@ -1667,7 +1767,17 @@ function App() {
         current.model === providerDefaults["openai-compatible"].model ||
         current.model === providerDefaults.anthropic.model
           ? defaults.model
-          : current.model
+          : current.model,
+      embedding_base_url:
+        current.embedding_base_url === providerDefaults["openai-compatible"].embedding_base_url ||
+        current.embedding_base_url === providerDefaults.anthropic.embedding_base_url
+          ? defaults.embedding_base_url
+          : current.embedding_base_url,
+      embedding_model:
+        current.embedding_model === providerDefaults["openai-compatible"].embedding_model ||
+        current.embedding_model === providerDefaults.anthropic.embedding_model
+          ? defaults.embedding_model
+          : current.embedding_model
     }));
   }
 
@@ -1972,6 +2082,9 @@ function App() {
         console.error("Failed to list project files:", error);
       }
     }
+    const retrievalQuery =
+      [...currentMessages].reverse().find((message) => message.role === "user")?.content || "";
+    const ragMatches = await loadRagMatches(conversationId, retrievalQuery, modelConfigId);
 
     const modelMessages: ChatMessage[] = [
       buildSystemMessage(
@@ -1981,6 +2094,7 @@ function App() {
         projectForRequest,
         projectFiles,
         skills,
+        ragMatches,
         tempDir
       ),
       ...currentMessages.map((message) => ({
@@ -2446,6 +2560,7 @@ function App() {
         }
       }
 
+      const ragMatches = await loadRagMatches(conversationId, content, activeModelId);
       const modelMessages: ChatMessage[] = [
         buildSystemMessage(
           enabledMemories,
@@ -2454,6 +2569,7 @@ function App() {
           projectForRequest,
           projectFiles,
           skills,
+          ragMatches,
           tempDir
         ),
         ...currentMessages.map((message) => ({
@@ -3428,7 +3544,7 @@ function App() {
                       <h3>模型管理</h3>
                       <button className="icon-only-btn compact" onClick={handleNewModelConfig} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
                     </div>
-                    <p className="description" style={{ marginTop: "-4px" }}>配置OpenAI兼容接口或Claude原生模型，供AI助手对话使用。</p>
+                    <p className="description" style={{ marginTop: "-4px" }}>配置对话模型与 Embeddings API，供 AI 助手和轻量 RAG 使用。</p>
                     <div className="model-config-grid">
                       <aside className="model-config-list">
                         {models.map((model) => (
@@ -3445,6 +3561,7 @@ function App() {
                       </aside>
 
                       <div className="model-config-form">
+                        <div className="model-form-section-title">对话模型</div>
                         <input
                           value={modelDraft.name}
                           onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
@@ -3472,6 +3589,23 @@ function App() {
                           type="password"
                           onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
                           placeholder="密钥"
+                        />
+                        <div className="model-form-section-title">Embeddings API</div>
+                        <input
+                          value={modelDraft.embedding_base_url}
+                          onChange={(event) => setModelDraft({ ...modelDraft, embedding_base_url: event.target.value })}
+                          placeholder="Embeddings 接口地址，默认复用对话接口"
+                        />
+                        <input
+                          value={modelDraft.embedding_model}
+                          onChange={(event) => setModelDraft({ ...modelDraft, embedding_model: event.target.value })}
+                          placeholder="Embeddings 模型，如 text-embedding-3-small"
+                        />
+                        <input
+                          value={modelDraft.embedding_api_key}
+                          type="password"
+                          onChange={(event) => setModelDraft({ ...modelDraft, embedding_api_key: event.target.value })}
+                          placeholder="Embeddings 密钥，留空复用对话密钥"
                         />
                         <div className="modal-actions icon-actions">
                           <button className="icon-only-btn success-btn" onClick={handleSaveModel} aria-label="保存并使用" title="保存并使用" type="button"><Save /></button>
@@ -3908,7 +4042,23 @@ function App() {
           {messages.length === 0 && <div className="empty">在下方输入开始对话，记录将保存在本地</div>}
         </div>
 
-        <div className="chat-input">
+        <div
+          className={isRagDragging ? "chat-input rag-dragging" : "chat-input"}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setIsRagDragging(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setIsRagDragging(false);
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setIsRagDragging(false);
+            void handleRagFiles(event.dataTransfer.files);
+          }}
+        >
           {promptSuggestions.length > 0 && (
             <div className="prompt-suggestions-dropdown">
               {promptSuggestions.map((prompt, index) => (
@@ -3921,6 +4071,32 @@ function App() {
                   <strong>#{prompt.title}</strong>
                   <span>{prompt.body}</span>
                 </button>
+              ))}
+            </div>
+          )}
+          {(ragFiles.length > 0 || indexingRagFileName || isRagDragging) && (
+            <div className="rag-file-strip">
+              {isRagDragging && <span className="rag-drop-hint">释放文件以索引到当前对话</span>}
+              {indexingRagFileName && (
+                <span className="rag-file-chip indexing">
+                  <FileText size={14} />
+                  {indexingRagFileName} · 索引中
+                </span>
+              )}
+              {ragFiles.map((file) => (
+                <span key={file.id} className="rag-file-chip" title={`${file.name} · ${file.chunk_count} chunks`}>
+                  <FileText size={14} />
+                  <span>{file.name}</span>
+                  <small>{file.chunk_count}</small>
+                  <button
+                    aria-label={`移除 ${file.name}`}
+                    onClick={() => void handleDeleteRagFile(file.id)}
+                    title="移除文件索引"
+                    type="button"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
               ))}
             </div>
           )}
@@ -3948,6 +4124,20 @@ function App() {
               </select>
             </div>
             <div className="chat-input-actions">
+              <label className="chat-input-action ghost" aria-label="上传文件" title="上传文件到当前对话 RAG">
+                <FileText size={20} />
+                <input
+                  multiple
+                  type="file"
+                  accept=".txt,.md,.markdown,.json,.csv,.tsv,.log,.js,.jsx,.ts,.tsx,.rs,.py,.java,.go,.yaml,.yml,.toml,.html,.css,.xml"
+                  onChange={(event) => {
+                    if (event.target.files) {
+                      void handleRagFiles(event.target.files);
+                    }
+                    event.target.value = "";
+                  }}
+                />
+              </label>
               <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
                 <Plus size={20} />
               </button>
@@ -4343,6 +4533,7 @@ function buildSystemMessage(
   activeProject: ProjectEntry | null = null,
   projectFiles: ProjectFileEntry[] = [],
   skills: Skill[] = [],
+  ragMatches: RagChunkMatch[] = [],
   tempDir?: string
 ): ChatMessage {
   const runtimeContext = buildRuntimeContext();
@@ -4363,6 +4554,14 @@ function buildSystemMessage(
         ? `（已从 Tavily 回退，原因：${webSearchStatus.fallback_reason || "Tavily 不可用"}）`
         : ""
     }`
+    : "";
+  const ragContext = ragMatches.length > 0
+    ? ragMatches
+        .map((match, index) => {
+          const score = Number.isFinite(match.score) ? match.score.toFixed(3) : "0.000";
+          return `[${index + 1}] ${match.file_name} · chunk ${match.chunk_index + 1} · score ${score}\n${match.text}`;
+        })
+        .join("\n\n")
     : "";
 
   const projectContext = activeProject
@@ -4438,6 +4637,7 @@ function buildSystemMessage(
     projectContext,
     skillsContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext}\n\n${toolsSystemInstruction}` : "",
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
+    ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : "",
     webContext || webStatusContext
       ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${[
           webStatusContext,
@@ -4468,6 +4668,10 @@ function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isSupportedRagFile(name: string) {
+  return /\.(txt|md|markdown|json|csv|tsv|log|js|jsx|ts|tsx|rs|py|java|go|yaml|yml|toml|html|css|xml)$/i.test(name);
 }
 
 function buildRuntimeContext() {

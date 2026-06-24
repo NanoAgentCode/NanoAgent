@@ -1639,6 +1639,67 @@ button.danger:active:not(:disabled) {
   padding-top: 14px;
 }
 
+.chat-input.rag-dragging textarea {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.14);
+}
+
+.rag-file-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-height: 28px;
+}
+
+.rag-drop-hint,
+.rag-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-pane);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.rag-drop-hint {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.rag-file-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rag-file-chip small {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.rag-file-chip.indexing {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.rag-file-chip button {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+}
+
 .chat-input textarea {
   width: 100%;
   min-height: 96px;
@@ -1743,9 +1804,16 @@ button.danger:active:not(:disabled) {
   width: 42px;
   height: 42px;
   min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--control-radius-pill);
   pointer-events: auto;
   font-weight: 600;
+}
+
+.chat-input-action input[type="file"] {
+  display: none;
 }
 
 .chat-input-action svg {
@@ -3264,6 +3332,15 @@ button.danger:active:not(:disabled) {
 .model-config-form select:focus {
   border-color: var(--border-color-focus);
   box-shadow: var(--focus-ring);
+}
+
+.model-form-section-title {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .theme-section {

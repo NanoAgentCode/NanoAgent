@@ -43,6 +43,9 @@ export interface ModelConfig {
   base_url: string;
   model: string;
   api_key: string;
+  embedding_base_url: string;
+  embedding_model: string;
+  embedding_api_key: string;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +57,9 @@ export interface ModelConfigDraft {
   base_url: string;
   model: string;
   api_key: string;
+  embedding_base_url: string;
+  embedding_model: string;
+  embedding_api_key: string;
 }
 
 export interface ChatMessage {
@@ -151,6 +157,37 @@ export interface MessageWebSearchMetadata {
   used_fallback: boolean;
   fallback_reason?: string | null;
   result_count: number;
+}
+
+export interface RagFile {
+  id: string;
+  conversation_id: string;
+  name: string;
+  mime: string;
+  size: number;
+  content_hash: string;
+  chunk_count: number;
+  status: string;
+  error?: string | null;
+  created_at: string;
+}
+
+export interface RagFileDraft {
+  conversation_id: string;
+  name: string;
+  mime: string;
+  size: number;
+  content: string;
+  model_config_id: string;
+}
+
+export interface RagChunkMatch {
+  file_id: string;
+  file_name: string;
+  chunk_id: string;
+  chunk_index: number;
+  text: string;
+  score: number;
 }
 
 export interface GitHubSkill {

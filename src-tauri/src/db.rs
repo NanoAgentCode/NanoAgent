@@ -8,6 +8,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
     Message, MessageDraft, MessageMetadata, ModelConfig, ModelConfigDraft, PatchField,
+    RagChunkMatch, RagFile,
 };
 
 pub struct Database {
@@ -56,6 +57,9 @@ impl Database {
                 base_url TEXT NOT NULL,
                 model TEXT NOT NULL,
                 api_key TEXT NOT NULL,
+                embedding_base_url TEXT NOT NULL DEFAULT '',
+                embedding_model TEXT NOT NULL DEFAULT '',
+                embedding_api_key TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -85,6 +89,59 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
                 ON messages(conversation_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS rag_files (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mime TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                chunk_count INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS rag_chunks (
+                id TEXT PRIMARY KEY,
+                file_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                token_count INTEGER NOT NULL,
+                metadata_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (file_id) REFERENCES rag_files(id) ON DELETE CASCADE,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS rag_embeddings (
+                chunk_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                embedding BLOB NOT NULL,
+                dim INTEGER NOT NULL,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (chunk_id) REFERENCES rag_chunks(id) ON DELETE CASCADE,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                conversation_id UNINDEXED,
+                file_id UNINDEXED,
+                file_name,
+                text
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_rag_files_conversation
+                ON rag_files(conversation_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_rag_chunks_conversation
+                ON rag_chunks(conversation_id, chunk_index);
+            CREATE INDEX IF NOT EXISTS idx_rag_embeddings_conversation
+                ON rag_embeddings(conversation_id);
+
             CREATE TABLE IF NOT EXISTS memories (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -110,6 +167,21 @@ impl Database {
         self.ensure_column("items", "repeat_rule", "TEXT")?;
         self.ensure_column("items", "last_reminded_at", "TEXT")?;
         self.ensure_column("messages", "metadata_json", "TEXT")?;
+        self.ensure_column(
+            "model_configs",
+            "embedding_base_url",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "model_configs",
+            "embedding_model",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "model_configs",
+            "embedding_api_key",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
         Ok(())
     }
 
@@ -237,7 +309,9 @@ impl Database {
     pub fn list_model_configs(&self) -> AppResult<Vec<ModelConfig>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, name, provider, base_url, model, api_key, created_at, updated_at
+            SELECT id, name, provider, base_url, model, api_key,
+                   embedding_base_url, embedding_model, embedding_api_key,
+                   created_at, updated_at
             FROM model_configs
             ORDER BY updated_at DESC
             ",
@@ -255,7 +329,9 @@ impl Database {
         self.conn
             .query_row(
                 "
-                SELECT id, name, provider, base_url, model, api_key, created_at, updated_at
+                SELECT id, name, provider, base_url, model, api_key,
+                       embedding_base_url, embedding_model, embedding_api_key,
+                       created_at, updated_at
                 FROM model_configs WHERE id = ?1
                 ",
                 params![id],
@@ -287,6 +363,9 @@ impl Database {
             base_url: clean_or_default(draft.base_url, "https://api.openai.com/v1"),
             model: clean_or_default(draft.model, "gpt-4o-mini"),
             api_key: draft.api_key,
+            embedding_base_url: clean_optional_string(draft.embedding_base_url),
+            embedding_model: clean_or_default(draft.embedding_model, "text-embedding-3-small"),
+            embedding_api_key: clean_optional_string(draft.embedding_api_key),
             created_at,
             updated_at: now,
         };
@@ -294,14 +373,19 @@ impl Database {
         self.conn.execute(
             "
             INSERT INTO model_configs
-                (id, name, provider, base_url, model, api_key, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (id, name, provider, base_url, model, api_key,
+                 embedding_base_url, embedding_model, embedding_api_key,
+                 created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 provider = excluded.provider,
                 base_url = excluded.base_url,
                 model = excluded.model,
                 api_key = excluded.api_key,
+                embedding_base_url = excluded.embedding_base_url,
+                embedding_model = excluded.embedding_model,
+                embedding_api_key = excluded.embedding_api_key,
                 updated_at = excluded.updated_at
             ",
             params![
@@ -311,6 +395,9 @@ impl Database {
                 config.base_url,
                 config.model,
                 config.api_key,
+                config.embedding_base_url,
+                config.embedding_model,
+                config.embedding_api_key,
                 config.created_at.to_rfc3339(),
                 config.updated_at.to_rfc3339()
             ],
@@ -449,6 +536,10 @@ impl Database {
     }
 
     pub fn delete_conversation(&self, id: &str) -> AppResult<()> {
+        self.conn.execute(
+            "DELETE FROM rag_chunks_fts WHERE conversation_id = ?1",
+            params![id],
+        )?;
         let affected = self
             .conn
             .execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
@@ -542,6 +633,214 @@ impl Database {
             return Err(AppError::Message("message not found".to_string()));
         }
         Ok(())
+    }
+
+    pub fn list_rag_files(&self, conversation_id: &str) -> AppResult<Vec<RagFile>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, conversation_id, name, mime, size, content_hash, chunk_count,
+                   status, error, created_at
+            FROM rag_files
+            WHERE conversation_id = ?1
+            ORDER BY created_at DESC
+            ",
+        )?;
+
+        let rows = stmt
+            .query_map([conversation_id], row_to_rag_file)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+
+        Ok(rows)
+    }
+
+    pub fn get_rag_file(&self, id: &str) -> AppResult<RagFile> {
+        self.conn
+            .query_row(
+                "
+                SELECT id, conversation_id, name, mime, size, content_hash, chunk_count,
+                       status, error, created_at
+                FROM rag_files
+                WHERE id = ?1
+                ",
+                params![id],
+                row_to_rag_file,
+            )
+            .map_err(AppError::from)
+    }
+
+    pub fn delete_rag_file(&self, id: &str) -> AppResult<()> {
+        let file = self.get_rag_file(id)?;
+        self.conn
+            .execute("DELETE FROM rag_chunks_fts WHERE file_id = ?1", params![id])?;
+        let affected = self
+            .conn
+            .execute("DELETE FROM rag_files WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "rag file not found")?;
+        let _ = file;
+        Ok(())
+    }
+
+    pub fn replace_rag_file(
+        &self,
+        conversation_id: &str,
+        name: &str,
+        mime: &str,
+        size: i64,
+        content_hash: &str,
+        chunks: &[String],
+        embeddings: &[Vec<f32>],
+        embedding_model: &str,
+    ) -> AppResult<RagFile> {
+        if chunks.is_empty() {
+            return Err(AppError::Message("文件没有可索引文本".to_string()));
+        }
+        if chunks.len() != embeddings.len() {
+            return Err(AppError::Message(
+                "chunk 与 embedding 数量不一致".to_string(),
+            ));
+        }
+
+        let existing_id: Option<String> = self
+            .conn
+            .query_row(
+                "
+                SELECT id FROM rag_files
+                WHERE conversation_id = ?1 AND content_hash = ?2
+                ",
+                params![conversation_id, content_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if let Some(existing_id) = existing_id {
+            self.delete_rag_file(&existing_id)?;
+        }
+
+        let now = Utc::now();
+        let file = RagFile {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.to_string(),
+            name: clean_or_default(name.to_string(), "uploaded.txt"),
+            mime: clean_optional_string(mime.to_string()),
+            size,
+            content_hash: content_hash.to_string(),
+            chunk_count: chunks.len() as i64,
+            status: "ready".to_string(),
+            error: None,
+            created_at: now,
+        };
+
+        self.conn.execute(
+            "
+            INSERT INTO rag_files
+                (id, conversation_id, name, mime, size, content_hash, chunk_count,
+                 status, error, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ",
+            params![
+                file.id,
+                file.conversation_id,
+                file.name,
+                file.mime,
+                file.size,
+                file.content_hash,
+                file.chunk_count,
+                file.status,
+                file.error,
+                file.created_at.to_rfc3339()
+            ],
+        )?;
+
+        for (index, (text, embedding)) in chunks.iter().zip(embeddings.iter()).enumerate() {
+            let chunk_id = Uuid::new_v4().to_string();
+            self.conn.execute(
+                "
+                INSERT INTO rag_chunks
+                    (id, file_id, conversation_id, chunk_index, text, token_count,
+                     metadata_json, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                ",
+                params![
+                    chunk_id,
+                    file.id,
+                    file.conversation_id,
+                    index as i64,
+                    text,
+                    estimate_token_count(text),
+                    serde_json::json!({ "file_name": file.name }).to_string(),
+                    now.to_rfc3339()
+                ],
+            )?;
+            self.conn.execute(
+                "
+                INSERT INTO rag_embeddings
+                    (chunk_id, conversation_id, embedding, dim, model, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ",
+                params![
+                    chunk_id,
+                    file.conversation_id,
+                    encode_embedding(embedding),
+                    embedding.len() as i64,
+                    embedding_model,
+                    now.to_rfc3339()
+                ],
+            )?;
+            self.conn.execute(
+                "
+                INSERT INTO rag_chunks_fts
+                    (chunk_id, conversation_id, file_id, file_name, text)
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                ",
+                params![chunk_id, file.conversation_id, file.id, file.name, text],
+            )?;
+        }
+
+        Ok(file)
+    }
+
+    pub fn search_rag_chunks(
+        &self,
+        conversation_id: &str,
+        query_embedding: &[f32],
+        limit: i64,
+    ) -> AppResult<Vec<RagChunkMatch>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT chunks.id, chunks.file_id, files.name, chunks.chunk_index, chunks.text,
+                   embeddings.embedding
+            FROM rag_chunks chunks
+            JOIN rag_files files ON files.id = chunks.file_id
+            JOIN rag_embeddings embeddings ON embeddings.chunk_id = chunks.id
+            WHERE chunks.conversation_id = ?1
+            ",
+        )?;
+
+        let mut rows = stmt.query(params![conversation_id])?;
+        let mut matches = Vec::new();
+        while let Some(row) = rows.next()? {
+            let embedding_blob: Vec<u8> = row.get(5)?;
+            let embedding = decode_embedding(&embedding_blob)?;
+            let score = cosine_similarity(query_embedding, &embedding);
+            matches.push(RagChunkMatch {
+                chunk_id: row.get(0)?,
+                file_id: row.get(1)?,
+                file_name: row.get(2)?,
+                chunk_index: row.get(3)?,
+                text: row.get(4)?,
+                score,
+            });
+        }
+
+        matches.sort_by(|left, right| {
+            right
+                .score
+                .partial_cmp(&left.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        matches.truncate(limit.clamp(1, 20) as usize);
+        Ok(matches)
     }
 
     pub fn list_memories(&self) -> AppResult<Vec<Memory>> {
@@ -791,8 +1090,8 @@ impl Database {
     }
 
     fn row_to_model_config(row: &rusqlite::Row<'_>) -> rusqlite::Result<ModelConfig> {
-        let created_at: String = row.get(6)?;
-        let updated_at: String = row.get(7)?;
+        let created_at: String = row.get(9)?;
+        let updated_at: String = row.get(10)?;
 
         Ok(ModelConfig {
             id: row.get(0)?,
@@ -801,6 +1100,9 @@ impl Database {
             base_url: row.get(3)?,
             model: row.get(4)?,
             api_key: row.get(5)?,
+            embedding_base_url: row.get(6)?,
+            embedding_model: row.get(7)?,
+            embedding_api_key: row.get(8)?,
             created_at: parse_time_for_row(&created_at)?,
             updated_at: parse_time_for_row(&updated_at)?,
         })
@@ -876,6 +1178,83 @@ fn clean_or_default(value: String, default: &str) -> String {
         default.to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+fn clean_optional_string(value: String) -> String {
+    value.trim().to_string()
+}
+
+fn row_to_rag_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<RagFile> {
+    let created_at: String = row.get(9)?;
+    Ok(RagFile {
+        id: row.get(0)?,
+        conversation_id: row.get(1)?,
+        name: row.get(2)?,
+        mime: row.get(3)?,
+        size: row.get(4)?,
+        content_hash: row.get(5)?,
+        chunk_count: row.get(6)?,
+        status: row.get(7)?,
+        error: row.get(8)?,
+        created_at: parse_time_for_row(&created_at)?,
+    })
+}
+
+fn estimate_token_count(text: &str) -> i64 {
+    let chinese_chars = text
+        .chars()
+        .filter(|ch| ('\u{4e00}'..='\u{9fff}').contains(ch))
+        .count();
+    let non_chinese = text
+        .chars()
+        .map(|ch| {
+            if ('\u{4e00}'..='\u{9fff}').contains(&ch) {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>();
+    let words = non_chinese.split_whitespace().count();
+    chinese_chars as i64 + ((words as f64) * 1.3).ceil() as i64
+}
+
+fn encode_embedding(values: &[f32]) -> Vec<u8> {
+    values
+        .iter()
+        .flat_map(|value| value.to_le_bytes())
+        .collect::<Vec<_>>()
+}
+
+fn decode_embedding(bytes: &[u8]) -> AppResult<Vec<f32>> {
+    if bytes.len() % 4 != 0 {
+        return Err(AppError::Message("invalid embedding blob".to_string()));
+    }
+    Ok(bytes
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect())
+}
+
+fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
+    if left.is_empty() || left.len() != right.len() {
+        return 0.0;
+    }
+
+    let mut dot = 0.0f32;
+    let mut left_norm = 0.0f32;
+    let mut right_norm = 0.0f32;
+    for (left_value, right_value) in left.iter().zip(right.iter()) {
+        dot += left_value * right_value;
+        left_norm += left_value * left_value;
+        right_norm += right_value * right_value;
+    }
+
+    if left_norm == 0.0 || right_norm == 0.0 {
+        0.0
+    } else {
+        dot / (left_norm.sqrt() * right_norm.sqrt())
     }
 }
 
