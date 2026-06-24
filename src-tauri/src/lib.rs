@@ -48,6 +48,10 @@ async fn start_observation(
     metadata: serde_json::Value,
     trace_id: Option<String>,
 ) -> Option<SpanContext> {
+    if category != "llm" {
+        return None;
+    }
+
     state.observability.lock().await.start_span(SpanStart {
         trace_id,
         parent_span_id: None,

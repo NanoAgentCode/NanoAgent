@@ -264,6 +264,7 @@ impl ObservabilitySink for SqliteObservabilitySink {
                    status, started_at, ended_at, duration_ms, input_summary, output_summary,
                    error, metadata_json
             FROM observability_spans
+            WHERE category = 'llm'
             ORDER BY started_at DESC
             LIMIT ?1
             ",

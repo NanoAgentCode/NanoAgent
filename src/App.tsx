@@ -235,7 +235,24 @@ function loadSavedProjects() {
 
   try {
     const parsed = JSON.parse(saved) as ProjectEntry[];
-    return parsed.filter((project) => project.id && project.name && project.path);
+    const uniqueProjects = new Map<string, ProjectEntry>();
+    for (const project of parsed) {
+      if (!project.id || !project.name || !project.path) {
+        continue;
+      }
+      const normalizedPath = project.path.trim().replace(/[\\/]+$/, "");
+      if (!normalizedPath) {
+        continue;
+      }
+      const normalizedProject = {
+        ...project,
+        id: normalizedPath,
+        name: project.name,
+        path: normalizedPath
+      };
+      uniqueProjects.set(normalizedPath.toLowerCase(), normalizedProject);
+    }
+    return Array.from(uniqueProjects.values());
   } catch (error) {
     console.error("Failed to parse projects from localStorage", error);
     return [];
@@ -1012,7 +1029,7 @@ function App() {
   }
 
   function upsertProject(path: string) {
-    const normalizedPath = path.trim();
+    const normalizedPath = path.trim().replace(/[\\/]+$/, "");
     if (!normalizedPath) return;
 
     const now = new Date().toISOString();
@@ -1654,7 +1671,7 @@ function App() {
     conversationId: string,
     projectHint: ProjectEntry | null = null
   ) {
-    return findConversationProject(findConversationById(conversationId)) || projectHint;
+    return findConversationProject(findConversationById(conversationId)) || projectHint || activeProject;
   }
 
   async function handleNewConversation() {
@@ -2085,7 +2102,7 @@ function App() {
     let activeToolCall: AgentToolCall | null = messageToolCalls[messageId] || null;
 
     try {
-      const projectHint = activeConversationId ? null : activeProject;
+      const projectHint = activeConversationProject || activeProject;
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const projectPath = projectForRequest?.path || tempDir;
@@ -2187,7 +2204,7 @@ function App() {
       }
       
       try {
-        const projectHint = activeConversationId ? null : activeProject;
+        const projectHint = activeConversationProject || activeProject;
         const conversationId = await ensureConversation(projectHint);
         const projectForRequest = resolveConversationProject(conversationId, projectHint);
         await appendMessage({
@@ -2210,7 +2227,7 @@ function App() {
   async function handleRejectTool(messageId: string, toolCall: ParsedToolCall) {
     setBusy(true);
     try {
-      const projectHint = activeConversationId ? null : activeProject;
+      const projectHint = activeConversationProject || activeProject;
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       let activeRunId = messageToolCalls[messageId]?.run_id || conversationRunIds[conversationId] || null;
@@ -2284,7 +2301,7 @@ function App() {
     let agentRun: AgentRun | null = null;
 
     try {
-      const projectHint = activeConversationId ? null : activeProject;
+      const projectHint = activeConversationProject || activeProject;
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const persistedMessages = await listMessages(conversationId);
@@ -4300,8 +4317,9 @@ function buildSystemMessage(
   const projectContext = activeProject
     ? [
         "当前项目上下文：",
-        `- 项目名称：${activeProject.name}`,
-        `- 项目路径：${activeProject.path}`,
+        `- 项目显示名称：${activeProject.name}（仅用于应用界面展示，不代表目录名，也不要用于拼接路径）`,
+        `- 真实工作目录：${activeProject.path}`,
+        "- 所有文件、命令、读写操作必须以真实工作目录为准；不要根据项目显示名称推断或追加子目录。",
         projectFiles.length > 0
           ? `- 当前项目文件列表（最多 300 项，已跳过 node_modules、.git、target、dist 等大目录）：\n${formatProjectFileTree(projectFiles)}`
           : "- 当前项目文件列表为空，或暂时无法读取。"
