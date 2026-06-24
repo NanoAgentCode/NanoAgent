@@ -2713,9 +2713,13 @@ button.danger:active:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 }
 
 .skills-config-row strong {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: var(--font-size-lg);
   color: var(--text-primary);
   overflow: hidden;
@@ -2729,10 +2733,13 @@ button.danger:active:not(:disabled) {
 }
 
 .skills-indicator-badge {
+  flex: 0 0 auto;
   font-size: var(--font-size-2xs);
   padding: 1px 5px;
   border-radius: 4px;
   font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .skills-indicator-badge.enabled {
