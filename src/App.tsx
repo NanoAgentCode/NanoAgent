@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   CheckSquare,
+  Cpu,
   Edit,
   FileText,
   Folder,
@@ -31,6 +32,7 @@ import {
   appendMessage,
   archiveConversation,
   renameConversation,
+  updateConversationModel,
   chat,
   chatStream,
   createConversation,
@@ -137,6 +139,7 @@ type SettingsTab =
   | "theme"
   | "archive"
   | "model"
+  | "embedding"
   | "skills"
   | "mcp"
   | "observability";
@@ -211,6 +214,19 @@ const emptyModelDraft: ModelConfigDraft = {
   provider: "openai-compatible",
   base_url: "https://api.openai.com/v1",
   model: "gpt-4o-mini",
+  api_key: "",
+  embedding_provider: "openai-compatible",
+  embedding_base_url: "https://api.openai.com/v1",
+  embedding_model: "text-embedding-3-small",
+  embedding_api_key: ""
+};
+
+const emptyEmbeddingDraft: ModelConfigDraft = {
+  id: "embedding-config",
+  name: "嵌入模型",
+  provider: "openai-compatible",
+  base_url: "https://api.openai.com/v1",
+  model: "text-embedding-3-small",
   api_key: "",
   embedding_provider: "openai-compatible",
   embedding_base_url: "https://api.openai.com/v1",
@@ -454,6 +470,16 @@ function App() {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
   const [activeModelId, setActiveModelId] = useState("");
+  const [embeddingDraft, setEmbeddingDraft] = useState<ModelConfigDraft>(emptyEmbeddingDraft);
+
+  useEffect(() => {
+    const existing = models.find((m) => m.id === "embedding-config");
+    if (existing) {
+      setEmbeddingDraft(normalizeModelDraft(existing));
+    } else {
+      setEmbeddingDraft(emptyEmbeddingDraft);
+    }
+  }, [models]);
   const [projects, setProjects] = useState<ProjectEntry[]>(() => loadSavedProjects());
   const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem(activeProjectStorageKey) || "");
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => {
@@ -502,6 +528,8 @@ function App() {
   const [agentRunTimelines, setAgentRunTimelines] = useState<AgentRunTimeline[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState("");
   const [expandedObservabilityRows, setExpandedObservabilityRows] = useState<string[]>([]);
+  const [agentRuntimeCollapsed, setAgentRuntimeCollapsed] = useState(false);
+  const [traceTimelineCollapsed, setTraceTimelineCollapsed] = useState(false);
   const [isLoadingObservability, setIsLoadingObservability] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem("nano-agent-skills");
@@ -625,19 +653,8 @@ function App() {
   const activeTraceTimelineItems = selectedTrace?.spans || [];
 
   useEffect(() => {
-    if (!selectedTrace) {
-      setExpandedObservabilityRows([]);
-      return;
-    }
-
-    const defaultRows = selectedTrace.spans
-      .filter((span) => span.status === "error")
-      .map((span) => `span-${span.id}`);
-    const latestSpan = selectedTrace.spans[selectedTrace.spans.length - 1];
-    if (latestSpan) {
-      defaultRows.push(`span-${latestSpan.id}`);
-    }
-    setExpandedObservabilityRows(Array.from(new Set(defaultRows)));
+    setExpandedObservabilityRows([]);
+    setTraceTimelineCollapsed(false);
   }, [selectedTrace?.traceId]);
 
   useEffect(() => {
@@ -877,7 +894,7 @@ function App() {
       setArchivedConversations(nextArchivedConversations);
       setMemoryItems(nextMemories);
       setSelectedId((current) => current || nextItems[0]?.id || "");
-      setActiveModelId((current) => current || nextModels[0]?.id || "");
+      setActiveModelId((current) => current || nextModels.find((m) => m.id !== "embedding-config")?.id || "");
       setActiveConversationId((current) => current || nextConversations[0]?.id || "");
       setSelectedMemoryId((current) => current || nextMemories[0]?.id || "");
     } catch (error) {
@@ -1735,7 +1752,7 @@ function App() {
   }
 
   function handleOpenModelConfig() {
-    const model = models.find((item) => item.id === activeModelId);
+    const model = models.find((item) => item.id === activeModelId) || models.find((item) => item.id !== "embedding-config");
     setModelDraft(model ? normalizeModelDraft(model) : emptyModelDraft);
     setShowModelConfig(true);
   }
@@ -1755,7 +1772,7 @@ function App() {
     const nextModels = await listModelConfigs();
     setModels(nextModels);
     if (modelDraft.id === activeModelId) {
-      setActiveModelId(nextModels[0]?.id || "");
+      setActiveModelId(nextModels.find((m) => m.id !== "embedding-config")?.id || "");
     }
     setModelDraft(emptyModelDraft);
   }
@@ -1780,7 +1797,7 @@ function App() {
 
   function handleEmbeddingProviderChange(embeddingProvider: string) {
     const defaults = embeddingProviderDefaults[embeddingProvider];
-    setModelDraft((current) => ({
+    setEmbeddingDraft((current) => ({
       ...current,
       embedding_provider: embeddingProvider,
       embedding_base_url:
@@ -1792,6 +1809,42 @@ function App() {
           ? defaults.embedding_model
           : current.embedding_model
     }));
+  }
+
+  async function handleSaveEmbeddingModel() {
+    const updatedDraft = {
+      ...embeddingDraft,
+      id: "embedding-config",
+      name: "嵌入模型",
+      provider: embeddingDraft.embedding_provider,
+      base_url: embeddingDraft.embedding_base_url,
+      model: embeddingDraft.embedding_model,
+      api_key: embeddingDraft.embedding_api_key,
+    };
+    const saved = await saveModelConfig(updatedDraft);
+    const nextModels = await listModelConfigs();
+    setModels(nextModels);
+    setEmbeddingDraft(normalizeModelDraft(saved));
+    setNotice("嵌入模型配置已保存");
+  }
+
+  function handleOpenEmbeddingConfig() {
+    const existing = models.find((m) => m.id === "embedding-config");
+    setEmbeddingDraft(existing ? normalizeModelDraft(existing) : emptyEmbeddingDraft);
+  }
+
+  async function handleActiveModelChange(modelId: string) {
+    setActiveModelId(modelId);
+    if (activeConversationId) {
+      try {
+        await updateConversationModel(activeConversationId, modelId || null);
+        setConversations((current) =>
+          current.map((c) => (c.id === activeConversationId ? { ...c, model_config_id: modelId || null } : c))
+        );
+      } catch (error) {
+        setNotice(String(error));
+      }
+    }
   }
 
   async function createConversationForCurrentScope(project: ProjectEntry | null) {
@@ -2947,20 +3000,26 @@ function App() {
 
           <section className="observability-span-list">
             <section className="agent-runtime-panel">
-              <div className="observability-trace-summary">
+              <div
+                className="observability-trace-summary clickable"
+                onClick={() => setAgentRuntimeCollapsed(!agentRuntimeCollapsed)}
+              >
                 <div>
                   <strong>Agent Runtime</strong>
                   <span>{activeConversation?.title || "当前会话"}</span>
                 </div>
-                <span>
-                  {activeRunTimeline
-                    ? `${agentRunTimelines.length} runs · ${activeRunTimeline.run.status}`
-                    : activeConversationId
-                      ? "暂无运行记录"
-                      : "未选择会话"}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span>
+                    {activeRunTimeline
+                      ? `${agentRunTimelines.length} runs · ${activeRunTimeline.run.status}`
+                      : activeConversationId
+                        ? "暂无运行记录"
+                        : "未选择会话"}
+                  </span>
+                  {activeRunTimeline && (agentRuntimeCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />)}
+                </div>
               </div>
-              {activeRunTimeline ? (
+              {activeRunTimeline && !agentRuntimeCollapsed ? (
                 <div className="agent-run-timeline">
                   <div className={`agent-run-header ${activeRunTimeline.run.status}`}>
                     <div>
@@ -2993,7 +3052,7 @@ function App() {
                       </button>
                       {expandedObservabilityRows.includes(`runtime-${event.id}`) && event.detail && (
                         <div className="timeline-row-detail">
-                          <pre>{event.detail}</pre>
+                          <ObservabilityDetailPanel detail={event.detail} />
                         </div>
                       )}
                     </div>
@@ -3002,7 +3061,7 @@ function App() {
                     <div className="empty">该 run 暂无步骤</div>
                   )}
                 </div>
-              ) : (
+              ) : activeRunTimeline ? null : (
                 <div className="empty">
                   {activeConversationId ? "当前会话还没有 Agent Runtime 记录" : "选择一个会话后查看 Agent Runtime"}
                 </div>
@@ -3011,48 +3070,58 @@ function App() {
 
             {selectedTrace ? (
               <>
-                <div className="observability-trace-summary">
+                <div
+                  className="observability-trace-summary clickable"
+                  onClick={() => setTraceTimelineCollapsed(!traceTimelineCollapsed)}
+                >
                   <div>
                     <strong>{selectedTrace.lastOperation || "chat_stream"}</strong>
                     <span>{selectedTrace.traceId}</span>
                   </div>
-                  <span>{selectedTrace.spans.length} 条消息 · {formatDuration(selectedTrace.duration)}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span>{selectedTrace.spans.length} 条消息 · {formatDuration(selectedTrace.duration)}</span>
+                    {traceTimelineCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                  </div>
                 </div>
-                <div className="observability-timeline">
-                  {activeTraceTimelineItems.map((span, index) => {
-                    const rowId = `span-${span.id}`;
-                    const isExpanded = expandedObservabilityRows.includes(rowId);
-                    const detail = buildObservabilitySpanDetail(span);
+                {!traceTimelineCollapsed && (
+                  <div className="observability-timeline">
+                    {activeTraceTimelineItems.map((span, index) => {
+                      const rowId = `span-${span.id}`;
+                      const isExpanded = expandedObservabilityRows.includes(rowId);
+                      const detail = buildObservabilitySpanDetail(span);
 
-                    return (
-                      <div key={span.id} className={`observability-span-row ${span.status}`}>
-                        <div className="observability-timeline-marker">
-                          <span className="observability-status-dot" />
-                          {index < activeTraceTimelineItems.length - 1 && <span className="observability-timeline-line" />}
-                        </div>
-                        <button className="timeline-row-toggle" onClick={() => toggleTimelineRow(rowId)} type="button">
-                          <span className="timeline-row-copy">
-                            <strong>{span.operation}</strong>
-                            <small>{span.category}{span.entity_type ? ` / ${span.entity_type}` : ""}</small>
-                          </span>
-                          <span className="observability-span-meta">
-                            <span>{formatDuration(span.duration_ms ?? 0)}</span>
-                            <span>{formatShortTime(span.started_at)}</span>
-                          </span>
-                          {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                        </button>
-                        {isExpanded && detail && (
-                          <div className="timeline-row-detail">
-                            <pre>{detail}</pre>
+                      return (
+                        <div key={span.id} className={`observability-span-row ${span.status}`}>
+                          <div className="observability-timeline-marker">
+                            <span className="observability-status-dot" />
+                            {index < activeTraceTimelineItems.length - 1 && <span className="observability-timeline-line" />}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {activeTraceTimelineItems.length === 0 && (
-                    <div className="empty">该链路暂无消息</div>
-                  )}
-                </div>
+                          <div className="observability-span-content">
+                            <button className="timeline-row-toggle" onClick={() => toggleTimelineRow(rowId)} type="button">
+                              <span className="timeline-row-copy">
+                                <strong>{span.operation}</strong>
+                                <small>{span.category}{span.entity_type ? ` / ${span.entity_type}` : ""}</small>
+                              </span>
+                              <span className="observability-span-meta">
+                                <span>{formatDuration(span.duration_ms ?? 0)}</span>
+                                <span>{formatShortTime(span.started_at)}</span>
+                              </span>
+                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                            </button>
+                            {isExpanded && detail && (
+                              <div className="timeline-row-detail">
+                                <ObservabilityDetailPanel detail={detail} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {activeTraceTimelineItems.length === 0 && (
+                      <div className="empty">该链路暂无消息</div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <div className="archive-preview-placeholder">
@@ -3312,6 +3381,13 @@ function App() {
             <div className="settings-modal-layout">
               <aside className="settings-sidebar">
                 <button
+                  className={activeSettingsTab === "theme" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("theme")}
+                >
+                  <Sun size={16} />
+                  <span>主题选择</span>
+                </button>
+                <button
                   className={activeSettingsTab === "task" ? "settings-nav-item active" : "settings-nav-item"}
                   onClick={() => {
                     setActiveSettingsTab("task");
@@ -3342,11 +3418,21 @@ function App() {
                   <span>记忆库</span>
                 </button>
                 <button
-                  className={activeSettingsTab === "theme" ? "settings-nav-item active" : "settings-nav-item"}
-                  onClick={() => setActiveSettingsTab("theme")}
+                  className={activeSettingsTab === "model" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("model")}
                 >
-                  <Sun size={16} />
-                  <span>主题选择</span>
+                  <Bot size={16} />
+                  <span>大模型管理</span>
+                </button>
+                <button
+                  className={activeSettingsTab === "embedding" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => {
+                    setActiveSettingsTab("embedding");
+                    handleOpenEmbeddingConfig();
+                  }}
+                >
+                  <Cpu size={16} />
+                  <span>Embeding管理</span>
                 </button>
                 <button
                   className={activeSettingsTab === "archive" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3356,11 +3442,11 @@ function App() {
                   <span>归档列表</span>
                 </button>
                 <button
-                  className={activeSettingsTab === "model" ? "settings-nav-item active" : "settings-nav-item"}
-                  onClick={() => setActiveSettingsTab("model")}
+                  className={activeSettingsTab === "observability" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("observability")}
                 >
-                  <Bot size={16} />
-                  <span>模型管理</span>
+                  <Activity size={16} />
+                  <span>链路追踪</span>
                 </button>
                 <button
                   className={activeSettingsTab === "skills" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3368,13 +3454,6 @@ function App() {
                 >
                   <Sparkles size={16} />
                   <span>Skills管理</span>
-                </button>
-                <button
-                  className={activeSettingsTab === "observability" ? "settings-nav-item active" : "settings-nav-item"}
-                  onClick={() => setActiveSettingsTab("observability")}
-                >
-                  <Activity size={16} />
-                  <span>链路追踪</span>
                 </button>
                 <button
                   className={activeSettingsTab === "mcp" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3532,83 +3611,113 @@ function App() {
                   </div>
                 )}
 
-                {activeSettingsTab === "model" && (
+                {activeSettingsTab === "model" && (() => {
+                  const llmModels = models.filter((model) => model.id !== "embedding-config");
+                  return (
+                    <div className="settings-tab-content model-tab-content">
+                      <div className="model-header-row">
+                        <h3>大模型管理</h3>
+                        <button className="icon-only-btn compact" onClick={handleNewModelConfig} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
+                      </div>
+                      <p className="description" style={{ marginTop: "-4px" }}>配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
+                      <div className="model-config-grid">
+                        <aside className="model-config-list">
+                          {llmModels.map((model) => (
+                            <button
+                              key={model.id}
+                              className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
+                              onClick={() => setModelDraft(normalizeModelDraft(model))}
+                            >
+                              <strong>{model.name}</strong>
+                              <span>{model.provider} / {model.model}</span>
+                            </button>
+                          ))}
+                          {llmModels.length === 0 && <div className="empty">暂无大模型配置</div>}
+                        </aside>
+
+                        <div className="model-config-form">
+                          <div className="model-form-card">
+                            <label>
+                              <span>配置名称</span>
+                              <input
+                                value={modelDraft.name}
+                                onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
+                                placeholder="例如：OpenAI 主账号"
+                              />
+                            </label>
+                            <label>
+                              <span>协议类型</span>
+                              <select
+                                value={modelDraft.provider}
+                                onChange={(event) => handleProviderChange(event.target.value)}
+                              >
+                                <option value="openai-compatible">OpenAI 兼容协议</option>
+                                <option value="anthropic">Anthropic Claude</option>
+                              </select>
+                            </label>
+                            <label>
+                              <span>接口地址</span>
+                              <input
+                                value={modelDraft.base_url}
+                                onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
+                                placeholder="https://api.openai.com/v1"
+                              />
+                            </label>
+                            <label>
+                              <span>模型标识</span>
+                              <input
+                                value={modelDraft.model}
+                                onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
+                                placeholder="gpt-4o-mini"
+                              />
+                            </label>
+                            <label>
+                              <span>API Key</span>
+                              <input
+                                value={modelDraft.api_key}
+                                type="password"
+                                onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
+                                placeholder="用于对话模型调用"
+                              />
+                            </label>
+                          </div>
+                          <div className="modal-actions icon-actions">
+                            <button className="icon-text-btn success-btn" onClick={handleSaveModel} title="保存并使用" type="button">
+                              <Save />
+                              <span>保存并使用</span>
+                            </button>
+                            <button className="icon-text-btn danger-btn" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id || modelDraft.id === "embedding-config"} type="button">
+                              <Trash2 />
+                              <span>删除</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {activeSettingsTab === "embedding" && (
                   <div className="settings-tab-content model-tab-content">
                     <div className="model-header-row">
-                      <h3>模型管理</h3>
-                      <button className="icon-only-btn compact" onClick={handleNewModelConfig} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
+                      <h3>Embeding管理</h3>
                     </div>
-                    <p className="description" style={{ marginTop: "-4px" }}>配置对话模型与 Embeddings API，供 AI 助手和轻量 RAG 使用。</p>
-                    <div className="model-config-grid">
-                      <aside className="model-config-list">
-                        {models.map((model) => (
-                          <button
-                            key={model.id}
-                            className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
-                            onClick={() => setModelDraft(normalizeModelDraft(model))}
-                          >
-                            <strong>{model.name}</strong>
-                            <span>{model.provider} / {model.model}</span>
-                          </button>
-                        ))}
-                        {models.length === 0 && <div className="empty">暂无模型配置</div>}
-                      </aside>
-
-                      <div className="model-config-form">
+                    <p className="description" style={{ marginTop: "-4px" }}>配置全局唯一嵌入模型 API，用于轻量 RAG 的文档向量化与匹配。</p>
+                    
+                    <div style={{
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "12px",
+                      background: "var(--bg-card)",
+                      overflow: "hidden",
+                      maxHeight: "none",
+                      flex: 1
+                    }}>
+                      <div className="model-config-form" style={{ maxWidth: "600px" }}>
                         <div className="model-form-card">
-                          <div className="model-form-section-title">配置名称</div>
-                          <input
-                            value={modelDraft.name}
-                            onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
-                            placeholder="例如：OpenAI 主账号"
-                          />
-                        </div>
-
-                        <div className="model-form-card">
-                          <div className="model-form-section-title">大模型 API</div>
                           <label>
                             <span>协议类型</span>
                             <select
-                              value={modelDraft.provider}
-                              onChange={(event) => handleProviderChange(event.target.value)}
-                            >
-                              <option value="openai-compatible">OpenAI 兼容协议</option>
-                              <option value="anthropic">Anthropic Claude</option>
-                            </select>
-                          </label>
-                          <label>
-                            <span>接口地址</span>
-                            <input
-                              value={modelDraft.base_url}
-                              onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
-                              placeholder="https://api.openai.com/v1"
-                            />
-                          </label>
-                          <label>
-                            <span>模型标识</span>
-                            <input
-                              value={modelDraft.model}
-                              onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
-                              placeholder="gpt-4o-mini"
-                            />
-                          </label>
-                          <label>
-                            <span>API Key</span>
-                            <input
-                              value={modelDraft.api_key}
-                              type="password"
-                              onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
-                              placeholder="用于对话模型调用"
-                            />
-                          </label>
-                        </div>
-
-                        <div className="model-form-card">
-                          <div className="model-form-section-title">嵌入模型 API</div>
-                          <label>
-                            <span>协议类型</span>
-                            <select
-                              value={modelDraft.embedding_provider}
+                              value={embeddingDraft.embedding_provider}
                               onChange={(event) => handleEmbeddingProviderChange(event.target.value)}
                             >
                               <option value="openai-compatible">OpenAI 兼容协议</option>
@@ -3617,37 +3726,33 @@ function App() {
                           <label>
                             <span>接口地址</span>
                             <input
-                              value={modelDraft.embedding_base_url}
-                              onChange={(event) => setModelDraft({ ...modelDraft, embedding_base_url: event.target.value })}
+                              value={embeddingDraft.embedding_base_url}
+                              onChange={(event) => setEmbeddingDraft({ ...embeddingDraft, embedding_base_url: event.target.value })}
                               placeholder="https://api.openai.com/v1"
                             />
                           </label>
                           <label>
                             <span>模型标识</span>
                             <input
-                              value={modelDraft.embedding_model}
-                              onChange={(event) => setModelDraft({ ...modelDraft, embedding_model: event.target.value })}
+                              value={embeddingDraft.embedding_model}
+                              onChange={(event) => setEmbeddingDraft({ ...embeddingDraft, embedding_model: event.target.value })}
                               placeholder="text-embedding-3-small"
                             />
                           </label>
                           <label>
                             <span>API Key</span>
                             <input
-                              value={modelDraft.embedding_api_key}
+                              value={embeddingDraft.embedding_api_key}
                               type="password"
-                              onChange={(event) => setModelDraft({ ...modelDraft, embedding_api_key: event.target.value })}
+                              onChange={(event) => setEmbeddingDraft({ ...embeddingDraft, embedding_api_key: event.target.value })}
                               placeholder="用于 RAG 向量化，可与大模型不同"
                             />
                           </label>
                         </div>
                         <div className="modal-actions icon-actions">
-                          <button className="icon-text-btn success-btn" onClick={handleSaveModel} title="保存并使用" type="button">
+                          <button className="icon-text-btn success-btn" onClick={handleSaveEmbeddingModel} title="保存并使用" type="button">
                             <Save />
                             <span>保存并使用</span>
-                          </button>
-                          <button className="icon-text-btn danger-btn" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id} type="button">
-                            <Trash2 />
-                            <span>删除</span>
                           </button>
                         </div>
                       </div>
@@ -4153,9 +4258,9 @@ function App() {
               >
                 联网
               </button>
-              <select value={activeModelId} onChange={(event) => setActiveModelId(event.target.value)}>
+              <select value={activeModelId} onChange={(event) => void handleActiveModelChange(event.target.value)}>
                 <option value="">选择模型</option>
-                {models.map((model) => (
+                {models.filter((model) => model.id !== "embedding-config").map((model) => (
                   <option key={model.id} value={model.id}>{model.name}</option>
                 ))}
               </select>
@@ -4933,6 +5038,120 @@ async function safeUpdateAgentToolCall(
     console.error("Failed to update agent tool call:", err);
     return null;
   }
+}
+
+interface DetailSection {
+  label: string;
+  type: string;
+  content: string;
+  icon?: string;
+}
+
+function parseDetailSections(detail: string): DetailSection[] {
+  const prefixes = [
+    { key: "输入：", label: "输入 (Input)", type: "input", icon: "📥" },
+    { key: "输出：", label: "输出 (Output)", type: "output", icon: "📤" },
+    { key: "错误：", label: "错误 (Error)", type: "error", icon: "❌" },
+    { key: "元数据：", label: "元数据 (Metadata)", type: "metadata", icon: "⚙️" },
+    { key: "args: ", label: "参数 (Arguments)", type: "args", icon: "🔧" },
+    { key: "error: ", label: "错误 (Error)", type: "error", icon: "❌" }
+  ];
+
+  const matches: { index: number; key: string; label: string; type: string; icon: string }[] = [];
+  
+  prefixes.forEach((pref) => {
+    let pos = detail.indexOf(pref.key);
+    while (pos !== -1) {
+      matches.push({ index: pos, ...pref });
+      pos = detail.indexOf(pref.key, pos + 1);
+    }
+  });
+
+  matches.sort((a, b) => a.index - b.index);
+
+  if (matches.length === 0) {
+    return [{ label: "详情 (Detail)", type: "general", content: detail.trim() }];
+  }
+
+  const sections: DetailSection[] = [];
+  
+  const firstMatchIndex = matches[0].index;
+  if (firstMatchIndex > 0) {
+    const leadContent = detail.substring(0, firstMatchIndex).trim();
+    if (leadContent) {
+      sections.push({ label: "详情 (Detail)", type: "general", content: leadContent });
+    }
+  }
+
+  for (let i = 0; i < matches.length; i++) {
+    const currentMatch = matches[i];
+    const startIndex = currentMatch.index + currentMatch.key.length;
+    const endIndex = i + 1 < matches.length ? matches[i + 1].index : detail.length;
+    
+    const content = detail.substring(startIndex, endIndex).trim();
+    sections.push({
+      label: currentMatch.label,
+      type: currentMatch.type,
+      content,
+      icon: currentMatch.icon
+    });
+  }
+
+  return sections;
+}
+
+function ObservabilityDetailPanel({ detail }: { detail: string }) {
+  const sections = parseDetailSections(detail);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const handleCopy = (text: string, index: number) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  return (
+    <div className="trace-detail-panel">
+      {sections.map((section, idx) => {
+        let isJson = false;
+        let formattedContent = section.content;
+
+        if (section.type === "metadata" || section.type === "args" || section.content.startsWith("{") || section.content.startsWith("[")) {
+          try {
+            const parsed = JSON.parse(section.content);
+            formattedContent = JSON.stringify(parsed, null, 2);
+            isJson = true;
+          } catch (e) {
+            // Keep original if parsing fails
+          }
+        }
+
+        const isError = section.type === "error";
+
+        return (
+          <div key={idx} className={`trace-detail-section ${section.type} ${isError ? "error" : ""}`}>
+            <div className="trace-detail-section-header">
+              <span className="trace-detail-section-title">
+                {section.icon && <span className="trace-detail-section-icon">{section.icon}</span>}
+                {section.label}
+              </span>
+              <button
+                className="trace-detail-copy-btn"
+                onClick={() => handleCopy(formattedContent, idx)}
+                type="button"
+                title="复制内容"
+              >
+                {copiedIndex === idx ? "已复制 ✓" : "复制"}
+              </button>
+            </div>
+            <div className="trace-detail-section-body">
+              <pre className={isJson ? "json" : ""}>{formattedContent}</pre>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default App;

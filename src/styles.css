@@ -410,7 +410,7 @@ button.danger:active:not(:disabled) {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   grid-template-areas: "sidebar chat";
   position: relative;
   height: 100vh;
@@ -1557,6 +1557,8 @@ button.danger:active:not(:disabled) {
   background: var(--code-inline-bg);
   font-family: var(--font-mono);
   font-size: 0.92em;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .code-block {
@@ -2234,7 +2236,7 @@ button.danger:active:not(:disabled) {
 .archive-split-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px minmax(0, 1fr);
   min-height: 0;
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -2271,6 +2273,7 @@ button.danger:active:not(:disabled) {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--bg-editor);
 }
 
@@ -2398,7 +2401,7 @@ button.danger:active:not(:disabled) {
 .settings-tab-content .model-config-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 0;
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -2466,7 +2469,7 @@ button.danger:active:not(:disabled) {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
@@ -2548,6 +2551,16 @@ button.danger:active:not(:disabled) {
   background: var(--bg-card);
 }
 
+.observability-trace-summary.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.observability-trace-summary.clickable:hover {
+  background-color: var(--option-bg-hover);
+}
+
 .observability-trace-summary strong,
 .observability-trace-summary span {
   overflow: hidden;
@@ -2601,6 +2614,7 @@ button.danger:active:not(:disabled) {
   border-radius: 8px;
   background: var(--bg-card);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .agent-run-header.awaiting_tool,
@@ -2667,7 +2681,7 @@ button.danger:active:not(:disabled) {
 }
 
 .timeline-row-detail {
-  padding: 0 14px 14px 48px;
+  padding: 0 14px 14px 14px;
 }
 
 .timeline-row-detail pre {
@@ -2682,38 +2696,129 @@ button.danger:active:not(:disabled) {
   word-break: break-word;
 }
 
+/* Beautiful Trace Detail Panel styles */
+.trace-detail-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.trace-detail-section {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-pane);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.trace-detail-section.error {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.trace-detail-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.trace-detail-section.error .trace-detail-section-header {
+  background: rgba(239, 68, 68, 0.1);
+  border-bottom-color: rgba(239, 68, 68, 0.2);
+  color: var(--accent-danger);
+}
+
+.trace-detail-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trace-detail-section-icon {
+  font-size: 14px;
+}
+
+.trace-detail-copy-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: var(--option-transition);
+}
+
+.trace-detail-copy-btn:hover {
+  background: var(--option-bg-active);
+  color: var(--text-primary);
+  border-color: var(--option-border-active);
+}
+
+.trace-detail-section-body {
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.trace-detail-section-body pre {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11.5px !important;
+  line-height: 1.5 !important;
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+}
+
+.trace-detail-section.error .trace-detail-section-body pre {
+  color: var(--accent-danger) !important;
+}
+
 .observability-span-row {
   position: relative;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  display: flex;
   column-gap: 12px;
   min-height: 74px;
+  flex-shrink: 0;
 }
 
 .observability-span-row.error {
   color: var(--accent-danger);
 }
 
-.observability-span-row > .timeline-row-toggle,
-.observability-span-row > .timeline-row-detail {
-  grid-column: 2;
+.observability-span-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.observability-span-row > .timeline-row-toggle {
+.observability-span-content > .timeline-row-toggle {
   margin-bottom: 12px;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   background: var(--bg-card);
 }
 
-.observability-span-row.error > .timeline-row-toggle {
+.observability-span-row.error .observability-span-content > .timeline-row-toggle {
   border-color: var(--control-danger-border);
   background: var(--control-danger-soft-bg);
 }
 
 .observability-timeline-marker {
-  grid-column: 1;
-  grid-row: 1 / span 2;
+  width: 24px;
+  flex-shrink: 0;
   position: relative;
   display: flex;
   justify-content: center;
@@ -2757,7 +2862,7 @@ button.danger:active:not(:disabled) {
 .skills-config-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 0;
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -3281,7 +3386,7 @@ button.danger:active:not(:disabled) {
 
 .model-config-grid {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   min-height: 0;
 }
 

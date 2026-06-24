@@ -544,6 +544,21 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_conversation_model(&self, id: &str, model_config_id: Option<&str>) -> AppResult<()> {
+        let now = Utc::now();
+        let affected = self.conn.execute(
+            "
+            UPDATE conversations
+            SET model_config_id = ?2,
+                updated_at = ?3
+            WHERE id = ?1
+            ",
+            params![id, model_config_id, now.to_rfc3339()],
+        )?;
+        ensure_affected(affected, "conversation not found")?;
+        Ok(())
+    }
+
     pub fn delete_conversation(&self, id: &str) -> AppResult<()> {
         self.conn.execute(
             "DELETE FROM rag_chunks_fts WHERE conversation_id = ?1",

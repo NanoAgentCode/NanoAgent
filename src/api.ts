@@ -92,6 +92,10 @@ export function renameConversation(id: string, title: string) {
   return invoke<void>("rename_conversation", { id, title });
 }
 
+export function updateConversationModel(id: string, modelConfigId: string | null) {
+  return invoke<void>("update_conversation_model", { id, modelConfigId });
+}
+
 export function listMessages(conversationId: string) {
   return invoke<PersistedMessage[]>("list_messages", { conversationId });
 }

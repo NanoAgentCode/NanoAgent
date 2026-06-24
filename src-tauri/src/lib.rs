@@ -285,6 +285,19 @@ async fn rename_conversation(
 }
 
 #[tauri::command]
+async fn update_conversation_model(
+    state: State<'_, AppState>,
+    id: String,
+    model_config_id: Option<String>,
+) -> AppResult<()> {
+    state
+        .db
+        .lock()
+        .await
+        .update_conversation_model(&id, model_config_id.as_deref())
+}
+
+#[tauri::command]
 async fn archive_conversation(
     state: State<'_, AppState>,
     id: String,
@@ -376,11 +389,9 @@ async fn index_rag_file(state: State<'_, AppState>, draft: RagFileDraft) -> AppR
     }
 
     let config = {
-        state
-            .db
-            .lock()
-            .await
-            .get_model_config(&draft.model_config_id)?
+        let db = state.db.lock().await;
+        db.get_model_config("embedding-config")
+            .or_else(|_| db.get_model_config(&draft.model_config_id))?
     };
     let embedding_model = if config.embedding_model.trim().is_empty() {
         "text-embedding-3-small".to_string()
@@ -430,7 +441,11 @@ async fn search_rag_context(
         return Ok(Vec::new());
     }
 
-    let config = { state.db.lock().await.get_model_config(&model_config_id)? };
+    let config = {
+        let db = state.db.lock().await;
+        db.get_model_config("embedding-config")
+            .or_else(|_| db.get_model_config(&model_config_id))?
+    };
     let embeddings = create_embeddings(&config, vec![query]).await?;
     let Some(query_embedding) = embeddings.first() else {
         return Ok(Vec::new());
@@ -1683,6 +1698,7 @@ pub fn run() {
             delete_conversation,
             archive_conversation,
             rename_conversation,
+            update_conversation_model,
             list_messages,
             append_message,
             delete_messages,
