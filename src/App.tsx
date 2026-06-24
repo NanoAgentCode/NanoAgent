@@ -471,6 +471,7 @@ function App() {
   const [observabilitySpans, setObservabilitySpans] = useState<ObservabilitySpan[]>([]);
   const [agentRunTimelines, setAgentRunTimelines] = useState<AgentRunTimeline[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState("");
+  const [expandedObservabilityRows, setExpandedObservabilityRows] = useState<string[]>([]);
   const [isLoadingObservability, setIsLoadingObservability] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem("nano-agent-skills");
@@ -591,6 +592,23 @@ function App() {
     () => (activeRunTimeline ? buildAgentTimelineEvents(activeRunTimeline) : []),
     [activeRunTimeline]
   );
+  const activeTraceTimelineItems = selectedTrace?.spans || [];
+
+  useEffect(() => {
+    if (!selectedTrace) {
+      setExpandedObservabilityRows([]);
+      return;
+    }
+
+    const defaultRows = selectedTrace.spans
+      .filter((span) => span.status === "error")
+      .map((span) => `span-${span.id}`);
+    const latestSpan = selectedTrace.spans[selectedTrace.spans.length - 1];
+    if (latestSpan) {
+      defaultRows.push(`span-${latestSpan.id}`);
+    }
+    setExpandedObservabilityRows(Array.from(new Set(defaultRows)));
+  }, [selectedTrace?.traceId]);
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -2768,6 +2786,12 @@ function App() {
   }
 
   function renderObservabilityPanel() {
+    const toggleTimelineRow = (id: string) => {
+      setExpandedObservabilityRows((current) =>
+        current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+      );
+    };
+
     return (
       <div className="settings-tab-content observability-tab-content">
         <div className="observability-header">
@@ -2837,18 +2861,31 @@ function App() {
                   </div>
                   {activeRunTimelineEvents.map((event) => (
                     <div key={event.id} className={`agent-timeline-row ${event.status}`}>
-                      <div className="agent-timeline-main">
+                      <button
+                        className="timeline-row-toggle"
+                        onClick={() => toggleTimelineRow(`runtime-${event.id}`)}
+                        type="button"
+                      >
                         <span className="observability-status-dot" />
-                        <div>
+                        <span className="timeline-row-copy">
                           <strong>{event.title}</strong>
                           <small>{event.subtitle}</small>
+                        </span>
+                        <span className="agent-timeline-meta">
+                          <span>{formatRuntimeStatus(event.status)}</span>
+                          <span>{formatShortTime(event.time)}</span>
+                        </span>
+                        {expandedObservabilityRows.includes(`runtime-${event.id}`) ? (
+                          <ChevronDown size={16} />
+                        ) : (
+                          <ChevronRight size={16} />
+                        )}
+                      </button>
+                      {expandedObservabilityRows.includes(`runtime-${event.id}`) && event.detail && (
+                        <div className="timeline-row-detail">
+                          <pre>{event.detail}</pre>
                         </div>
-                      </div>
-                      <div className="agent-timeline-meta">
-                        <span>{event.status}</span>
-                        <span>{new Date(event.time).toLocaleTimeString()}</span>
-                      </div>
-                      {event.detail && <pre>{event.detail}</pre>}
+                      )}
                     </div>
                   ))}
                   {activeRunTimelineEvents.length === 0 && (
@@ -2865,32 +2902,46 @@ function App() {
             {selectedTrace ? (
               <>
                 <div className="observability-trace-summary">
-                  <strong>{selectedTrace.traceId}</strong>
-                  <span>{selectedTrace.spans.length} spans · {selectedTrace.duration} ms</span>
+                  <div>
+                    <strong>{selectedTrace.lastOperation || "chat_stream"}</strong>
+                    <span>{selectedTrace.traceId}</span>
+                  </div>
+                  <span>{selectedTrace.spans.length} 条消息 · {formatDuration(selectedTrace.duration)}</span>
                 </div>
                 <div className="observability-timeline">
-                  {selectedTrace.spans.map((span) => (
-                    <div key={span.id} className={`observability-span-row ${span.status}`}>
-                      <div className="observability-span-main">
-                        <span className="observability-status-dot" />
-                        <div>
-                          <strong>{span.operation}</strong>
-                          <small>{span.category}{span.entity_type ? ` / ${span.entity_type}` : ""}</small>
+                  {activeTraceTimelineItems.map((span, index) => {
+                    const rowId = `span-${span.id}`;
+                    const isExpanded = expandedObservabilityRows.includes(rowId);
+                    const detail = buildObservabilitySpanDetail(span);
+
+                    return (
+                      <div key={span.id} className={`observability-span-row ${span.status}`}>
+                        <div className="observability-timeline-marker">
+                          <span className="observability-status-dot" />
+                          {index < activeTraceTimelineItems.length - 1 && <span className="observability-timeline-line" />}
                         </div>
+                        <button className="timeline-row-toggle" onClick={() => toggleTimelineRow(rowId)} type="button">
+                          <span className="timeline-row-copy">
+                            <strong>{span.operation}</strong>
+                            <small>{span.category}{span.entity_type ? ` / ${span.entity_type}` : ""}</small>
+                          </span>
+                          <span className="observability-span-meta">
+                            <span>{formatDuration(span.duration_ms ?? 0)}</span>
+                            <span>{formatShortTime(span.started_at)}</span>
+                          </span>
+                          {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                        {isExpanded && detail && (
+                          <div className="timeline-row-detail">
+                            <pre>{detail}</pre>
+                          </div>
+                        )}
                       </div>
-                      <div className="observability-span-meta">
-                        <span>{span.duration_ms ?? 0} ms</span>
-                        <span>{new Date(span.started_at).toLocaleString()}</span>
-                      </div>
-                      {(span.input_summary || span.output_summary || span.error) && (
-                        <pre>
-                          {[span.input_summary, span.output_summary, span.error ? `error: ${span.error}` : ""]
-                            .filter(Boolean)
-                            .join("\n")}
-                        </pre>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
+                  {activeTraceTimelineItems.length === 0 && (
+                    <div className="empty">该链路暂无消息</div>
+                  )}
                 </div>
               </>
             ) : (
@@ -4511,6 +4562,32 @@ function formatRuntimeStatus(status: string) {
     cancelled: "已取消"
   };
   return labels[status] || status;
+}
+
+function formatShortTime(value: string) {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function formatDuration(durationMs: number) {
+  if (durationMs >= 1000) {
+    return `${(durationMs / 1000).toFixed(durationMs >= 10000 ? 0 : 1)} s`;
+  }
+  return `${durationMs} ms`;
+}
+
+function buildObservabilitySpanDetail(span: ObservabilitySpan) {
+  return [
+    span.input_summary ? `输入：${span.input_summary}` : "",
+    span.output_summary ? `输出：${span.output_summary}` : "",
+    span.error ? `错误：${span.error}` : "",
+    span.metadata_json ? `元数据：${span.metadata_json}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 async function safeCreateAgentRun(draft: AgentRunDraft): Promise<AgentRun | null> {
