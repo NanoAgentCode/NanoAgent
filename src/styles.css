@@ -37,6 +37,17 @@
   --font-size-title: 16px;
   --font-size-display: 18px;
   --font-size-editor-title: 24px;
+  --type-sidebar-size: 13px;
+  --type-sidebar-color: var(--text-secondary);
+  --type-sidebar-muted-color: var(--text-muted);
+  --type-content-size: 13.5px;
+  --type-content-color: var(--text-primary);
+  --type-panel-size: 13px;
+  --type-panel-color: var(--text-primary);
+  --type-panel-muted-color: var(--text-secondary);
+  --type-meta-size: 12px;
+  --type-meta-color: var(--text-secondary);
+  --type-code-size: 12.5px;
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
@@ -1212,7 +1223,7 @@ button.danger:active:not(:disabled) {
 }
 
 .editor-actions button {
-  min-height: 42px;
+  min-height: 30px;
 }
 
 .editor-actions .success-btn {
@@ -1801,13 +1812,16 @@ button.danger:active:not(:disabled) {
 }
 
 .chat-input-action {
-  width: 42px;
-  height: 42px;
-  min-height: 42px;
+  width: auto;
+  height: 34px;
+  min-width: 64px;
+  min-height: 34px;
+  padding: 0 10px;
+  gap: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--control-radius-pill);
+  border-radius: var(--control-radius-md);
   pointer-events: auto;
   font-weight: 600;
 }
@@ -1817,9 +1831,15 @@ button.danger:active:not(:disabled) {
 }
 
 .chat-input-action svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   stroke-width: 2.2;
+}
+
+.chat-input-action span {
+  font-size: var(--type-meta-size);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .chat-input-action.ghost {
@@ -3316,6 +3336,27 @@ button.danger:active:not(:disabled) {
   padding: 18px;
 }
 
+.model-form-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--control-radius-md);
+  background: var(--bg-pane);
+}
+
+.model-form-card label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.model-form-card label span {
+  color: var(--text-secondary);
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-medium);
+}
+
 .model-config-form input,
 .model-config-form select {
   width: 100%;
@@ -3703,4 +3744,689 @@ button.danger:active:not(:disabled) {
     opacity: 1;
     transform: scale(1);
   }
+}
+
+/* Location-based typography
+   Text size and tone are normalized by where the text appears, not by whether
+   the element is marked up as a heading, strong text, or body copy. */
+.brand strong,
+.brand span,
+.sidebar-section-header,
+.sidebar-section-header span,
+.sidebar-project-item,
+.sidebar-project-item strong,
+.sidebar-project-item span,
+.sidebar-chat-item,
+.sidebar-chat-item strong,
+.sidebar-chat-item span,
+.project-detail,
+.project-empty,
+.active-project-path,
+.settings-entry {
+  font-family: var(--font-sans);
+  font-size: var(--type-sidebar-size);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.sidebar-section-header,
+.sidebar-section-header svg,
+.project-detail,
+.project-empty,
+.active-project-path {
+  color: var(--type-sidebar-muted-color);
+}
+
+.sidebar-project-item,
+.sidebar-chat-item,
+.settings-entry {
+  color: var(--type-sidebar-color);
+}
+
+.sidebar-project-item:hover,
+.sidebar-chat-item:hover,
+.settings-entry:hover {
+  color: var(--type-content-color);
+}
+
+.sidebar-project-item.active,
+.sidebar-chat-item.active {
+  color: var(--accent-cyan);
+}
+
+.chat-message,
+.chat-message p,
+.chat-message li,
+.chat-message td,
+.chat-input textarea,
+.rag-drop-hint {
+  font-family: var(--font-sans);
+  font-size: var(--type-content-size);
+  font-weight: var(--font-weight-regular);
+  color: var(--type-content-color);
+}
+
+.chat-message strong,
+.chat-message h1,
+.chat-message h2,
+.chat-message h3,
+.chat-message h4,
+.chat-message h5,
+.chat-message h6 {
+  font-size: var(--type-content-size);
+  font-weight: var(--font-weight-medium);
+  color: var(--type-content-color);
+}
+
+.chat-message blockquote,
+.chat-message.system,
+.rag-file-chip,
+.rag-file-chip small,
+.chat-input-footer,
+.chat-input-left,
+.chat-input-footer select {
+  font-size: var(--type-meta-size);
+  color: var(--type-meta-color);
+}
+
+.chat-message code,
+.chat-message pre,
+.timeline-row-detail pre {
+  font-size: var(--type-code-size);
+}
+
+.settings-tab-content,
+.settings-tab-content h3,
+.settings-tab-content h4,
+.settings-tab-content h5,
+.settings-tab-content p,
+.settings-tab-content label,
+.settings-tab-content strong,
+.settings-tab-content span,
+.settings-tab-content small,
+.settings-workspace-grid .list-header,
+.settings-workspace-grid .list-header strong,
+.settings-workspace-grid .list-header span,
+.settings-workspace-grid .item-row,
+.settings-workspace-grid .item-row strong,
+.settings-workspace-grid .item-row small,
+.archive-tab-content h3,
+.model-header-row h3,
+.skills-panel h3,
+.mcp-config h3,
+.model-config-row,
+.model-config-row strong,
+.model-config-row span,
+.skills-config-row,
+.skills-config-row strong,
+.skills-config-row span,
+.mcp-server-title strong,
+.env-status-item,
+.env-install-overlay span {
+  font-family: var(--font-sans);
+  font-size: var(--type-panel-size) !important;
+  letter-spacing: 0;
+}
+
+.settings-tab-content,
+.settings-tab-content h3,
+.settings-tab-content h4,
+.settings-tab-content h5,
+.settings-tab-content strong,
+.settings-workspace-grid .list-header strong,
+.settings-workspace-grid .item-row strong,
+.archive-tab-content h3,
+.model-header-row h3,
+.skills-panel h3,
+.mcp-config h3,
+.model-config-row strong,
+.skills-config-row strong,
+.mcp-server-title strong,
+.env-install-overlay span {
+  color: var(--type-panel-color);
+  font-weight: var(--font-weight-medium);
+}
+
+.settings-tab-content .description,
+.settings-tab-content p,
+.settings-tab-content label,
+.settings-tab-content small,
+.settings-workspace-grid .list-header span,
+.settings-workspace-grid .item-row small,
+.model-config-row span,
+.skills-config-row span,
+.archived-row span,
+.prompt-suggestion-item span {
+  color: var(--type-panel-muted-color) !important;
+}
+
+.model-form-section-title,
+.env-status-tag,
+.skill-status,
+.web-search-status,
+.web-search-status small,
+.prompt-suggestion-item small,
+.archived-row span {
+  font-size: var(--type-meta-size) !important;
+}
+
+.observability-tab-content,
+.observability-tab-content h3,
+.observability-tab-content strong,
+.observability-tab-content span,
+.observability-tab-content small,
+.observability-trace-row,
+.observability-trace-row strong,
+.observability-trace-row span,
+.observability-trace-row small,
+.observability-trace-summary,
+.observability-trace-summary strong,
+.observability-trace-summary span,
+.agent-run-header,
+.agent-run-header strong,
+.agent-run-header span,
+.agent-run-header small,
+.timeline-row-copy strong,
+.timeline-row-copy small,
+.observability-span-meta {
+  font-family: var(--font-sans);
+  font-size: var(--type-panel-size);
+  letter-spacing: 0;
+}
+
+.observability-tab-content h3,
+.observability-trace-row strong,
+.observability-trace-summary strong,
+.agent-run-header strong,
+.timeline-row-copy strong {
+  color: var(--type-panel-color);
+  font-weight: var(--font-weight-medium);
+}
+
+.observability-header p,
+.observability-trace-row span,
+.observability-trace-row small,
+.observability-trace-summary span,
+.agent-run-header span,
+.agent-run-header small,
+.timeline-row-copy small,
+.agent-timeline-meta,
+.observability-span-meta {
+  color: var(--type-meta-color);
+  font-size: var(--type-meta-size);
+}
+
+.project-dialog,
+.project-dialog header,
+.project-dialog header strong,
+.project-dialog label,
+.project-dialog input,
+.confirm-popover,
+.confirm-popover strong,
+.confirm-popover small,
+.custom-context-menu-item,
+.notice {
+  font-family: var(--font-sans);
+  font-size: var(--type-panel-size);
+  letter-spacing: 0;
+}
+
+.project-dialog header strong,
+.confirm-popover strong {
+  color: var(--type-panel-color);
+}
+
+.project-dialog label,
+.confirm-popover small {
+  color: var(--type-panel-muted-color);
+}
+
+/* Unified buttons
+   All page buttons share the same sizing, radius, border, color, icon spacing,
+   and interactive states. Variant classes only change semantic emphasis. */
+button,
+.primary,
+.secondary,
+.ghost,
+.danger,
+.compact-btn,
+.env-action-btn,
+.skills-sync-btn,
+.skills-add-btn,
+.mcp-add-btn,
+.mcp-btn-danger,
+.project-dialog footer button,
+.project-path-picker button,
+.confirm-popover button,
+.theme-switcher button,
+.modal-actions button,
+.skills-form-actions button,
+.env-setup-actions button,
+.observability-actions button {
+  font-family: var(--font-sans);
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  letter-spacing: 0;
+  min-height: var(--control-height-md);
+  border-radius: var(--control-radius-md);
+  transition: var(--control-transition);
+}
+
+.primary,
+button.primary,
+.confirm-popover button:not(.ghost),
+.project-dialog footer .primary,
+.modal-actions button:first-child,
+.skills-add-btn,
+.mcp-add-btn,
+.chat-input-action.send {
+  background: var(--control-primary-bg);
+  color: var(--control-primary-text) !important;
+  border: 1px solid var(--control-primary-bg);
+  box-shadow: none;
+}
+
+.primary:hover:not(:disabled),
+button.primary:hover:not(:disabled),
+.confirm-popover button:not(.ghost):hover:not(:disabled),
+.project-dialog footer .primary:hover:not(:disabled),
+.modal-actions button:first-child:hover:not(:disabled),
+.skills-add-btn:hover:not(:disabled),
+.mcp-add-btn:hover:not(:disabled),
+.chat-input-action.send:hover:not(:disabled) {
+  background: var(--control-primary-bg-hover);
+  border-color: var(--control-primary-bg-hover);
+  color: var(--control-primary-text) !important;
+  box-shadow: var(--control-primary-shadow);
+}
+
+.secondary,
+button.secondary,
+.project-dialog footer button,
+.project-path-picker button,
+.theme-switcher button,
+.env-action-btn,
+.skills-sync-btn,
+.observability-actions button,
+.compact-btn {
+  background: var(--control-bg);
+  color: var(--control-text) !important;
+  border: 1px solid var(--control-border);
+  box-shadow: none;
+}
+
+.secondary:hover:not(:disabled),
+button.secondary:hover:not(:disabled),
+.project-dialog footer button:hover:not(:disabled),
+.project-path-picker button:hover:not(:disabled),
+.theme-switcher button:hover:not(:disabled),
+.env-action-btn:hover:not(:disabled),
+.skills-sync-btn:hover:not(:disabled),
+.observability-actions button:hover:not(:disabled),
+.compact-btn:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+  color: var(--control-text) !important;
+  border-color: var(--control-border-hover);
+  box-shadow: none;
+}
+
+.ghost,
+button.ghost,
+.confirm-popover button.ghost,
+.modal-header .ghost,
+.modal-actions .ghost,
+.chat-input-action.ghost {
+  background: transparent;
+  color: var(--control-text-muted) !important;
+  border: 1px solid var(--control-border);
+  box-shadow: none;
+}
+
+.ghost:hover:not(:disabled),
+button.ghost:hover:not(:disabled),
+.confirm-popover button.ghost:hover:not(:disabled),
+.modal-header .ghost:hover:not(:disabled),
+.modal-actions .ghost:hover:not(:disabled),
+.chat-input-action.ghost:hover:not(:disabled) {
+  background: var(--control-bg-subtle);
+  color: var(--control-text) !important;
+  border-color: var(--control-border-hover);
+  box-shadow: none;
+}
+
+.danger,
+button.danger,
+.project-dialog footer .danger,
+.icon-only-btn.danger-btn,
+.mcp-btn-danger,
+.custom-context-menu-item.danger-action {
+  background: var(--control-danger-soft-bg);
+  color: var(--control-danger-text) !important;
+  border-color: var(--control-danger-border);
+  box-shadow: none;
+}
+
+.danger:hover:not(:disabled),
+button.danger:hover:not(:disabled),
+.project-dialog footer .danger:hover:not(:disabled),
+.icon-only-btn.danger-btn:hover:not(:disabled),
+.mcp-btn-danger:hover:not(:disabled),
+.custom-context-menu-item.danger-action:hover:not(:disabled) {
+  background: var(--control-danger-bg);
+  color: #ffffff !important;
+  border-color: var(--control-danger-bg);
+  box-shadow: var(--control-danger-shadow);
+}
+
+.icon-only-btn,
+.new-chat-btn,
+.project-expand-btn,
+.project-remove-btn,
+.project-add-chat-btn,
+.modal-close-btn,
+.chat-header-actions button,
+.rag-file-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height-md);
+  height: var(--control-height-md);
+  min-width: var(--control-height-md) !important;
+  min-height: var(--control-height-md) !important;
+  max-width: var(--control-height-md);
+  max-height: var(--control-height-md);
+  padding: 0 !important;
+  border-radius: var(--control-radius-md);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--control-text-muted);
+  box-shadow: none;
+}
+
+.icon-only-btn:hover:not(:disabled),
+.new-chat-btn:hover:not(:disabled),
+.project-expand-btn:hover:not(:disabled),
+.project-remove-btn:hover:not(:disabled),
+.project-add-chat-btn:hover:not(:disabled),
+.modal-close-btn:hover:not(:disabled),
+.chat-header-actions button:hover:not(:disabled),
+.rag-file-chip button:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+  color: var(--control-text);
+  border-color: var(--control-border-hover);
+  box-shadow: none;
+}
+
+.icon-only-btn.compact,
+.compact-btn.icon-only-btn,
+.project-expand-btn,
+.project-remove-btn,
+.project-add-chat-btn,
+.new-chat-btn,
+.rag-file-chip button {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  min-width: var(--control-height-sm) !important;
+  min-height: var(--control-height-sm) !important;
+  max-width: var(--control-height-sm);
+  max-height: var(--control-height-sm);
+  border-radius: var(--control-radius-sm);
+}
+
+.chat-input-action {
+  width: auto;
+  height: 34px;
+  min-width: 64px;
+  min-height: 34px;
+  padding: 0 10px !important;
+  gap: 6px;
+  border-radius: var(--control-radius-md);
+}
+
+.settings-nav-item,
+.archived-row > button:first-child,
+.model-config-row,
+.observability-trace-row,
+.timeline-row-toggle,
+.agent-timeline-row > .timeline-row-toggle {
+  border-radius: var(--control-radius-md);
+  border: 1px solid transparent;
+  transition: var(--control-transition);
+}
+
+.settings-nav-item:hover,
+.archived-row > button:first-child:hover,
+.model-config-row:hover,
+.observability-trace-row:hover,
+.timeline-row-toggle:hover {
+  background: var(--control-bg-subtle);
+  color: var(--control-text) !important;
+  border-color: var(--control-border-hover);
+  box-shadow: none;
+}
+
+.settings-nav-item.active,
+.theme-switcher button.active,
+.archived-row.active > button:first-child,
+.model-config-row.active,
+.observability-trace-row.active {
+  background: var(--option-bg-active);
+  color: var(--accent-cyan) !important;
+  border-color: var(--option-border-active);
+  box-shadow: none;
+}
+
+button:active:not(:disabled),
+.icon-only-btn:active:not(:disabled),
+.chat-input-action:active:not(:disabled),
+.settings-nav-item:active:not(:disabled) {
+  transform: var(--control-active-scale);
+}
+
+.icon-only-btn:active:not(:disabled),
+.new-chat-btn:active:not(:disabled),
+.project-expand-btn:active:not(:disabled),
+.project-remove-btn:active:not(:disabled),
+.project-add-chat-btn:active:not(:disabled),
+.modal-close-btn:active:not(:disabled),
+.chat-header-actions button:active:not(:disabled),
+.rag-file-chip button:active:not(:disabled) {
+  transform: var(--control-icon-active-scale);
+}
+
+/* Skills list item layout */
+.skills-config-list {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.skills-config-list > div:last-child {
+  min-height: 0;
+  padding: 0 6px 8px 0;
+  gap: 6px !important;
+}
+
+.skills-config-row {
+  display: grid !important;
+  grid-template-rows: minmax(24px, auto) 18px;
+  align-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 68px !important;
+  height: auto;
+  gap: 4px;
+  padding: 10px 12px !important;
+  border: 1px solid var(--option-border) !important;
+  border-radius: var(--control-radius-md) !important;
+  background: var(--bg-card);
+  overflow: hidden;
+  text-align: left;
+}
+
+.skills-config-row:hover {
+  background: var(--option-bg-hover);
+  border-color: var(--control-border-hover) !important;
+}
+
+.skills-config-row.active {
+  background: var(--option-bg-active);
+  border-color: var(--option-border-active) !important;
+  box-shadow: inset 3px 0 0 var(--accent-cyan);
+}
+
+.skills-config-row-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.skills-config-row strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-content-size) !important;
+  line-height: 1.35;
+  color: var(--type-panel-color);
+}
+
+.skills-config-row > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-meta-size) !important;
+  line-height: 18px;
+  color: var(--type-panel-muted-color) !important;
+}
+
+.skills-config-row .skills-indicator-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 56px;
+  max-width: 64px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--control-radius-sm);
+  font-size: var(--type-meta-size) !important;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Icon + text action buttons */
+.icon-text-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 56px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--control-radius-sm);
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--control-text) !important;
+  font-size: var(--control-font-size);
+  font-weight: var(--control-font-weight);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.icon-text-btn svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  stroke-width: 2.2;
+}
+
+.icon-text-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-text-btn:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+  border-color: var(--control-border-hover);
+  color: var(--control-text) !important;
+}
+
+.icon-text-btn.success-btn,
+button.success-btn {
+  background: var(--control-success-soft-bg);
+  color: var(--accent-emerald) !important;
+  border-color: var(--control-success-border);
+  box-shadow: none;
+}
+
+.icon-text-btn.success-btn:hover:not(:disabled),
+button.success-btn:hover:not(:disabled) {
+  background: var(--control-success-bg);
+  color: var(--control-success-text) !important;
+  border-color: var(--control-success-bg);
+  box-shadow: var(--control-success-shadow);
+}
+
+.icon-text-btn.danger-btn {
+  background: var(--control-danger-soft-bg);
+  color: var(--control-danger-text) !important;
+  border-color: var(--control-danger-border);
+}
+
+.icon-text-btn.danger-btn:hover:not(:disabled) {
+  background: var(--control-danger-bg);
+  color: #ffffff !important;
+  border-color: var(--control-danger-bg);
+  box-shadow: var(--control-danger-shadow);
+}
+
+.editor-actions,
+.modal-actions.icon-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--control-gap);
+}
+
+.archived-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.archived-row .icon-text-btn {
+  min-width: 56px;
+  padding: 0 8px;
+}
+
+/* Project row add button alignment */
+.sidebar-project-item {
+  position: relative;
+  padding-right: calc(var(--control-height-sm) + 2px);
+}
+
+.sidebar-project-item .project-title {
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.sidebar-project-item .project-add-chat-btn {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  min-width: var(--control-height-sm) !important;
+  min-height: var(--control-height-sm) !important;
+  border-radius: var(--control-radius-sm);
+}
+
+.sidebar-project-item .project-add-chat-btn:active:not(:disabled) {
+  transform: translateY(-50%) var(--control-icon-active-scale);
 }

@@ -217,18 +217,14 @@ const emptyModelDraft: ModelConfigDraft = {
   embedding_api_key: ""
 };
 
-const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model" | "embedding_base_url" | "embedding_model">> = {
+const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model">> = {
   "openai-compatible": {
     base_url: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
-    embedding_base_url: "https://api.openai.com/v1",
-    embedding_model: "text-embedding-3-small"
+    model: "gpt-4o-mini"
   },
   anthropic: {
     base_url: "https://api.anthropic.com",
-    model: "claude-3-5-sonnet-latest",
-    embedding_base_url: "https://api.openai.com/v1",
-    embedding_model: "text-embedding-3-small"
+    model: "claude-3-5-sonnet-latest"
   }
 };
 
@@ -1768,16 +1764,6 @@ function App() {
         current.model === providerDefaults.anthropic.model
           ? defaults.model
           : current.model,
-      embedding_base_url:
-        current.embedding_base_url === providerDefaults["openai-compatible"].embedding_base_url ||
-        current.embedding_base_url === providerDefaults.anthropic.embedding_base_url
-          ? defaults.embedding_base_url
-          : current.embedding_base_url,
-      embedding_model:
-        current.embedding_model === providerDefaults["openai-compatible"].embedding_model ||
-        current.embedding_model === providerDefaults.anthropic.embedding_model
-          ? defaults.embedding_model
-          : current.embedding_model
     }));
   }
 
@@ -2750,14 +2736,15 @@ function App() {
           </div>
           {activeKind !== "memory" && (
             <div style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", justifyContent: "center" }}>
-              <button 
-                className="icon-only-btn" 
+              <button
+                className="icon-text-btn secondary"
                 onClick={() => void handleNewItem(activeKind === "all" ? "note" : activeKind as ItemKind)}
                 title={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
                 aria-label={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
                 type="button"
               >
                 <Plus />
+                <span>新建{kindLabels[activeKind as ItemKind] || "备忘录"}</span>
               </button>
             </div>
           )}
@@ -2777,9 +2764,13 @@ function App() {
                   在对话中启用
                 </label>
                 <div className="editor-actions">
-                  <button className="icon-only-btn success-btn" onClick={handleSaveMemory} disabled={!selectedMemory} aria-label="保存" title="保存" type="button"><Save /></button>
-                  <button className="icon-only-btn danger-btn" aria-label="删除记忆" title="删除记忆" onClick={handleDeleteMemory} disabled={!selectedMemory} type="button">
+                  <button className="icon-text-btn success-btn" onClick={handleSaveMemory} disabled={!selectedMemory} type="button">
+                    <Save />
+                    <span>保存</span>
+                  </button>
+                  <button className="icon-text-btn danger-btn" onClick={handleDeleteMemory} disabled={!selectedMemory} type="button">
                     <Trash2 />
+                    <span>删除</span>
                   </button>
                 </div>
               </div>
@@ -2816,9 +2807,13 @@ function App() {
                   <option value="archived">已归档</option>
                 </select>
                 <div className="editor-actions">
-                  <button className="icon-only-btn success-btn" onClick={handleSaveItem} disabled={!selectedItem} aria-label="保存" title="保存" type="button"><Save /></button>
-                  <button className="icon-only-btn danger-btn" aria-label="删除项目" title="删除项目" onClick={handleDeleteItem} disabled={!selectedItem} type="button">
+                  <button className="icon-text-btn success-btn" onClick={handleSaveItem} disabled={!selectedItem} type="button">
+                    <Save />
+                    <span>保存</span>
+                  </button>
+                  <button className="icon-text-btn danger-btn" onClick={handleDeleteItem} disabled={!selectedItem} type="button">
                     <Trash2 />
+                    <span>删除</span>
                   </button>
                 </div>
               </div>
@@ -3430,22 +3425,22 @@ function App() {
                                 <span>{conversation.archived_at || conversation.updated_at}</span>
                               </button>
                               <button
-                                className="icon-only-btn"
-                                aria-label="恢复并回复"
+                                className="icon-text-btn secondary"
                                 title="恢复并回复"
                                 onClick={() => void handleRestoreConversation(conversation)}
                                 type="button"
                               >
                                 <RotateCcw />
+                                <span>恢复</span>
                               </button>
                               <button
-                                className="icon-only-btn danger-btn"
-                                aria-label="删除归档对话"
+                                className="icon-text-btn danger-btn"
                                 title="删除归档对话"
                                 onClick={() => void handleDeleteArchivedConversation(conversation)}
                                 type="button"
                               >
                                 <Trash2 />
+                                <span>删除</span>
                               </button>
                             </div>
                           ))}
@@ -3533,56 +3528,90 @@ function App() {
                       </aside>
 
                       <div className="model-config-form">
-                        <div className="model-form-section-title">对话模型</div>
-                        <input
-                          value={modelDraft.name}
-                          onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
-                          placeholder="名称"
-                        />
-                        <select
-                          value={modelDraft.provider}
-                          onChange={(event) => handleProviderChange(event.target.value)}
-                        >
-                          <option value="openai-compatible">OpenAI 兼容协议</option>
-                          <option value="anthropic">Anthropic Claude</option>
-                        </select>
-                        <input
-                          value={modelDraft.base_url}
-                          onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
-                          placeholder="接口地址"
-                        />
-                        <input
-                          value={modelDraft.model}
-                          onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
-                          placeholder="模型标识"
-                        />
-                        <input
-                          value={modelDraft.api_key}
-                          type="password"
-                          onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
-                          placeholder="密钥"
-                        />
-                        <div className="model-form-section-title">Embeddings API</div>
-                        <input
-                          value={modelDraft.embedding_base_url}
-                          onChange={(event) => setModelDraft({ ...modelDraft, embedding_base_url: event.target.value })}
-                          placeholder="Embeddings 接口地址，默认复用对话接口"
-                        />
-                        <input
-                          value={modelDraft.embedding_model}
-                          onChange={(event) => setModelDraft({ ...modelDraft, embedding_model: event.target.value })}
-                          placeholder="Embeddings 模型，如 text-embedding-3-small"
-                        />
-                        <input
-                          value={modelDraft.embedding_api_key}
-                          type="password"
-                          onChange={(event) => setModelDraft({ ...modelDraft, embedding_api_key: event.target.value })}
-                          placeholder="Embeddings 密钥，留空复用对话密钥"
-                        />
+                        <div className="model-form-card">
+                          <div className="model-form-section-title">配置名称</div>
+                          <input
+                            value={modelDraft.name}
+                            onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
+                            placeholder="例如：OpenAI 主账号"
+                          />
+                        </div>
+
+                        <div className="model-form-card">
+                          <div className="model-form-section-title">大模型 API</div>
+                          <label>
+                            <span>协议类型</span>
+                            <select
+                              value={modelDraft.provider}
+                              onChange={(event) => handleProviderChange(event.target.value)}
+                            >
+                              <option value="openai-compatible">OpenAI 兼容协议</option>
+                              <option value="anthropic">Anthropic Claude</option>
+                            </select>
+                          </label>
+                          <label>
+                            <span>接口地址</span>
+                            <input
+                              value={modelDraft.base_url}
+                              onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
+                              placeholder="https://api.openai.com/v1"
+                            />
+                          </label>
+                          <label>
+                            <span>模型标识</span>
+                            <input
+                              value={modelDraft.model}
+                              onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
+                              placeholder="gpt-4o-mini"
+                            />
+                          </label>
+                          <label>
+                            <span>API Key</span>
+                            <input
+                              value={modelDraft.api_key}
+                              type="password"
+                              onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
+                              placeholder="用于对话模型调用"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="model-form-card">
+                          <div className="model-form-section-title">嵌入模型 API</div>
+                          <label>
+                            <span>接口地址</span>
+                            <input
+                              value={modelDraft.embedding_base_url}
+                              onChange={(event) => setModelDraft({ ...modelDraft, embedding_base_url: event.target.value })}
+                              placeholder="https://api.openai.com/v1"
+                            />
+                          </label>
+                          <label>
+                            <span>模型标识</span>
+                            <input
+                              value={modelDraft.embedding_model}
+                              onChange={(event) => setModelDraft({ ...modelDraft, embedding_model: event.target.value })}
+                              placeholder="text-embedding-3-small"
+                            />
+                          </label>
+                          <label>
+                            <span>API Key</span>
+                            <input
+                              value={modelDraft.embedding_api_key}
+                              type="password"
+                              onChange={(event) => setModelDraft({ ...modelDraft, embedding_api_key: event.target.value })}
+                              placeholder="用于 RAG 向量化，可与大模型不同"
+                            />
+                          </label>
+                        </div>
                         <div className="modal-actions icon-actions">
-                          <button className="icon-only-btn success-btn" onClick={handleSaveModel} aria-label="保存并使用" title="保存并使用" type="button"><Save /></button>
-                          <button className="icon-only-btn danger-btn" aria-label="删除模型" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id} type="button">
+                          <button className="icon-text-btn success-btn" onClick={handleSaveModel} title="保存并使用" type="button">
+                            <Save />
+                            <span>保存并使用</span>
+                          </button>
+                          <button className="icon-text-btn danger-btn" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id} type="button">
                             <Trash2 />
+                            <span>删除</span>
                           </button>
                         </div>
                       </div>
@@ -4098,6 +4127,7 @@ function App() {
             <div className="chat-input-actions">
               <label className="chat-input-action ghost" aria-label="上传文件" title="上传文件到当前对话 RAG">
                 <FileText size={20} />
+                <span>文件</span>
                 <input
                   multiple
                   type="file"
@@ -4112,9 +4142,11 @@ function App() {
               </label>
               <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
                 <Plus size={20} />
+                <span>新建</span>
               </button>
               <button className="chat-input-action send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
                 <SendHorizontal size={20} />
+                <span>发送</span>
               </button>
             </div>
           </div>
