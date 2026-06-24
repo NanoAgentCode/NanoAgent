@@ -900,7 +900,7 @@ function App() {
       return;
     }
 
-    const projectHint = activeConversationProject || activeProject;
+    const projectHint = getConversationProjectHint();
     const conversationId = await ensureConversation(projectHint);
     try {
       for (const file of selectedFiles) {
@@ -1781,7 +1781,7 @@ function App() {
     }));
   }
 
-  async function createConversationForCurrentScope(project: ProjectEntry | null = activeProject) {
+  async function createConversationForCurrentScope(project: ProjectEntry | null) {
     const conversation = await createConversation({
       model_config_id: activeModelId || null,
       project_path: project?.path || null
@@ -1799,41 +1799,22 @@ function App() {
     conversationId: string,
     projectHint: ProjectEntry | null = null
   ) {
-    return findConversationProject(findConversationById(conversationId)) || projectHint || activeProject;
+    return findConversationProject(findConversationById(conversationId)) || projectHint;
+  }
+
+  function getConversationProjectHint() {
+    return activeConversationId ? activeConversationProject : activeProject;
   }
 
   async function handleNewConversation() {
-    {
-      const scopedConversation = await createConversationForCurrentScope();
-      setActiveConversationId(scopedConversation.id);
-      setMessages([]);
-      return;
-    }
-
-    const conversation = await createConversation({
-      title: "新对话",
-      model_config_id: activeModelId || null
-    });
-    await refreshConversations(conversation.id);
+    const conversation = await createConversationForCurrentScope(null);
+    setActiveConversationId(conversation.id);
     setMessages([]);
   }
 
   async function handleNewProjectConversation(project: ProjectEntry) {
-    {
-      selectProject(project);
-      const scopedConversation = await createConversationForCurrentScope(project);
-      setActiveConversationId(scopedConversation.id);
-      setMessages([]);
-      return;
-    }
-
     selectProject(project);
-    const conversation = await createConversation({
-      title: "新对话",
-      model_config_id: activeModelId || null,
-      project_path: project.path
-    });
-    await refreshProjectConversationMap(projects);
+    const conversation = await createConversationForCurrentScope(project);
     setActiveConversationId(conversation.id);
     setMessages([]);
   }
@@ -2040,22 +2021,13 @@ function App() {
     }
   }
 
-  async function ensureConversation(project: ProjectEntry | null = activeProject) {
+  async function ensureConversation(project: ProjectEntry | null) {
     if (activeConversationId) {
       return activeConversationId;
     }
 
-    {
-      const scopedConversation = await createConversationForCurrentScope(project);
-      setActiveConversationId(scopedConversation.id);
-      return scopedConversation.id;
-    }
-
-    const conversation = await createConversation({
-      title: "新对话",
-      model_config_id: activeModelId || null
-    });
-    await refreshConversations(conversation.id);
+    const conversation = await createConversationForCurrentScope(project);
+    setActiveConversationId(conversation.id);
     return conversation.id;
   }
 
@@ -2234,7 +2206,7 @@ function App() {
     let activeToolCall: AgentToolCall | null = messageToolCalls[messageId] || null;
 
     try {
-      const projectHint = activeConversationProject || activeProject;
+      const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const projectPath = projectForRequest?.path || tempDir;
@@ -2336,7 +2308,7 @@ function App() {
       }
       
       try {
-        const projectHint = activeConversationProject || activeProject;
+        const projectHint = getConversationProjectHint();
         const conversationId = await ensureConversation(projectHint);
         const projectForRequest = resolveConversationProject(conversationId, projectHint);
         await appendMessage({
@@ -2359,7 +2331,7 @@ function App() {
   async function handleRejectTool(messageId: string, toolCall: ParsedToolCall) {
     setBusy(true);
     try {
-      const projectHint = activeConversationProject || activeProject;
+      const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       let activeRunId = messageToolCalls[messageId]?.run_id || conversationRunIds[conversationId] || null;
@@ -2433,7 +2405,7 @@ function App() {
     let agentRun: AgentRun | null = null;
 
     try {
-      const projectHint = activeConversationProject || activeProject;
+      const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
       const persistedMessages = await listMessages(conversationId);
