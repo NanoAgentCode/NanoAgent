@@ -187,7 +187,7 @@ const workspaceLabels: Record<WorkspaceView, string> = {
   note: "笔记",
   task: "备忘录",
   prompt: "提示词",
-  memory: "记忆库"
+  memory: "记忆系统"
 };
 
 const repeatLabels: Record<string, string> = {
@@ -3415,7 +3415,7 @@ function App() {
                   }}
                 >
                   <Brain size={16} />
-                  <span>记忆库</span>
+                  <span>记忆系统</span>
                 </button>
                 <button
                   className={activeSettingsTab === "model" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3483,7 +3483,7 @@ function App() {
 
                 {activeSettingsTab === "memory" && (
                   <div className="settings-tab-content">
-                    <h3>记忆库</h3>
+                    <h3>记忆系统</h3>
                     <p className="description">配置AI的长期记忆偏好与项目上下文，提高回答精准度。</p>
                     {renderWorkspaceGrid()}
                   </div>
