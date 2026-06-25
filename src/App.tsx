@@ -63,6 +63,8 @@ import {
   searchItems,
   searchMemories,
   listLocalSkills,
+  getTavilyApiKey,
+  saveTavilyApiKey,
   updateItem,
   updateMemory,
   checkEnv,
@@ -144,7 +146,8 @@ type SettingsTab =
   | "embedding"
   | "skills"
   | "mcp"
-  | "observability";
+  | "observability"
+  | "environment";
 
 
 
@@ -396,11 +399,55 @@ const defaultSkills: Skill[] = [
       skills_root: "C:\\Users\\13439\\Desktop\\NanoAgent\\.agents\\skills"
     },
     docUrl: "https://github.com/anthropics/skills"
+  },
+  {
+    id: "tavily_search",
+    name: "Tavily Search",
+    provider: "Tavily",
+    description: "通过 Tavily CLI 执行面向大模型优化的网页搜索，支持域名过滤、时间范围、新闻/金融主题和不同搜索深度。",
+    enabled: true,
+    parameters: {
+      command: "tvly search",
+      auth: "TAVILY_API_KEY or tvly login"
+    },
+    docUrl: "https://github.com/tavily-ai/skills/tree/main/skills/tavily-search"
+  },
+  {
+    id: "tavily_cli",
+    name: "Tavily CLI Guide",
+    provider: "Tavily",
+    description: "Tavily CLI 工作流指南，覆盖安装、登录、搜索、抽取、映射、抓取和研究的推荐使用路径。",
+    enabled: true,
+    parameters: {
+      install: "uv tool install tavily-cli or pip install tavily-cli",
+      auth: "tvly login --api-key tvly-YOUR_KEY"
+    },
+    docUrl: "https://github.com/tavily-ai/skills/tree/main/skills/tavily-cli"
   }
 ];
 
 function normalizeSkills(skills: Skill[]) {
-  return skills;
+  const skillMap = new Map(skills.map((skill) => [skill.id, skill]));
+  defaultSkills.forEach((defaultSkill) => {
+    const existing = skillMap.get(defaultSkill.id);
+    skillMap.set(
+      defaultSkill.id,
+      existing
+        ? {
+            ...existing,
+            name: defaultSkill.name,
+            provider: defaultSkill.provider,
+            description: defaultSkill.description,
+            parameters: {
+              ...defaultSkill.parameters,
+              ...existing.parameters
+            },
+            docUrl: defaultSkill.docUrl
+          }
+        : defaultSkill
+    );
+  });
+  return Array.from(skillMap.values());
 }
 
 function App() {
@@ -564,7 +611,6 @@ function App() {
     return defaultSkills;
   });
   const [selectedSkillId, setSelectedSkillId] = useState<string>("text_editor");
-  const [isSyncing, setIsSyncing] = useState(false);
   const [isAddingSkill, setIsAddingSkill] = useState(false);
   const [newSkillDraft, setNewSkillDraft] = useState<{
     id: string;
@@ -581,6 +627,8 @@ function App() {
   });
   const [nodePath, setNodePath] = useState(() => localStorage.getItem("nano-agent-node-path") || "");
   const [pythonPath, setPythonPath] = useState(() => localStorage.getItem("nano-agent-python-path") || "");
+  const [tavilyApiKey, setTavilyApiKey] = useState("");
+  const [isSavingTavilyApiKey, setIsSavingTavilyApiKey] = useState(false);
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({ node: true, python: true });
   const [showCustomPaths, setShowCustomPaths] = useState(false);
   const [showEnvActionsMenu, setShowEnvActionsMenu] = useState(false);
@@ -703,6 +751,9 @@ function App() {
   useEffect(() => {
     void loadAll();
     void checkLocalSkills();
+    getTavilyApiKey()
+      .then((apiKey) => setTavilyApiKey(apiKey))
+      .catch((error) => console.error("Failed to load Tavily API key:", error));
     
     // Check if skills contain "computer_use" and clean it up
     const saved = localStorage.getItem("nano-agent-skills");
@@ -1345,6 +1396,24 @@ function App() {
     }
   }
 
+  async function handleSaveTavilyApiKey() {
+    setIsSavingTavilyApiKey(true);
+    try {
+      await saveTavilyApiKey(tavilyApiKey);
+      setTavilyApiKey(tavilyApiKey.trim());
+      if (tavilyApiKey.trim() && envStatus.tavily_cli === false) {
+        setNotice("Tavily API Key 已保存，但未检测到 Tavily CLI，请先安装 tavily-cli。");
+      } else {
+        setNotice(tavilyApiKey.trim() ? "Tavily API Key 已保存。" : "Tavily API Key 已清空。");
+      }
+    } catch (error) {
+      console.error("Failed to save Tavily API key:", error);
+      setNotice(`保存 Tavily API Key 失败：${String(error)}`);
+    } finally {
+      setIsSavingTavilyApiKey(false);
+    }
+  }
+
   async function runEnvCheck() {
     setIsCheckingEnv(true);
     try {
@@ -1353,9 +1422,35 @@ function App() {
       return status;
     } catch (e) {
       console.error("Failed to check environment:", e);
-      return { node: false, python: false };
+      return { node: false, python: false, tavily_cli: false };
     } finally {
       setIsCheckingEnv(false);
+    }
+  }
+
+  async function handleInstallTavilyCli() {
+    setIsInstallingEnv(true);
+    setEnvInstallProgress("正在安装 Tavily CLI...");
+    try {
+      const ok = await installEnv("tavily");
+      if (!ok) {
+        throw new Error("Tavily CLI 安装失败");
+      }
+
+      setEnvInstallProgress("安装完成，正在验证 Tavily CLI...");
+      const finalStatus = await checkEnv(nodePath, pythonPath);
+      setEnvStatus(finalStatus);
+      if (finalStatus.tavily_cli) {
+        setNotice("Tavily CLI 安装成功。");
+      } else {
+        setNotice("Tavily CLI 已尝试安装，但当前 PATH 仍未检测到 tvly。请重启 NanoAgent 或检查 Python Scripts/uv tool 目录是否在 PATH。");
+      }
+    } catch (error) {
+      console.error("Tavily CLI installation failed:", error);
+      setNotice(`Tavily CLI 安装失败：${String(error)}`);
+    } finally {
+      setIsInstallingEnv(false);
+      setEnvInstallProgress("");
     }
   }
 
@@ -3473,6 +3568,13 @@ function App() {
                   <Monitor size={16} />
                   <span>MCP配置</span>
                 </button>
+                <button
+                  className={activeSettingsTab === "environment" ? "settings-nav-item active" : "settings-nav-item"}
+                  onClick={() => setActiveSettingsTab("environment")}
+                >
+                  <Settings size={16} />
+                  <span>环境依赖</span>
+                </button>
               </aside>
 
               <div className="settings-content">
@@ -3868,108 +3970,6 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Environment status and manual/auto configuration block */}
-                    <div className="env-status-banner">
-                      <div className="env-status-main">
-                        <div className="env-status-left">
-                          <strong>环境与依赖配置</strong>
-                          <div className="env-status-items">
-                            <div className="env-status-item-compact">
-                              <span>Node.js</span>
-                              <span className={envStatus.node ? "env-status-ok" : "env-status-missing"}>
-                                {envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
-                              </span>
-                            </div>
-                            <div className="env-status-item-compact">
-                              <span>Python</span>
-                              <span className={envStatus.python ? "env-status-ok" : "env-status-missing"}>
-                                {envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="env-status-actions">
-                          <div className="env-actions-menu-wrap">
-                            <button
-                              className="secondary env-action-btn"
-                              type="button"
-                              onClick={() => setShowEnvActionsMenu((current) => !current)}
-                              aria-expanded={showEnvActionsMenu}
-                            >
-                              更多
-                              <ChevronDown size={16} />
-                            </button>
-                            {showEnvActionsMenu && (
-                              <div className="env-actions-menu">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowEnvActionsMenu(false);
-                                    void runEnvCheck();
-                                  }}
-                                  disabled={isCheckingEnv || isInstallingEnv}
-                                >
-                                  {isCheckingEnv ? "正在检测..." : "重新检测环境"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowEnvActionsMenu(false);
-                                    void handleAutoInstallMissing();
-                                  }}
-                                  disabled={isCheckingEnv || isInstallingEnv}
-                                >
-                                  {isInstallingEnv ? "正在安装..." : "自动配置/安装 (winget)"}
-                                </button>
-                                {envStatus.node && envStatus.python && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setShowEnvActionsMenu(false);
-                                      setShowCustomPaths((current) => !current);
-                                    }}
-                                  >
-                                    {showCustomPaths ? "隐藏自定义配置" : "配置自定义路径"}
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      {(!envStatus.node || !envStatus.python || showCustomPaths) && (
-                        <>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                            <div className="skills-param-field" style={{ margin: 0 }}>
-                              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Node.js 自定义路径:</label>
-                              <input
-                                value={nodePath}
-                                onChange={(e) => setNodePath(e.target.value)}
-                                placeholder="系统默认 PATH / 点击保存"
-                                onBlur={handleSaveCustomPaths}
-                                style={{ padding: "6px 10px", fontSize: "0.85rem" }}
-                              />
-                            </div>
-                            <div className="skills-param-field" style={{ margin: 0 }}>
-                              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Python 自定义路径:</label>
-                              <input
-                                value={pythonPath}
-                                onChange={(e) => setPythonPath(e.target.value)}
-                                placeholder="系统默认 PATH / 点击保存"
-                                onBlur={handleSaveCustomPaths}
-                                style={{ padding: "6px 10px", fontSize: "0.85rem" }}
-                              />
-                            </div>
-                          </div>
-                          {isInstallingEnv && (
-                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
-                              <span className="spinner">⏳</span> {envInstallProgress}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-
                     <div className="skills-config-grid" style={{ flex: 1, overflow: "hidden" }}>
                       <aside className="skills-config-list" style={{ display: "flex", flexDirection: "column", gap: "8px", overflow: "hidden" }}>
                         <div style={{ marginBottom: "4px" }}>
@@ -4160,6 +4160,176 @@ function App() {
                     <button className="mcp-add-btn">
                       <Plus size={14} /> 添加 MCP 服务器
                     </button>
+                  </div>
+                )}
+
+                {activeSettingsTab === "environment" && (
+                  <div className="settings-tab-content" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                    <div>
+                      <h3>环境依赖</h3>
+                      <p className="description">配置本地运行环境、工具路径和外部技能所需的访问凭据。</p>
+                    </div>
+
+                    <div className="env-status-banner">
+                      <div className="env-status-main">
+                        <div className="env-status-left">
+                          <strong>运行环境</strong>
+                          <div className="env-status-items">
+                            <div className="env-status-item-compact">
+                              <span>Node.js</span>
+                              <span className={envStatus.node ? "env-status-ok" : "env-status-missing"}>
+                                {envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
+                              </span>
+                            </div>
+                            <div className="env-status-item-compact">
+                              <span>Python</span>
+                              <span className={envStatus.python ? "env-status-ok" : "env-status-missing"}>
+                                {envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="env-status-actions">
+                          <div className="env-actions-menu-wrap">
+                            <button
+                              className="secondary env-action-btn"
+                              type="button"
+                              onClick={() => setShowEnvActionsMenu((current) => !current)}
+                              aria-expanded={showEnvActionsMenu}
+                            >
+                              更多
+                              <ChevronDown size={16} />
+                            </button>
+                            {showEnvActionsMenu && (
+                              <div className="env-actions-menu">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowEnvActionsMenu(false);
+                                    void runEnvCheck();
+                                  }}
+                                  disabled={isCheckingEnv || isInstallingEnv}
+                                >
+                                  {isCheckingEnv ? "正在检测..." : "重新检测环境"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowEnvActionsMenu(false);
+                                    void handleAutoInstallMissing();
+                                  }}
+                                  disabled={isCheckingEnv || isInstallingEnv}
+                                >
+                                  {isInstallingEnv ? "正在安装..." : "自动配置/安装 (winget)"}
+                                </button>
+                                {envStatus.node && envStatus.python && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setShowEnvActionsMenu(false);
+                                      setShowCustomPaths((current) => !current);
+                                    }}
+                                  >
+                                    {showCustomPaths ? "隐藏自定义配置" : "配置自定义路径"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {(!envStatus.node || !envStatus.python || showCustomPaths) && (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Node.js 自定义路径:</label>
+                              <input
+                                value={nodePath}
+                                onChange={(e) => setNodePath(e.target.value)}
+                                placeholder="系统默认 PATH / 点击保存"
+                                onBlur={handleSaveCustomPaths}
+                                style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                              />
+                            </div>
+                            <div className="skills-param-field" style={{ margin: 0 }}>
+                              <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Python 自定义路径:</label>
+                              <input
+                                value={pythonPath}
+                                onChange={(e) => setPythonPath(e.target.value)}
+                                placeholder="系统默认 PATH / 点击保存"
+                                onBlur={handleSaveCustomPaths}
+                                style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                              />
+                            </div>
+                          </div>
+                          {isInstallingEnv && (
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                              <span className="spinner">⏳</span> {envInstallProgress}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    <div className="env-status-banner">
+                      <div className="env-status-main">
+                        <div className="env-status-left">
+                          <strong>Tavily</strong>
+                          <div className="env-status-items">
+                            <div className="env-status-item-compact">
+                              <span>Tavily CLI</span>
+                              <span className={envStatus.tavily_cli ? "env-status-ok" : "env-status-missing"}>
+                                {envStatus.tavily_cli ? "✓ 已就绪" : "✗ 未检测到"}
+                              </span>
+                            </div>
+                            <div className="env-status-item-compact">
+                              <span>API Key</span>
+                              <span className={tavilyApiKey.trim() ? "env-status-ok" : "env-status-missing"}>
+                                {tavilyApiKey.trim() ? "✓ 已配置" : "✗ 未配置"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        {!envStatus.tavily_cli && (
+                          <div className="env-status-actions">
+                            <button
+                              className="secondary env-action-btn"
+                              type="button"
+                              onClick={handleInstallTavilyCli}
+                              disabled={isInstallingEnv || isCheckingEnv}
+                            >
+                              {isInstallingEnv ? "安装中..." : "安装 CLI"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {isInstallingEnv && envInstallProgress.includes("Tavily") && (
+                        <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span className="spinner">⏳</span> {envInstallProgress}
+                        </div>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: "12px", alignItems: "end" }}>
+                        <div className="skills-param-field" style={{ margin: 0 }}>
+                          <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Tavily API Key:</label>
+                          <input
+                            type="password"
+                            value={tavilyApiKey}
+                            onChange={(e) => setTavilyApiKey(e.target.value)}
+                            placeholder="tvly-..."
+                            style={{ padding: "6px 10px", fontSize: "0.85rem" }}
+                          />
+                        </div>
+                        <button
+                          className="secondary"
+                          onClick={handleSaveTavilyApiKey}
+                          disabled={isSavingTavilyApiKey}
+                          type="button"
+                          style={{ height: "32px" }}
+                        >
+                          {isSavingTavilyApiKey ? "保存中..." : "保存 Key"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -5047,7 +5217,21 @@ async function safeExecuteAgentToolCall(request: AgentToolExecutionRequest) {
     return await executeAgentToolCall(request);
   } catch (error) {
     console.error("Failed to execute agent tool call:", error);
-    return null;
+    throw new Error(formatErrorMessage(error));
+  }
+}
+
+function formatErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
   }
 }
 

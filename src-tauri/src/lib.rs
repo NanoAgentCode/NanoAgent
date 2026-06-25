@@ -14,9 +14,9 @@ use db::Database;
 use error::AppResult;
 use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
 use models::{
-    ChatMessage, ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
-    ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft, ModelConfig,
-    ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
+    ChatMessage, ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft,
+    Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft,
+    ModelConfig, ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
     ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft,
 };
 use observability::{
@@ -26,7 +26,9 @@ use runtime::{
     AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
     AgentToolCallDraft, RuntimeStore,
 };
-use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
+use skills::{
+    sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill,
+};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
 
@@ -34,6 +36,12 @@ struct AppState {
     db: Mutex<Database>,
     observability: Mutex<ObservabilityPipeline>,
     runtime: Mutex<RuntimeStore>,
+}
+
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct AppSettings {
+    tavily_api_key: String,
 }
 
 async fn start_observation(
@@ -218,7 +226,7 @@ async fn test_llm_connectivity(draft: ModelConfigDraft) -> AppResult<()> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    
+
     let request = ChatRequest {
         model_config_id: config.id.clone(),
         messages: vec![ChatMessage {
@@ -228,7 +236,7 @@ async fn test_llm_connectivity(draft: ModelConfigDraft) -> AppResult<()> {
         temperature: Some(0.1),
         trace_id: None,
     };
-    
+
     let _ = crate::llm::send_chat_completion(config, request).await?;
     Ok(())
 }
@@ -249,7 +257,7 @@ async fn test_embedding_connectivity(draft: ModelConfigDraft) -> AppResult<()> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    
+
     let _ = crate::llm::create_embeddings(&config, vec!["ping".to_string()]).await?;
     Ok(())
 }
@@ -538,8 +546,6 @@ async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<()> 
     state.db.lock().await.delete_memory(&id)
 }
 
-
-
 #[tauri::command]
 async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
     fetch_anthropic_skills().await
@@ -548,6 +554,18 @@ async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
 #[tauri::command]
 async fn list_local_skills(app: AppHandle) -> AppResult<(String, Vec<GitHubSkill>)> {
     skills::list_local_skills(&app).await
+}
+
+#[tauri::command]
+async fn get_tavily_api_key(app: AppHandle) -> AppResult<String> {
+    Ok(load_app_settings(&app)?.tavily_api_key)
+}
+
+#[tauri::command]
+async fn save_tavily_api_key(app: AppHandle, api_key: String) -> AppResult<()> {
+    let mut settings = load_app_settings(&app)?;
+    settings.tavily_api_key = api_key.trim().to_string();
+    save_app_settings(&app, &settings)
 }
 
 #[tauri::command]
@@ -787,6 +805,7 @@ async fn resolve_agent_model_output(
 
 #[tauri::command]
 async fn execute_agent_tool_call(
+    app: AppHandle,
     state: State<'_, AppState>,
     request: AgentToolExecutionRequest,
 ) -> AppResult<AgentToolExecution> {
@@ -802,10 +821,12 @@ async fn execute_agent_tool_call(
         runtime.update_tool_call(&tool_call.id, "running", None, None)?
     };
 
+    let tavily_api_key = load_tavily_api_key(&app)?;
     let result = execute_registered_tool(
         &running_tool_call,
         &request.project_path,
         request.allow_command,
+        tavily_api_key.as_deref(),
     );
 
     match result {
@@ -859,6 +880,7 @@ fn execute_registered_tool(
     tool_call: &AgentToolCall,
     project_path: &str,
     allow_command: bool,
+    tavily_api_key: Option<&str>,
 ) -> AppResult<String> {
     let args = agent_runner::parse_args_json(&tool_call.args_json)?;
     agent_runner::validate_tool_args(&tool_call.name, &args)?;
@@ -887,7 +909,7 @@ fn execute_registered_tool(
                 ));
             }
             let command = required_tool_arg(&args, "command")?;
-            let output = run_project_command(project_path, command)?;
+            let output = run_project_command(project_path, command, tavily_api_key)?;
             Ok(format!(
                 "命令执行成功，输出结果如下：\n\n```\n{output}\n```"
             ))
@@ -937,8 +959,13 @@ fn write_project_text(project_path: &str, relative_path: &str, content: &str) ->
     std::fs::write(target_path, content.as_bytes()).map_err(crate::error::AppError::from)
 }
 
-fn run_project_command(project_path: &str, command: &str) -> AppResult<String> {
+fn run_project_command(
+    project_path: &str,
+    command: &str,
+    tavily_api_key: Option<&str>,
+) -> AppResult<String> {
     let root = project_root(project_path)?;
+    ensure_tavily_cli_if_needed(command)?;
     let mut c = if cfg!(target_os = "windows") {
         let mut cmd = std::process::Command::new("powershell.exe");
         cmd.arg("-NoProfile").arg("-Command").arg(command);
@@ -952,6 +979,9 @@ fn run_project_command(project_path: &str, command: &str) -> AppResult<String> {
     };
 
     c.current_dir(root);
+    if let Some(api_key) = tavily_api_key {
+        c.env("TAVILY_API_KEY", api_key);
+    }
     let output = c.output()?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -983,6 +1013,29 @@ fn check_python_exists() -> bool {
     check_cmd_exists("python") || check_cmd_exists("py")
 }
 
+fn command_invokes_tavily(command: &str) -> bool {
+    let normalized = command
+        .trim_start()
+        .trim_start_matches('&')
+        .trim_start()
+        .to_ascii_lowercase();
+    normalized == "tvly"
+        || normalized.starts_with("tvly ")
+        || normalized.starts_with("tvly.exe ")
+        || normalized.contains("; tvly ")
+        || normalized.contains("&& tvly ")
+        || normalized.contains("|| tvly ")
+}
+
+fn ensure_tavily_cli_if_needed(command: &str) -> AppResult<()> {
+    if command_invokes_tavily(command) && !check_cmd_exists("tvly") {
+        return Err(crate::error::AppError::Message(
+            "未检测到 Tavily CLI。请先安装：uv tool install tavily-cli 或 pip install tavily-cli；安装后重新检测环境再执行搜索。".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn check_env(
     node_path: Option<String>,
@@ -1012,6 +1065,7 @@ async fn check_env(
 
     status.insert("node".to_string(), node_ok);
     status.insert("python".to_string(), python_ok);
+    status.insert("tavily_cli".to_string(), check_cmd_exists("tvly"));
     Ok(status)
 }
 
@@ -1022,6 +1076,10 @@ async fn delete_messages(state: State<'_, AppState>, ids: Vec<String>) -> AppRes
 
 #[tauri::command]
 async fn install_env(tech: String) -> AppResult<bool> {
+    if tech == "tavily" {
+        return install_tavily_cli();
+    }
+
     let pkg_id = if tech == "node" {
         "OpenJS.NodeJS"
     } else if tech == "python" {
@@ -1042,6 +1100,54 @@ async fn install_env(tech: String) -> AppResult<bool> {
     ]);
     #[cfg(target_os = "windows")]
     c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+    let output = c
+        .output()
+        .map_err(|err| crate::error::AppError::Message(err.to_string()))?;
+    if output.status.success() {
+        return Ok(true);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(crate::error::AppError::Message(format!(
+        "install failed with code {:?}\nStdout: {}\nStderr: {}",
+        output.status.code(),
+        stdout,
+        stderr
+    )))
+}
+
+fn install_tavily_cli() -> AppResult<bool> {
+    if check_cmd_exists("uv") {
+        return run_install_command("uv", &["tool", "install", "tavily-cli"]);
+    }
+
+    let python_cmd = if check_cmd_exists("python") {
+        Some("python")
+    } else if check_cmd_exists("py") {
+        Some("py")
+    } else {
+        None
+    };
+
+    let Some(python_cmd) = python_cmd else {
+        return Err(crate::error::AppError::Message(
+            "安装 Tavily CLI 需要 uv 或 Python。请先安装 Python，或手动安装 uv。".to_string(),
+        ));
+    };
+
+    run_install_command(
+        python_cmd,
+        &["-m", "pip", "install", "--user", "tavily-cli"],
+    )
+}
+
+fn run_install_command(cmd: &str, args: &[&str]) -> AppResult<bool> {
+    let mut c = std::process::Command::new(cmd);
+    c.args(args);
+    #[cfg(target_os = "windows")]
+    c.creation_flags(0x08000000);
 
     let output = c
         .output()
@@ -1475,6 +1581,43 @@ fn rag_content_hash(name: &str, content: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+fn app_settings_path(app: &AppHandle) -> AppResult<std::path::PathBuf> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|err| crate::error::AppError::Message(format!("failed to resolve app data directory: {err}")))?;
+    std::fs::create_dir_all(&data_dir)?;
+    Ok(data_dir.join("settings.json"))
+}
+
+fn load_app_settings(app: &AppHandle) -> AppResult<AppSettings> {
+    let path = app_settings_path(app)?;
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+
+    let content = std::fs::read_to_string(path)?;
+    if content.trim().is_empty() {
+        return Ok(AppSettings::default());
+    }
+
+    serde_json::from_str(&content)
+        .map_err(|err| crate::error::AppError::Message(format!("读取应用设置失败: {err}")))
+}
+
+fn save_app_settings(app: &AppHandle, settings: &AppSettings) -> AppResult<()> {
+    let path = app_settings_path(app)?;
+    let content = serde_json::to_string_pretty(settings)
+        .map_err(|err| crate::error::AppError::Message(format!("序列化应用设置失败: {err}")))?;
+    std::fs::write(path, content.as_bytes())?;
+    Ok(())
+}
+
+fn load_tavily_api_key(app: &AppHandle) -> AppResult<Option<String>> {
+    let key = load_app_settings(app)?.tavily_api_key.trim().to_string();
+    Ok(if key.is_empty() { None } else { Some(key) })
+}
+
 fn normalize_rag_text(content: &str) -> String {
     content
         .replace("\r\n", "\n")
@@ -1534,6 +1677,7 @@ fn chunk_rag_text(content: &str) -> Vec<String> {
 
 #[tauri::command]
 async fn execute_bash_command(
+    app: AppHandle,
     state: State<'_, AppState>,
     project_path: String,
     command: String,
@@ -1551,6 +1695,8 @@ async fn execute_bash_command(
     .await;
     let result = (|| -> AppResult<String> {
         let root = project_root(&project_path)?;
+        ensure_tavily_cli_if_needed(&command)?;
+        let tavily_api_key = load_tavily_api_key(&app)?;
         let mut c = if cfg!(target_os = "windows") {
             let mut cmd = std::process::Command::new("powershell.exe");
             cmd.arg("-NoProfile").arg("-Command").arg(&command);
@@ -1564,6 +1710,9 @@ async fn execute_bash_command(
         };
 
         c.current_dir(root);
+        if let Some(api_key) = tavily_api_key.as_deref() {
+            c.env("TAVILY_API_KEY", api_key);
+        }
         let output = c.output()?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -1742,6 +1891,8 @@ pub fn run() {
             delete_memory,
             sync_anthropic_skills,
             list_local_skills,
+            get_tavily_api_key,
+            save_tavily_api_key,
             chat,
             chat_stream,
             create_agent_run,

@@ -142,6 +142,18 @@ export function listLocalSkills() {
   return invoke<[string, GitHubSkill[]]>("list_local_skills");
 }
 
+export function syncAnthropicSkills() {
+  return invoke<GitHubSkill[]>("sync_anthropic_skills");
+}
+
+export function getTavilyApiKey() {
+  return invoke<string>("get_tavily_api_key");
+}
+
+export function saveTavilyApiKey(apiKey: string) {
+  return invoke<void>("save_tavily_api_key", { apiKey });
+}
+
 export function chat(
   modelConfigId: string,
   messages: ChatMessage[],

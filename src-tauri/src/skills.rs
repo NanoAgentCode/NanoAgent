@@ -38,8 +38,23 @@ struct GitHubError {
 }
 
 pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
+    sync_github_skills(
+        ANTHROPIC_SKILLS_API,
+        RAW_SKILL_BASE,
+        "https://github.com/anthropics/skills/tree/main/skills",
+        "Anthropic",
+    )
+    .await
+}
+
+async fn sync_github_skills(
+    contents_api: &str,
+    raw_skill_base: &str,
+    doc_base: &str,
+    provider: &str,
+) -> AppResult<Vec<GitHubSkill>> {
     let client = Arc::new(github_client()?);
-    let response = client.get(ANTHROPIC_SKILLS_API).send().await?;
+    let response = client.get(contents_api).send().await?;
 
     if !response.status().is_success() {
         return Err(github_status_error(response).await);
@@ -61,16 +76,21 @@ pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
             let client = Arc::clone(&client);
             let sem = Arc::clone(&semaphore);
             let slug = item.name.clone();
+            let doc_base = doc_base.to_string();
+            let provider = provider.to_string();
+            let raw_skill_base = raw_skill_base.to_string();
             async move {
                 let _permit = sem.acquire_owned().await;
-                let (name, description) = fetch_skill_frontmatter(&client, &slug)
+                let (name, description) = fetch_skill_frontmatter(&client, &raw_skill_base, &slug)
                     .await
-                    .unwrap_or_else(|_| (title_from_slug(&slug), fallback_description(&slug)));
+                    .unwrap_or_else(|_| {
+                        (
+                            title_from_slug(&slug),
+                            fallback_description(&provider, &slug),
+                        )
+                    });
                 GitHubSkill {
-                    doc_url: format!(
-                        "https://github.com/anthropics/skills/tree/main/skills/{}",
-                        slug
-                    ),
+                    doc_url: format!("{doc_base}/{slug}"),
                     slug,
                     name,
                     description,
@@ -115,10 +135,11 @@ fn github_client() -> AppResult<reqwest::Client> {
 
 async fn fetch_skill_frontmatter(
     client: &reqwest::Client,
+    raw_skill_base: &str,
     slug: &str,
 ) -> AppResult<(String, String)> {
     let response = client
-        .get(format!("{RAW_SKILL_BASE}/{slug}/SKILL.md"))
+        .get(format!("{raw_skill_base}/{slug}/SKILL.md"))
         .send()
         .await?;
 
@@ -130,7 +151,7 @@ async fn fetch_skill_frontmatter(
     let (name, description) = parse_frontmatter(&markdown);
     Ok((
         name.unwrap_or_else(|| title_from_slug(slug)),
-        description.unwrap_or_else(|| fallback_description(slug)),
+        description.unwrap_or_else(|| fallback_description("GitHub", slug)),
     ))
 }
 
@@ -203,8 +224,8 @@ fn title_from_slug(slug: &str) -> String {
         .join(" ")
 }
 
-fn fallback_description(slug: &str) -> String {
-    format!("来自 Anthropic 官方仓库的 \"{slug}\" 技能。")
+fn fallback_description(provider: &str, slug: &str) -> String {
+    format!("来自 {provider} 官方仓库的 \"{slug}\" 技能。")
 }
 
 pub async fn list_local_skills(app: &tauri::AppHandle) -> AppResult<(String, Vec<GitHubSkill>)> {
