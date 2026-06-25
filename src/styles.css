@@ -1760,7 +1760,7 @@ button.danger:active:not(:disabled) {
 }
 
 .chat-input-footer select {
-  width: min(170px, 36vw);
+  width: min(195px, 40vw);
   min-height: 32px;
   border: 1px solid var(--border-color);
   border-radius: 8px;

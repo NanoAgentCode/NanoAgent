@@ -68,6 +68,14 @@ export function deleteModelConfig(id: string) {
   return invoke<void>("delete_model_config", { id });
 }
 
+export function testLlmConnectivity(draft: ModelConfigDraft) {
+  return invoke<void>("test_llm_connectivity", { draft });
+}
+
+export function testEmbeddingConnectivity(draft: ModelConfigDraft) {
+  return invoke<void>("test_embedding_connectivity", { draft });
+}
+
 export function listConversations(projectPath?: string | null) {
   return invoke<Conversation[]>("list_conversations", { projectPath: projectPath || null });
 }

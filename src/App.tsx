@@ -44,6 +44,8 @@ import {
   deleteMemory,
   deleteMessages,
   deleteModelConfig,
+  testLlmConnectivity,
+  testEmbeddingConnectivity,
   deleteRagFile,
   indexRagFile,
   internetSearch,
@@ -471,6 +473,35 @@ function App() {
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
   const [activeModelId, setActiveModelId] = useState("");
   const [embeddingDraft, setEmbeddingDraft] = useState<ModelConfigDraft>(emptyEmbeddingDraft);
+
+  const [llmTestStatus, setLlmTestStatus] = useState<{
+    status: "idle" | "testing" | "success" | "error";
+    message?: string;
+  }>({ status: "idle" });
+
+  const [embeddingTestStatus, setEmbeddingTestStatus] = useState<{
+    status: "idle" | "testing" | "success" | "error";
+    message?: string;
+  }>({ status: "idle" });
+
+  useEffect(() => {
+    setLlmTestStatus({ status: "idle" });
+  }, [
+    modelDraft.id,
+    modelDraft.provider,
+    modelDraft.base_url,
+    modelDraft.model,
+    modelDraft.api_key
+  ]);
+
+  useEffect(() => {
+    setEmbeddingTestStatus({ status: "idle" });
+  }, [
+    embeddingDraft.embedding_provider,
+    embeddingDraft.embedding_base_url,
+    embeddingDraft.embedding_model,
+    embeddingDraft.embedding_api_key
+  ]);
 
   useEffect(() => {
     const existing = models.find((m) => m.id === "embedding-config");
@@ -1831,6 +1862,35 @@ function App() {
   function handleOpenEmbeddingConfig() {
     const existing = models.find((m) => m.id === "embedding-config");
     setEmbeddingDraft(existing ? normalizeModelDraft(existing) : emptyEmbeddingDraft);
+  }
+
+  async function handleTestLlm() {
+    setLlmTestStatus({ status: "testing" });
+    try {
+      await testLlmConnectivity(modelDraft);
+      setLlmTestStatus({ status: "success" });
+    } catch (err: any) {
+      setLlmTestStatus({ status: "error", message: String(err) });
+    }
+  }
+
+  async function handleTestEmbedding() {
+    setEmbeddingTestStatus({ status: "testing" });
+    try {
+      const updatedDraft = {
+        ...embeddingDraft,
+        id: "embedding-config",
+        name: "嵌入模型",
+        provider: embeddingDraft.embedding_provider,
+        base_url: embeddingDraft.embedding_base_url,
+        model: embeddingDraft.embedding_model,
+        api_key: embeddingDraft.embedding_api_key,
+      };
+      await testEmbeddingConnectivity(updatedDraft);
+      setEmbeddingTestStatus({ status: "success" });
+    } catch (err: any) {
+      setEmbeddingTestStatus({ status: "error", message: String(err) });
+    }
   }
 
   async function handleActiveModelChange(modelId: string) {
@@ -3681,7 +3741,35 @@ function App() {
                               />
                             </label>
                           </div>
+                          {llmTestStatus.status !== "idle" && (
+                            <div style={{
+                              display: "flex",
+                              alignItems: "center",
+                              padding: "10px 14px",
+                              borderRadius: "8px",
+                              fontSize: "13px",
+                              border: "1px solid",
+                              borderColor: llmTestStatus.status === "success" ? "rgba(16, 185, 129, 0.2)" : llmTestStatus.status === "error" ? "rgba(239, 68, 68, 0.2)" : "var(--border-color)",
+                              background: llmTestStatus.status === "success" ? "rgba(16, 185, 129, 0.05)" : llmTestStatus.status === "error" ? "rgba(239, 68, 68, 0.05)" : "var(--bg-card)",
+                              color: llmTestStatus.status === "success" ? "var(--accent-green)" : llmTestStatus.status === "error" ? "var(--accent-red)" : "var(--text-secondary)",
+                              wordBreak: "break-all"
+                            }}>
+                              {llmTestStatus.status === "testing" && "正在测试网络连通性..."}
+                              {llmTestStatus.status === "success" && "✓ 连接成功，模型可用"}
+                              {llmTestStatus.status === "error" && `✗ 连接失败: ${llmTestStatus.message}`}
+                            </div>
+                          )}
                           <div className="modal-actions icon-actions">
+                            <button
+                              className="icon-text-btn"
+                              onClick={handleTestLlm}
+                              disabled={llmTestStatus.status === "testing"}
+                              title="测试连接"
+                              type="button"
+                            >
+                              <Activity />
+                              <span>{llmTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
+                            </button>
                             <button className="icon-text-btn success-btn" onClick={handleSaveModel} title="保存并使用" type="button">
                               <Save />
                               <span>保存并使用</span>
@@ -3749,7 +3837,35 @@ function App() {
                             />
                           </label>
                         </div>
+                        {embeddingTestStatus.status !== "idle" && (
+                          <div style={{
+                            display: "flex",
+                            alignItems: "center",
+                            padding: "10px 14px",
+                            borderRadius: "8px",
+                            fontSize: "13px",
+                            border: "1px solid",
+                            borderColor: embeddingTestStatus.status === "success" ? "rgba(16, 185, 129, 0.2)" : embeddingTestStatus.status === "error" ? "rgba(239, 68, 68, 0.2)" : "var(--border-color)",
+                            background: embeddingTestStatus.status === "success" ? "rgba(16, 185, 129, 0.05)" : embeddingTestStatus.status === "error" ? "rgba(239, 68, 68, 0.05)" : "var(--bg-card)",
+                            color: embeddingTestStatus.status === "success" ? "var(--accent-green)" : embeddingTestStatus.status === "error" ? "var(--accent-red)" : "var(--text-secondary)",
+                            wordBreak: "break-all"
+                          }}>
+                            {embeddingTestStatus.status === "testing" && "正在测试网络连通性..."}
+                            {embeddingTestStatus.status === "success" && "✓ 连接成功，Embedding 模型可用"}
+                            {embeddingTestStatus.status === "error" && `✗ 连接失败: ${embeddingTestStatus.message}`}
+                          </div>
+                        )}
                         <div className="modal-actions icon-actions">
+                          <button
+                            className="icon-text-btn"
+                            onClick={handleTestEmbedding}
+                            disabled={embeddingTestStatus.status === "testing"}
+                            title="测试连接"
+                            type="button"
+                          >
+                            <Activity />
+                            <span>{embeddingTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
+                          </button>
                           <button className="icon-text-btn success-btn" onClick={handleSaveEmbeddingModel} title="保存并使用" type="button">
                             <Save />
                             <span>保存并使用</span>

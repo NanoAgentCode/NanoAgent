@@ -15,7 +15,7 @@ use db::Database;
 use error::AppResult;
 use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
 use models::{
-    ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
+    ChatMessage, ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
     ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft, ModelConfig,
     ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
     ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft, WebSearchResponse,
@@ -202,6 +202,58 @@ async fn save_model_config(
 #[tauri::command]
 async fn delete_model_config(state: State<'_, AppState>, id: String) -> AppResult<()> {
     state.db.lock().await.delete_model_config(&id)
+}
+
+#[tauri::command]
+async fn test_llm_connectivity(draft: ModelConfigDraft) -> AppResult<()> {
+    let config = ModelConfig {
+        id: draft.id.unwrap_or_default(),
+        name: draft.name,
+        provider: draft.provider,
+        base_url: draft.base_url,
+        model: draft.model,
+        api_key: draft.api_key,
+        embedding_provider: draft.embedding_provider,
+        embedding_base_url: draft.embedding_base_url,
+        embedding_model: draft.embedding_model,
+        embedding_api_key: draft.embedding_api_key,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    
+    let request = ChatRequest {
+        model_config_id: config.id.clone(),
+        messages: vec![ChatMessage {
+            role: "user".to_string(),
+            content: "ping".to_string(),
+        }],
+        temperature: Some(0.1),
+        trace_id: None,
+    };
+    
+    let _ = crate::llm::send_chat_completion(config, request).await?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn test_embedding_connectivity(draft: ModelConfigDraft) -> AppResult<()> {
+    let config = ModelConfig {
+        id: draft.id.unwrap_or_default(),
+        name: draft.name,
+        provider: draft.provider,
+        base_url: draft.base_url,
+        model: draft.model,
+        api_key: draft.api_key,
+        embedding_provider: draft.embedding_provider,
+        embedding_base_url: draft.embedding_base_url,
+        embedding_model: draft.embedding_model,
+        embedding_api_key: draft.embedding_api_key,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    
+    let _ = crate::llm::create_embeddings(&config, vec!["ping".to_string()]).await?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -1692,6 +1744,8 @@ pub fn run() {
             list_model_configs,
             save_model_config,
             delete_model_config,
+            test_llm_connectivity,
+            test_embedding_connectivity,
             list_conversations,
             list_archived_conversations,
             create_conversation,
