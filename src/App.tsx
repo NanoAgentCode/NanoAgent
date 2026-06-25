@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Monitor,
   Moon,
+  Loader2,
   Plus,
   RotateCcw,
   Save,
@@ -3819,25 +3820,22 @@ function App() {
                               />
                             </label>
                           </div>
-                          {llmTestStatus.status !== "idle" && (
-                            <div style={{
-                              display: "flex",
-                              alignItems: "center",
-                              padding: "10px 14px",
-                              borderRadius: "8px",
-                              fontSize: "13px",
-                              border: "1px solid",
-                              borderColor: llmTestStatus.status === "success" ? "rgba(16, 185, 129, 0.2)" : llmTestStatus.status === "error" ? "rgba(239, 68, 68, 0.2)" : "var(--border-color)",
-                              background: llmTestStatus.status === "success" ? "rgba(16, 185, 129, 0.05)" : llmTestStatus.status === "error" ? "rgba(239, 68, 68, 0.05)" : "var(--bg-card)",
-                              color: llmTestStatus.status === "success" ? "var(--accent-green)" : llmTestStatus.status === "error" ? "var(--accent-red)" : "var(--text-secondary)",
-                              wordBreak: "break-all"
-                            }}>
-                              {llmTestStatus.status === "testing" && "正在测试网络连通性..."}
-                              {llmTestStatus.status === "success" && "✓ 连接成功，模型可用"}
-                              {llmTestStatus.status === "error" && `✗ 连接失败: ${llmTestStatus.message}`}
-                            </div>
-                          )}
-                          <div className="modal-actions icon-actions">
+                          <div className="modal-actions icon-actions" style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                            {llmTestStatus.status === "success" && (
+                              <span style={{ color: "var(--accent-green)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }}>
+                                <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-green)" }} />
+                                连通性正常
+                              </span>
+                            )}
+                            {llmTestStatus.status === "error" && (
+                              <span style={{ color: "var(--accent-red)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }} title={llmTestStatus.message}>
+                                <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-red)" }} />
+                                连通性异常 (悬浮查看详情)
+                              </span>
+                            )}
+                            {(llmTestStatus.status === "idle" || llmTestStatus.status === "testing") && (
+                              <div style={{ marginRight: "auto" }} />
+                            )}
                             <button
                               className="icon-text-btn"
                               onClick={handleTestLlm}
@@ -3845,7 +3843,11 @@ function App() {
                               title="测试连接"
                               type="button"
                             >
-                              <Activity />
+                              {llmTestStatus.status === "testing" ? (
+                                <Loader2 style={{ animation: "spin 1s linear infinite" }} />
+                              ) : (
+                                <Activity />
+                              )}
                               <span>{llmTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
                             </button>
                             <button className="icon-text-btn success-btn" onClick={handleSaveModel} title="保存并使用" type="button">
@@ -3915,25 +3917,22 @@ function App() {
                             />
                           </label>
                         </div>
-                        {embeddingTestStatus.status !== "idle" && (
-                          <div style={{
-                            display: "flex",
-                            alignItems: "center",
-                            padding: "10px 14px",
-                            borderRadius: "8px",
-                            fontSize: "13px",
-                            border: "1px solid",
-                            borderColor: embeddingTestStatus.status === "success" ? "rgba(16, 185, 129, 0.2)" : embeddingTestStatus.status === "error" ? "rgba(239, 68, 68, 0.2)" : "var(--border-color)",
-                            background: embeddingTestStatus.status === "success" ? "rgba(16, 185, 129, 0.05)" : embeddingTestStatus.status === "error" ? "rgba(239, 68, 68, 0.05)" : "var(--bg-card)",
-                            color: embeddingTestStatus.status === "success" ? "var(--accent-green)" : embeddingTestStatus.status === "error" ? "var(--accent-red)" : "var(--text-secondary)",
-                            wordBreak: "break-all"
-                          }}>
-                            {embeddingTestStatus.status === "testing" && "正在测试网络连通性..."}
-                            {embeddingTestStatus.status === "success" && "✓ 连接成功，Embedding 模型可用"}
-                            {embeddingTestStatus.status === "error" && `✗ 连接失败: ${embeddingTestStatus.message}`}
-                          </div>
-                        )}
-                        <div className="modal-actions icon-actions">
+                        <div className="modal-actions icon-actions" style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                          {embeddingTestStatus.status === "success" && (
+                            <span style={{ color: "var(--accent-green)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }}>
+                              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-green)" }} />
+                              连通性正常
+                            </span>
+                          )}
+                          {embeddingTestStatus.status === "error" && (
+                            <span style={{ color: "var(--accent-red)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }} title={embeddingTestStatus.message}>
+                              <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-red)" }} />
+                              连通性异常 (悬浮查看详情)
+                            </span>
+                          )}
+                          {(embeddingTestStatus.status === "idle" || embeddingTestStatus.status === "testing") && (
+                            <div style={{ marginRight: "auto" }} />
+                          )}
                           <button
                             className="icon-text-btn"
                             onClick={handleTestEmbedding}
@@ -3941,7 +3940,11 @@ function App() {
                             title="测试连接"
                             type="button"
                           >
-                            <Activity />
+                            {embeddingTestStatus.status === "testing" ? (
+                              <Loader2 style={{ animation: "spin 1s linear infinite" }} />
+                            ) : (
+                              <Activity />
+                            )}
                             <span>{embeddingTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
                           </button>
                           <button className="icon-text-btn success-btn" onClick={handleSaveEmbeddingModel} title="保存并使用" type="button">
