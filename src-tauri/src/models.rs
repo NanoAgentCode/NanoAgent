@@ -222,25 +222,7 @@ pub enum ChatStreamEvent {
     Error { request_id: String, message: String },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSearchResult {
-    pub title: String,
-    pub url: String,
-    pub snippet: String,
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSearchStatus {
-    pub engine: String,
-    pub used_fallback: bool,
-    pub fallback_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebSearchResponse {
-    pub results: Vec<WebSearchResult>,
-    pub status: WebSearchStatus,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageMetadata {

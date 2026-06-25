@@ -1777,35 +1777,6 @@ button.danger:active:not(:disabled) {
   box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
 }
 
-.web-toggle {
-  width: auto;
-  height: 32px;
-  min-height: 32px;
-  border-radius: 8px;
-  padding: 0 12px;
-  background: var(--bg-pane);
-  color: var(--text-secondary);
-  pointer-events: auto;
-  font-size: 12.5px;
-  font-weight: 600;
-  border: 1px solid var(--border-color);
-  box-shadow: none;
-}
-
-.web-toggle:hover {
-  color: var(--text-primary);
-  border-color: var(--border-color-focus);
-  background: var(--bg-card-hover);
-  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.08);
-}
-
-.web-toggle.active {
-  color: #0b1220;
-  background: var(--accent-cyan);
-  border-color: rgba(0, 240, 255, 0.7);
-  box-shadow: 0 8px 20px rgba(0, 240, 255, 0.18);
-}
-
 .chat-input-actions {
   display: flex;
   align-items: center;

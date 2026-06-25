@@ -49,7 +49,6 @@ import {
   testEmbeddingConnectivity,
   deleteRagFile,
   indexRagFile,
-  internetSearch,
   listEnabledMemories,
   listArchivedConversations,
   listConversations,
@@ -147,29 +146,7 @@ type SettingsTab =
   | "mcp"
   | "observability";
 
-const emptyWebSearchResponse = (): WebSearchResponse => ({
-  results: [],
-  status: {
-    engine: "none",
-    used_fallback: false,
-    fallback_reason: null
-  }
-});
 
-function buildWebSearchMetadata(response: WebSearchResponse): MessageMetadata | null {
-  if (response.status.engine === "none") {
-    return null;
-  }
-
-  return {
-    web_search: {
-      engine: response.status.engine,
-      used_fallback: response.status.used_fallback,
-      fallback_reason: response.status.fallback_reason || null,
-      result_count: response.results.length
-    }
-  };
-}
 
 function getWebSearchEngineLabel(engine: string) {
   if (engine === "tavily") return "Tavily";
@@ -273,7 +250,6 @@ const themeLabels: Record<ThemeMode, string> = {
 
 const projectStorageKey = "nano-agent-projects";
 const activeProjectStorageKey = "nano-agent-active-project-id";
-const tavilyApiKeyStorageKey = "nano-agent-tavily-api-key";
 
 function loadSavedProjects() {
   const saved = localStorage.getItem(projectStorageKey);
@@ -420,33 +396,11 @@ const defaultSkills: Skill[] = [
       skills_root: "C:\\Users\\13439\\Desktop\\NanoAgent\\.agents\\skills"
     },
     docUrl: "https://github.com/anthropics/skills"
-  },
-  {
-    id: "web_search",
-    name: "Web Search",
-    provider: "NanoAgent",
-    description: "优先使用应用内 Tavily API Key 调用本机 Tavily Agent Skill / CLI；不可用时自动回退到内置 DuckDuckGo 检索。",
-    enabled: false,
-    parameters: {
-      engine: "Tavily + DuckDuckGo fallback"
-    },
-    docUrl: "https://github.com/google-deepmind/antigravity"
   }
 ];
 
 function normalizeSkills(skills: Skill[]) {
-  return skills.map((skill) =>
-    skill.id === "web_search"
-      ? {
-          ...skill,
-          description: "优先使用应用内 Tavily API Key 调用本机 Tavily Agent Skill / CLI；不可用时自动回退到内置 DuckDuckGo 检索。",
-          parameters: {
-            ...skill.parameters,
-            engine: "Tavily + DuckDuckGo fallback"
-          }
-        }
-      : skill
-  );
+  return skills;
 }
 
 function App() {
@@ -627,7 +581,6 @@ function App() {
   });
   const [nodePath, setNodePath] = useState(() => localStorage.getItem("nano-agent-node-path") || "");
   const [pythonPath, setPythonPath] = useState(() => localStorage.getItem("nano-agent-python-path") || "");
-  const [tavilyApiKey, setTavilyApiKey] = useState(() => localStorage.getItem(tavilyApiKeyStorageKey) || "");
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({ node: true, python: true });
   const [showCustomPaths, setShowCustomPaths] = useState(false);
   const [showEnvActionsMenu, setShowEnvActionsMenu] = useState(false);
@@ -635,19 +588,6 @@ function App() {
   const [isCheckingEnv, setIsCheckingEnv] = useState(false);
   const [isInstallingEnv, setIsInstallingEnv] = useState(false);
   const [envInstallProgress, setEnvInstallProgress] = useState("");
-  const [webSearchEnabled, setWebSearchEnabled] = useState(() => {
-    const saved = localStorage.getItem("nano-agent-skills");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Skill[];
-        const webSearch = parsed.find((s) => s.id === "web_search");
-        if (webSearch) return webSearch.enabled;
-      } catch (e) {
-        // ignore
-      }
-    }
-    return false;
-  });
   const [pendingReminder, setPendingReminder] = useState<ReminderDraft | null>(null);
   const [activeReminder, setActiveReminder] = useState<Item | null>(null);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
@@ -1177,21 +1117,6 @@ function App() {
     );
     setSkills(nextSkills);
     localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
-    if (id === "web_search") {
-      setWebSearchEnabled(enabled);
-    }
-  }
-
-  function handleToggleWebSearch() {
-    setWebSearchEnabled((prev) => {
-      const next = !prev;
-      const nextSkills = skills.map((s) =>
-        s.id === "web_search" ? { ...s, enabled: next } : s
-      );
-      setSkills(nextSkills);
-      localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
-      return next;
-    });
   }
 
   function toggleProjectExpanded(projectId: string) {
@@ -1502,17 +1427,7 @@ function App() {
     }
   }
 
-  function handleSaveTavilyApiKey() {
-    const trimmed = tavilyApiKey.trim();
-    if (trimmed) {
-      localStorage.setItem(tavilyApiKeyStorageKey, trimmed);
-      setTavilyApiKey(trimmed);
-      setNotice("Tavily API Key 已保存。");
-    } else {
-      localStorage.removeItem(tavilyApiKeyStorageKey);
-      setNotice("Tavily API Key 已清空，将使用系统环境变量或 DuckDuckGo 兜底。");
-    }
-  }
+
 
   function handleDeleteSkill(id: string) {
     if (confirm("确定要删除该技能吗？")) {
@@ -2219,8 +2134,6 @@ function App() {
     const projectForRequest = resolveConversationProject(conversationId, projectHint);
     const modelConfigId = resolveConversationModelId(conversationId);
     const enabledMemories = await listEnabledMemories();
-    const webSearchResponse = emptyWebSearchResponse();
-    const webResults = webSearchResponse.results;
     let projectFiles: ProjectFileEntry[] = [];
     if (projectForRequest?.path) {
       try {
@@ -2236,8 +2149,6 @@ function App() {
     const modelMessages: ChatMessage[] = [
       buildSystemMessage(
         enabledMemories,
-        webResults,
-        webSearchResponse.status,
         projectForRequest,
         projectFiles,
         skills,
@@ -2654,10 +2565,6 @@ function App() {
       }
 
       const enabledMemories = await listEnabledMemories();
-      const webSearchResponse = webSearchEnabled
-        ? await internetSearch(content, tavilyApiKey)
-        : emptyWebSearchResponse();
-      const webResults = webSearchResponse.results;
       let projectFiles: ProjectFileEntry[] = [];
       if (projectForRequest?.path) {
         try {
@@ -2711,8 +2618,6 @@ function App() {
       const modelMessages: ChatMessage[] = [
         buildSystemMessage(
           enabledMemories,
-          webResults,
-          webSearchResponse.status,
           projectForRequest,
           projectFiles,
           skills,
@@ -2733,7 +2638,6 @@ function App() {
         conversation_id: conversationId,
         role: "assistant",
         content: "",
-        metadata: buildWebSearchMetadata(webSearchResponse) || undefined,
         created_at: new Date().toISOString()
       };
       setMessages([...currentMessages, temporaryAssistantMessage]);
@@ -2777,8 +2681,7 @@ function App() {
           status: "running",
           input_summary: `messages=${modelMessages.length}`,
           metadata_json: JSON.stringify({
-            model_config_id: activeModelId,
-            web_results: webResults.length
+            model_config_id: activeModelId
           })
         });
       }
@@ -2807,8 +2710,7 @@ function App() {
       const assistantMessage = await appendMessage({
         conversation_id: conversationId,
         role: "assistant",
-        content: streamedContent,
-        metadata: buildWebSearchMetadata(webSearchResponse) || undefined
+        content: streamedContent
       });
       if (agentRun) {
         const resolution = await safeResolveAgentModelOutput(
@@ -4190,20 +4092,7 @@ function App() {
                                 </div>
                               </div>
 
-                              {skill.id === "web_search" && (
-                                <div className="skills-form-section" style={{ marginTop: "12px" }}>
-                                  <h5>Tavily API Key</h5>
-                                  <div className="skills-param-field">
-                                    <input
-                                      value={tavilyApiKey}
-                                      type="password"
-                                      onChange={(event) => setTavilyApiKey(event.target.value)}
-                                      onBlur={handleSaveTavilyApiKey}
-                                      placeholder="粘贴 Tavily API Key；留空则使用系统环境变量或 DuckDuckGo 兜底"
-                                    />
-                                  </div>
-                                </div>
-                              )}
+
 
                               <div className="skills-form-actions">
                                 <button
@@ -4447,14 +4336,6 @@ function App() {
           />
           <div className="chat-input-footer">
             <div className="chat-input-left">
-              <button
-                className={webSearchEnabled ? "web-toggle active" : "web-toggle"}
-                onClick={handleToggleWebSearch}
-                type="button"
-                title="联网检索"
-              >
-                联网
-              </button>
               <select value={activeModelId} onChange={(event) => void handleActiveModelChange(event.target.value)}>
                 <option value="">选择模型</option>
                 {models.filter((model) => model.id !== "embedding-config").map((model) => (
@@ -4870,8 +4751,6 @@ function getNextReminderAt(value?: string | null, repeatRule?: string | null) {
 
 function buildSystemMessage(
   memories: Memory[],
-  webResults: WebSearchResult[] = [],
-  webSearchStatus: WebSearchStatus = emptyWebSearchResponse().status,
   activeProject: ProjectEntry | null = null,
   projectFiles: ProjectFileEntry[] = [],
   skills: Skill[] = [],
@@ -4884,19 +4763,6 @@ function buildSystemMessage(
     .map((memory) => `- ${memory.title}: ${memory.content}`)
     .join("\n");
 
-  const webContext = webResults
-    .map((result, index) => {
-      const snippet = result.snippet ? `\n   摘要: ${result.snippet}` : "";
-      return `${index + 1}. ${result.title}\n   链接: ${result.url}${snippet}`;
-    })
-    .join("\n");
-  const webStatusContext = webSearchStatus.engine !== "none"
-    ? `本次互联网检索实际使用引擎：${getWebSearchEngineLabel(webSearchStatus.engine)}${
-      webSearchStatus.used_fallback
-        ? `（已从 Tavily 回退，原因：${webSearchStatus.fallback_reason || "Tavily 不可用"}）`
-        : ""
-    }`
-    : "";
   const ragContext = ragMatches.length > 0
     ? ragMatches
         .map((match, index) => {
@@ -4979,13 +4845,7 @@ function buildSystemMessage(
     projectContext,
     skillsContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext}\n\n${toolsSystemInstruction}` : "",
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
-    ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : "",
-    webContext || webStatusContext
-      ? `互联网检索结果，仅在回答当前问题相关时使用；使用其中事实时尽量给出链接：\n${[
-          webStatusContext,
-          webContext
-        ].filter(Boolean).join("\n")}`
-      : ""
+    ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
   ].filter(Boolean);
 
   return {

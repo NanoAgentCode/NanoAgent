@@ -14,7 +14,6 @@ import type {
   ModelConfigDraft,
   PersistedMessage,
   GitHubSkill,
-  WebSearchResponse,
   ProjectFileContent,
   ProjectFileEntry,
   ProjectFileMoveRequest,
@@ -136,12 +135,7 @@ export function deleteMemory(id: string) {
   return invoke<void>("delete_memory", { id });
 }
 
-export function internetSearch(query: string, tavilyApiKey?: string) {
-  return invoke<WebSearchResponse>("internet_search", {
-    query,
-    tavilyApiKey: tavilyApiKey?.trim() || null
-  });
-}
+
 
 
 export function listLocalSkills() {

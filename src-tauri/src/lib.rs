@@ -6,7 +6,6 @@ mod models;
 mod observability;
 mod runtime;
 mod skills;
-mod web_search;
 
 use agent_runner::{
     AgentModelOutputResolution, AgentToolDefinition, AgentToolExecution, AgentToolExecutionRequest,
@@ -18,7 +17,7 @@ use models::{
     ChatMessage, ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
     ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft, ModelConfig,
     ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
-    ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft, WebSearchResponse,
+    ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -30,7 +29,6 @@ use runtime::{
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::Mutex;
-use web_search::internet_search as run_internet_search;
 
 struct AppState {
     db: Mutex<Database>,
@@ -540,31 +538,7 @@ async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<()> 
     state.db.lock().await.delete_memory(&id)
 }
 
-#[tauri::command]
-async fn internet_search(
-    state: State<'_, AppState>,
-    query: String,
-    tavily_api_key: Option<String>,
-) -> AppResult<WebSearchResponse> {
-    let span = start_observation(
-        &state,
-        "internet_search",
-        "external",
-        Some("web_search"),
-        None,
-        Some(format!("query_chars={}", query.chars().count())),
-        serde_json::json!({ "has_tavily_key": tavily_api_key.as_deref().is_some_and(|key| !key.trim().is_empty()) }),
-        None,
-    )
-    .await;
-    let result = run_internet_search(&query, tavily_api_key.as_deref()).await;
-    let output = result
-        .as_ref()
-        .ok()
-        .map(|response| count_summary(&response.results));
-    finish_observation(&state, span, &result, output).await;
-    result
-}
+
 
 #[tauri::command]
 async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
@@ -1766,7 +1740,6 @@ pub fn run() {
             create_memory,
             update_memory,
             delete_memory,
-            internet_search,
             sync_anthropic_skills,
             list_local_skills,
             chat,
