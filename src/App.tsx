@@ -479,20 +479,55 @@ function App() {
     message?: string;
   }>({ status: "idle" });
 
+  const [modelTestStatuses, setModelTestStatuses] = useState<Record<string, {
+    status: "idle" | "testing" | "success" | "error";
+    message?: string;
+  }>>({});
+
+  useEffect(() => {
+    const modelId = modelDraft.id || "new-config";
+    const savedModel = models.find((m) => m.id === modelDraft.id);
+    const isDirty = savedModel 
+      ? (modelDraft.name !== savedModel.name ||
+         modelDraft.provider !== savedModel.provider ||
+         modelDraft.base_url !== savedModel.base_url ||
+         modelDraft.model !== savedModel.model ||
+         modelDraft.api_key !== savedModel.api_key)
+      : (modelDraft.name !== emptyModelDraft.name ||
+         modelDraft.provider !== emptyModelDraft.provider ||
+         modelDraft.base_url !== emptyModelDraft.base_url ||
+         modelDraft.model !== emptyModelDraft.model ||
+         modelDraft.api_key !== emptyModelDraft.api_key);
+
+    if (isDirty) {
+      const currentStatus = modelTestStatuses[modelId]?.status || "idle";
+      if (currentStatus !== "idle") {
+        setModelTestStatuses((prev) => ({
+          ...prev,
+          [modelId]: { status: "idle" }
+        }));
+      }
+    }
+  }, [
+    modelDraft.id,
+    modelDraft.name,
+    modelDraft.provider,
+    modelDraft.base_url,
+    modelDraft.model,
+    modelDraft.api_key,
+    models,
+    modelTestStatuses
+  ]);
+
+  useEffect(() => {
+    const modelId = modelDraft.id || "new-config";
+    setLlmTestStatus(modelTestStatuses[modelId] || { status: "idle" });
+  }, [modelDraft.id, modelTestStatuses]);
+
   const [embeddingTestStatus, setEmbeddingTestStatus] = useState<{
     status: "idle" | "testing" | "success" | "error";
     message?: string;
   }>({ status: "idle" });
-
-  useEffect(() => {
-    setLlmTestStatus({ status: "idle" });
-  }, [
-    modelDraft.id,
-    modelDraft.provider,
-    modelDraft.base_url,
-    modelDraft.model,
-    modelDraft.api_key
-  ]);
 
   useEffect(() => {
     setEmbeddingTestStatus({ status: "idle" });
@@ -1865,12 +1900,25 @@ function App() {
   }
 
   async function handleTestLlm() {
+    const modelId = modelDraft.id || "new-config";
     setLlmTestStatus({ status: "testing" });
+    setModelTestStatuses((prev) => ({
+      ...prev,
+      [modelId]: { status: "testing" }
+    }));
     try {
       await testLlmConnectivity(modelDraft);
       setLlmTestStatus({ status: "success" });
+      setModelTestStatuses((prev) => ({
+        ...prev,
+        [modelId]: { status: "success" }
+      }));
     } catch (err: any) {
       setLlmTestStatus({ status: "error", message: String(err) });
+      setModelTestStatuses((prev) => ({
+        ...prev,
+        [modelId]: { status: "error", message: String(err) }
+      }));
     }
   }
 
@@ -3682,16 +3730,46 @@ function App() {
                       <p className="description" style={{ marginTop: "-4px" }}>配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
                       <div className="model-config-grid">
                         <aside className="model-config-list">
-                          {llmModels.map((model) => (
-                            <button
-                              key={model.id}
-                              className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
-                              onClick={() => setModelDraft(normalizeModelDraft(model))}
-                            >
-                              <strong>{model.name}</strong>
-                              <span>{model.provider} / {model.model}</span>
-                            </button>
-                          ))}
+                          {llmModels.map((model) => {
+                            const statusInfo = modelTestStatuses[model.id] || { status: "idle" };
+                            let dotColor = "#9ca3af";
+                            let dotTitle = "未测试";
+
+                            if (statusInfo.status === "testing") {
+                              dotColor = "#3b82f6";
+                              dotTitle = "测试中...";
+                            } else if (statusInfo.status === "success") {
+                              dotColor = "var(--accent-green, #10b981)";
+                              dotTitle = "连通性正常";
+                            } else if (statusInfo.status === "error") {
+                              dotColor = "var(--accent-red, #ef4444)";
+                              dotTitle = `连通性异常: ${statusInfo.message || ""}`;
+                            }
+
+                            return (
+                              <button
+                                key={model.id}
+                                className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
+                                onClick={() => setModelDraft(normalizeModelDraft(model))}
+                                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+                              >
+                                <span
+                                  style={{
+                                    width: "8px",
+                                    height: "8px",
+                                    borderRadius: "50%",
+                                    backgroundColor: dotColor,
+                                    flexShrink: 0,
+                                  }}
+                                  title={dotTitle}
+                                />
+                                <div style={{ display: "grid", gap: "4px", flex: 1, minWidth: 0 }}>
+                                  <strong>{model.name}</strong>
+                                  <span>{model.provider} / {model.model}</span>
+                                </div>
+                              </button>
+                            );
+                          })}
                           {llmModels.length === 0 && <div className="empty">暂无大模型配置</div>}
                         </aside>
 
