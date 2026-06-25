@@ -1,4 +1,4 @@
-export type ItemKind = "note" | "task" | "prompt";
+export type ItemKind = "note" | "prompt";
 
 export interface Item {
   id: string;
@@ -7,9 +7,6 @@ export interface Item {
   body: string;
   status: string;
   tags: string[];
-  reminder_at?: string | null;
-  repeat_rule?: string | null;
-  last_reminded_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -20,8 +17,6 @@ export interface ItemDraft {
   body: string;
   status?: string;
   tags: string[];
-  reminder_at?: string | null;
-  repeat_rule?: string | null;
 }
 
 export interface ItemPatch {
@@ -31,9 +26,6 @@ export interface ItemPatch {
   body?: string;
   status?: string;
   tags?: string[];
-  reminder_at?: string | null;
-  repeat_rule?: string | null;
-  last_reminded_at?: string | null;
 }
 
 export interface ModelConfig {

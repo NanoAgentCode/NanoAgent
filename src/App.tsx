@@ -9,7 +9,6 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
-  CheckSquare,
   Cpu,
   Edit,
   FileText,
@@ -114,16 +113,12 @@ import type {
 
 const kindLabels: Record<ItemKind, string> = {
   note: "笔记",
-  task: "备忘录",
   prompt: "提示词"
 };
 
 const statusLabels: Record<string, string> = {
   active: "活跃",
-  todo: "待办",
-  done: "已完成",
-  archived: "已归档",
-  reminded: "已提醒"
+  archived: "已归档"
 };
 
 type WorkspaceView = ItemKind | "all" | "memory";
@@ -137,8 +132,6 @@ type AgentTimelineEvent = {
   detail: string;
 };
 type SettingsTab =
-  | "task"
-  | "prompt"
   | "memory"
   | "theme"
   | "archive"
@@ -168,24 +161,9 @@ function formatWebSearchBadge(status: WebSearchStatus, resultCount: number) {
 const workspaceLabels: Record<WorkspaceView, string> = {
   all: "全部",
   note: "笔记",
-  task: "备忘录",
   prompt: "提示词",
   memory: "记忆系统"
 };
-
-const repeatLabels: Record<string, string> = {
-  none: "不重复",
-  daily: "每天",
-  weekly: "每周",
-  monthly: "每月"
-};
-
-interface ReminderDraft {
-  title: string;
-  body: string;
-  reminder_at: string;
-  repeat_rule: string;
-}
 
 const systemMessage: ChatMessage = {
   role: "system",
@@ -533,14 +511,12 @@ function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedId, setSelectedId] = useState("");
-  const [activeKind, setActiveKind] = useState<WorkspaceView>("task");
+  const [activeKind, setActiveKind] = useState<WorkspaceView>("note");
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tagsText, setTagsText] = useState("");
   const [status, setStatus] = useState("active");
-  const [reminderAt, setReminderAt] = useState("");
-  const [repeatRule, setRepeatRule] = useState("none");
   const [memoryItems, setMemoryItems] = useState<Memory[]>([]);
   const [selectedMemoryId, setSelectedMemoryId] = useState("");
   const [memoryTitle, setMemoryTitle] = useState("");
@@ -667,7 +643,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("task");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("theme");
   const [observabilitySpans, setObservabilitySpans] = useState<ObservabilitySpan[]>([]);
   const [agentRunTimelines, setAgentRunTimelines] = useState<AgentRunTimeline[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState("");
@@ -712,8 +688,6 @@ function App() {
   const [isCheckingEnv, setIsCheckingEnv] = useState(false);
   const [isInstallingEnv, setIsInstallingEnv] = useState(false);
   const [envInstallProgress, setEnvInstallProgress] = useState("");
-  const [pendingReminder, setPendingReminder] = useState<ReminderDraft | null>(null);
-  const [activeReminder, setActiveReminder] = useState<Item | null>(null);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -745,7 +719,6 @@ function App() {
     () => projects.find((project) => project.id === activeProjectId) || null,
     [activeProjectId, projects]
   );
-  const selectedItemIsTask = selectedItem?.kind === "task";
   const traceGroups = useMemo(() => {
     const groups = new Map<string, ObservabilitySpan[]>();
     for (const span of observabilitySpans) {
@@ -908,8 +881,6 @@ function App() {
       setBody("");
       setTagsText("");
       setStatus("active");
-      setReminderAt("");
-      setRepeatRule("none");
       return;
     }
 
@@ -917,17 +888,7 @@ function App() {
     setBody(selectedItem.body);
     setTagsText(selectedItem.tags.join(", "));
     setStatus(selectedItem.status);
-    setReminderAt(toLocalDateTimeInput(selectedItem.reminder_at));
-    setRepeatRule(selectedItem.repeat_rule || "none");
   }, [selectedItem]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void checkDueReminders();
-    }, 30_000);
-    void checkDueReminders();
-    return () => window.clearInterval(timer);
-  }, [items]);
 
   useEffect(() => {
     if (!selectedMemory) {
@@ -1769,10 +1730,8 @@ function App() {
       kind,
       title: `新建${kindLabels[kind]}`,
       body: "",
-      status: kind === "task" ? "todo" : "active",
-      tags: [],
-      reminder_at: null,
-      repeat_rule: null
+      status: "active",
+      tags: []
     });
     setActiveKind(kind);
     setQuery("");
@@ -1785,15 +1744,12 @@ function App() {
       return;
     }
 
-    const isTask = selectedItem.kind === "task";
     await updateItem({
       id: selectedItem.id,
       title,
       body,
       status,
-      tags: parseTags(tagsText),
-      reminder_at: isTask ? fromLocalDateTimeInput(reminderAt) : null,
-      repeat_rule: isTask && repeatRule !== "none" ? repeatRule : null
+      tags: parseTags(tagsText)
     });
 
     await refreshItems(query, activeKind);
@@ -1835,58 +1791,6 @@ function App() {
     await deleteMemory(selectedMemory.id);
     setSelectedMemoryId("");
     await refreshItems(query, "memory");
-  }
-
-  async function createReminderFromDraft(draft: ReminderDraft) {
-    const item = await createItem({
-      kind: "task",
-      title: draft.title,
-      body: draft.body,
-      status: "todo",
-      tags: ["reminder"],
-      reminder_at: fromLocalDateTimeInput(draft.reminder_at),
-      repeat_rule: draft.repeat_rule === "none" ? null : draft.repeat_rule
-    });
-    setPendingReminder(null);
-    setActiveKind("task");
-    setQuery("");
-    await refreshItems("", "task");
-    setSelectedId(item.id);
-    setNotice("备忘录已添加");
-  }
-
-  async function checkDueReminders() {
-    if (activeReminder) {
-      return;
-    }
-
-    const reminders = await listItems("task");
-    const now = Date.now();
-    const due = reminders.find((item) => {
-      if (!item.reminder_at || item.status === "done") {
-        return false;
-      }
-      const reminderTime = Date.parse(item.reminder_at);
-      const lastRemindedTime = item.last_reminded_at ? Date.parse(item.last_reminded_at) : 0;
-      return reminderTime <= now && reminderTime > lastRemindedTime;
-    });
-
-    if (due) {
-      setActiveReminder(due);
-    }
-  }
-
-  async function dismissReminder(item: Item) {
-    const nextReminderAt = getNextReminderAt(item.reminder_at, item.repeat_rule);
-    await updateItem({
-      id: item.id,
-      status: nextReminderAt ? item.status : "reminded",
-      reminder_at: nextReminderAt,
-      repeat_rule: item.repeat_rule || null,
-      last_reminded_at: new Date().toISOString()
-    });
-    setActiveReminder(null);
-    await refreshItems(query, activeKind);
   }
 
   async function handleSaveModel() {
@@ -2653,11 +2557,10 @@ function App() {
   async function handleSendMessage() {
     const content = chatInput.trim();
     const memoryDraft = extractMemoryDraft(content);
-    const reminderDraft = extractReminderDraft(content);
     const effectiveModelId = resolveConversationModelId(activeConversationId);
     const activeModelId = effectiveModelId;
 
-    if (!content || (!activeModelId && !memoryDraft && !reminderDraft)) {
+    if (!content || (!activeModelId && !memoryDraft)) {
       setNotice(activeModelId ? "" : "请先保存并选择一个模型");
       return;
     }
@@ -2698,15 +2601,6 @@ function App() {
       }
       const nextMessages = [...persistedMessages, userMessage];
       setMessages(nextMessages);
-
-      if (reminderDraft) {
-        if (agentRun) {
-          void safeFinishAgentRun(agentRun.id, "completed");
-        }
-        setPendingReminder(reminderDraft);
-        setBusy(false);
-        return;
-      }
 
       if (memoryDraft) {
         const savedMemory = await createMemory(memoryDraft);
@@ -3006,12 +2900,12 @@ function App() {
               <button
                 className="icon-text-btn secondary"
                 onClick={() => void handleNewItem(activeKind === "all" ? "note" : activeKind as ItemKind)}
-                title={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
-                aria-label={`新建${kindLabels[activeKind as ItemKind] || "备忘录"}`}
+                title={`新建${kindLabels[activeKind as ItemKind] || "笔记"}`}
+                aria-label={`新建${kindLabels[activeKind as ItemKind] || "笔记"}`}
                 type="button"
               >
                 <Plus />
-                <span>新建{kindLabels[activeKind as ItemKind] || "备忘录"}</span>
+                <span>新建{kindLabels[activeKind as ItemKind] || "笔记"}</span>
               </button>
             </div>
           )}
@@ -3096,31 +2990,9 @@ function App() {
                 className="body-input"
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
-                placeholder="在此编写笔记、备忘录详情或提示词模板..."
+                placeholder="在此编写笔记内容..."
                 disabled={!selectedItem}
               />
-              {selectedItemIsTask && (
-                <div className="reminder-controls">
-                  <label>
-                    <span>提醒时间</span>
-                    <input
-                      type="datetime-local"
-                      value={reminderAt}
-                      onChange={(event) => setReminderAt(event.target.value)}
-                      disabled={!selectedItem}
-                    />
-                  </label>
-                  <label>
-                    <span>周期提醒</span>
-                    <select value={repeatRule} onChange={(event) => setRepeatRule(event.target.value)} disabled={!selectedItem}>
-                      <option value="none">不重复</option>
-                      <option value="daily">每天</option>
-                      <option value="weekly">每周</option>
-                      <option value="monthly">每月</option>
-                    </select>
-                  </label>
-                </div>
-              )}
               <input
                 className="tag-input"
                 value={tagsText}
@@ -3575,26 +3447,6 @@ function App() {
                   <span>主题选择</span>
                 </button>
                 <button
-                  className={activeSettingsTab === "task" ? "settings-nav-item active" : "settings-nav-item"}
-                  onClick={() => {
-                    setActiveSettingsTab("task");
-                    handleKindChange("task");
-                  }}
-                >
-                  <CheckSquare size={16} />
-                  <span>备忘录</span>
-                </button>
-                <button
-                  className={activeSettingsTab === "prompt" ? "settings-nav-item active" : "settings-nav-item"}
-                  onClick={() => {
-                    setActiveSettingsTab("prompt");
-                    handleKindChange("prompt");
-                  }}
-                >
-                  <MessageSquare size={16} />
-                  <span>提示词</span>
-                </button>
-                <button
                   className={activeSettingsTab === "memory" ? "settings-nav-item active" : "settings-nav-item"}
                   onClick={() => {
                     setActiveSettingsTab("memory");
@@ -3659,22 +3511,6 @@ function App() {
               </aside>
 
               <div className="settings-content">
-                {activeSettingsTab === "task" && (
-                  <div className="settings-tab-content">
-                    <h3>备忘录</h3>
-                    <p className="description">管理待办任务，设置定时提醒，让您的日程有条不紊。</p>
-                    {renderWorkspaceGrid()}
-                  </div>
-                )}
-
-                {activeSettingsTab === "prompt" && (
-                  <div className="settings-tab-content">
-                    <h3>提示词</h3>
-                    <p className="description">管理常用的AI提示词模板，快速插入到对话框中。</p>
-                    {renderWorkspaceGrid()}
-                  </div>
-                )}
-
                 {activeSettingsTab === "memory" && (
                   <div className="settings-tab-content">
                     <h3>记忆系统</h3>
@@ -4632,38 +4468,6 @@ function App() {
 
         {notice && <div className="notice" onClick={() => setNotice("")}>{notice}</div>}
 
-        {pendingReminder && (
-          <div className="confirm-popover">
-            <strong>添加备忘录？</strong>
-            <span>{pendingReminder.title}</span>
-            <small>
-              {formatReminderTime(pendingReminder.reminder_at)}
-              {pendingReminder.repeat_rule !== "none" ? ` · ${repeatLabels[pendingReminder.repeat_rule]}` : ""}
-            </small>
-            <div>
-              <button onClick={() => void createReminderFromDraft(pendingReminder)}>确认</button>
-              <button className="ghost" onClick={() => setPendingReminder(null)}>取消</button>
-            </div>
-          </div>
-        )}
-
-        {activeReminder && (
-          <div className="confirm-popover reminder-alert">
-            <strong>备忘录提醒</strong>
-            <span>{activeReminder.title}</span>
-            {activeReminder.body && <small>{activeReminder.body}</small>}
-            <div>
-              <button onClick={() => void dismissReminder(activeReminder)}>知道了</button>
-              <button className="ghost" onClick={() => {
-                setActiveKind("task");
-                setSelectedId(activeReminder.id);
-                setActiveReminder(null);
-                setShowModelConfig(true);
-                setActiveSettingsTab("task");
-              }}>查看</button>
-            </div>
-          </div>
-        )}
         {showEnvPrompt && (
           <div className="env-setup-backdrop" style={{
             position: "fixed",
@@ -4891,121 +4695,6 @@ function extractMemoryDraft(content: string) {
     tags: ["chat"],
     enabled: true
   };
-}
-
-function extractReminderDraft(content: string): ReminderDraft | null {
-  if (!/(提醒我|记得提醒|帮我提醒|备忘|备忘录)/.test(content)) {
-    return null;
-  }
-
-  const now = new Date();
-  const date = new Date(now);
-  let matchedTime = false;
-
-  const relativeMinutes = content.match(/(\d+)\s*分钟后/);
-  const relativeHours = content.match(/(\d+)\s*(小时|个小时)后/);
-  if (relativeMinutes) {
-    date.setMinutes(date.getMinutes() + Number(relativeMinutes[1]));
-    matchedTime = true;
-  } else if (relativeHours) {
-    date.setHours(date.getHours() + Number(relativeHours[1]));
-    matchedTime = true;
-  } else {
-    if (/明天/.test(content)) {
-      date.setDate(date.getDate() + 1);
-      matchedTime = true;
-    } else if (/后天/.test(content)) {
-      date.setDate(date.getDate() + 2);
-      matchedTime = true;
-    } else if (/今天/.test(content)) {
-      matchedTime = true;
-    }
-
-    const timeMatch = content.match(/(\d{1,2})[点:：](\d{1,2})?/);
-    if (timeMatch) {
-      date.setHours(Number(timeMatch[1]), Number(timeMatch[2] || 0), 0, 0);
-      matchedTime = true;
-      if (date.getTime() <= now.getTime() && !/今天|明天|后天/.test(content)) {
-        date.setDate(date.getDate() + 1);
-      }
-    }
-  }
-
-  if (!matchedTime) {
-    return null;
-  }
-
-  const repeat_rule = /每月/.test(content)
-    ? "monthly"
-    : /每周|每星期/.test(content)
-      ? "weekly"
-      : /每天|每日/.test(content)
-        ? "daily"
-        : "none";
-  const title = content
-    .replace(/请|帮我|麻烦你|提醒我|记得提醒|备忘录|备忘|今天|明天|后天|每月|每周|每星期|每天|每日/g, "")
-    .replace(/\d+\s*分钟后|\d+\s*(小时|个小时)后|\d{1,2}[点:：]\d{0,2}/g, "")
-    .replace(/[，,。.!！?？]/g, " ")
-    .trim() || "备忘录提醒";
-
-  return {
-    title: title.slice(0, 40),
-    body: content,
-    reminder_at: toLocalDateTimeInput(date.toISOString()),
-    repeat_rule
-  };
-}
-
-function toLocalDateTimeInput(value?: string | null) {
-  if (!value) {
-    return "";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const offset = date.getTimezoneOffset();
-  const local = new Date(date.getTime() - offset * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
-function fromLocalDateTimeInput(value: string) {
-  if (!value) {
-    return null;
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function formatReminderTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-function getNextReminderAt(value?: string | null, repeatRule?: string | null) {
-  if (!value || !repeatRule || repeatRule === "none") {
-    return null;
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  if (repeatRule === "daily") {
-    date.setDate(date.getDate() + 1);
-  } else if (repeatRule === "weekly") {
-    date.setDate(date.getDate() + 7);
-  } else if (repeatRule === "monthly") {
-    date.setMonth(date.getMonth() + 1);
-  } else {
-    return null;
-  }
-
-  return date.toISOString();
 }
 
 function buildSystemMessage(

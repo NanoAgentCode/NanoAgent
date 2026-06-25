@@ -7,8 +7,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
-    Message, MessageDraft, MessageMetadata, ModelConfig, ModelConfigDraft, PatchField,
-    RagChunkMatch, RagFile,
+    Message, MessageDraft, MessageMetadata, ModelConfig, ModelConfigDraft, RagChunkMatch, RagFile,
 };
 
 pub struct Database {
@@ -36,9 +35,6 @@ impl Database {
                 body TEXT NOT NULL,
                 status TEXT NOT NULL,
                 tags_json TEXT NOT NULL,
-                reminder_at TEXT,
-                repeat_rule TEXT,
-                last_reminded_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -164,9 +160,6 @@ impl Database {
         self.ensure_column("conversations", "project_path", "TEXT")?;
         self.ensure_column("conversations", "archived", "INTEGER NOT NULL DEFAULT 0")?;
         self.ensure_column("conversations", "archived_at", "TEXT")?;
-        self.ensure_column("items", "reminder_at", "TEXT")?;
-        self.ensure_column("items", "repeat_rule", "TEXT")?;
-        self.ensure_column("items", "last_reminded_at", "TEXT")?;
         self.ensure_column("messages", "metadata_json", "TEXT")?;
         self.ensure_column(
             "model_configs",
@@ -210,11 +203,11 @@ impl Database {
     pub fn list_items(&self, kind: Option<&str>) -> AppResult<Vec<Item>> {
         let sql = match kind {
             Some(_) => {
-                "SELECT id, kind, title, body, status, tags_json, reminder_at, repeat_rule, last_reminded_at, created_at, updated_at
+                "SELECT id, kind, title, body, status, tags_json, created_at, updated_at
                  FROM items WHERE kind = ?1 ORDER BY updated_at DESC"
             }
             None => {
-                "SELECT id, kind, title, body, status, tags_json, reminder_at, repeat_rule, last_reminded_at, created_at, updated_at
+                "SELECT id, kind, title, body, status, tags_json, created_at, updated_at
                  FROM items ORDER BY updated_at DESC"
             }
         };
@@ -242,7 +235,7 @@ impl Database {
 
         let mut stmt = self.conn.prepare(
             "
-            SELECT i.id, i.kind, i.title, i.body, i.status, i.tags_json, i.reminder_at, i.repeat_rule, i.last_reminded_at, i.created_at, i.updated_at
+            SELECT i.id, i.kind, i.title, i.body, i.status, i.tags_json, i.created_at, i.updated_at
             FROM items_fts f
             JOIN items i ON i.id = f.id
             WHERE items_fts MATCH ?1
@@ -268,9 +261,6 @@ impl Database {
             body: draft.body,
             status: draft.status.unwrap_or_else(|| "active".to_string()),
             tags: draft.tags,
-            reminder_at: draft.reminder_at,
-            repeat_rule: draft.repeat_rule.filter(|value| !value.trim().is_empty()),
-            last_reminded_at: None,
             created_at: now,
             updated_at: now,
         };
@@ -291,9 +281,6 @@ impl Database {
             body: patch.body.unwrap_or(current.body),
             status: patch.status.unwrap_or(current.status),
             tags: patch.tags.unwrap_or(current.tags),
-            reminder_at: apply_patch_field(patch.reminder_at, current.reminder_at),
-            repeat_rule: apply_patch_field(patch.repeat_rule, current.repeat_rule),
-            last_reminded_at: apply_patch_field(patch.last_reminded_at, current.last_reminded_at),
             created_at: current.created_at,
             updated_at: Utc::now(),
         };
@@ -544,7 +531,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_conversation_model(&self, id: &str, model_config_id: Option<&str>) -> AppResult<()> {
+    pub fn update_conversation_model(
+        &self,
+        id: &str,
+        model_config_id: Option<&str>,
+    ) -> AppResult<()> {
         let now = Utc::now();
         let affected = self.conn.execute(
             "
@@ -983,7 +974,7 @@ impl Database {
         self.conn
             .query_row(
                 "
-                SELECT id, kind, title, body, status, tags_json, reminder_at, repeat_rule, last_reminded_at, created_at, updated_at
+                SELECT id, kind, title, body, status, tags_json, created_at, updated_at
                 FROM items WHERE id = ?1
                 ",
                 params![id],
@@ -1011,17 +1002,14 @@ impl Database {
         let tags_json = serde_json::to_string(&item.tags)?;
         self.conn.execute(
             "
-            INSERT INTO items (id, kind, title, body, status, tags_json, reminder_at, repeat_rule, last_reminded_at, created_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            INSERT INTO items (id, kind, title, body, status, tags_json, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(id) DO UPDATE SET
                 kind = excluded.kind,
                 title = excluded.title,
                 body = excluded.body,
                 status = excluded.status,
                 tags_json = excluded.tags_json,
-                reminder_at = excluded.reminder_at,
-                repeat_rule = excluded.repeat_rule,
-                last_reminded_at = excluded.last_reminded_at,
                 updated_at = excluded.updated_at
             ",
             params![
@@ -1031,9 +1019,6 @@ impl Database {
                 item.body,
                 item.status,
                 tags_json,
-                item.reminder_at.as_ref().map(|time| time.to_rfc3339()),
-                item.repeat_rule.as_deref(),
-                item.last_reminded_at.as_ref().map(|time| time.to_rfc3339()),
                 item.created_at.to_rfc3339(),
                 item.updated_at.to_rfc3339()
             ],
@@ -1088,11 +1073,8 @@ impl Database {
 
     fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
         let tags_json: String = row.get(5)?;
-        let reminder_at: Option<String> = row.get(6)?;
-        let repeat_rule: Option<String> = row.get(7)?;
-        let last_reminded_at: Option<String> = row.get(8)?;
-        let created_at: String = row.get(9)?;
-        let updated_at: String = row.get(10)?;
+        let created_at: String = row.get(6)?;
+        let updated_at: String = row.get(7)?;
 
         Ok(Item {
             id: row.get(0)?,
@@ -1101,13 +1083,6 @@ impl Database {
             body: row.get(3)?,
             status: row.get(4)?,
             tags: serde_json::from_str(&tags_json).unwrap_or_default(),
-            reminder_at: reminder_at
-                .map(|value| parse_time_for_row(&value))
-                .transpose()?,
-            repeat_rule,
-            last_reminded_at: last_reminded_at
-                .map(|value| parse_time_for_row(&value))
-                .transpose()?,
             created_at: parse_time_for_row(&created_at)?,
             updated_at: parse_time_for_row(&updated_at)?,
         })
@@ -1280,14 +1255,6 @@ fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
         0.0
     } else {
         dot / (left_norm.sqrt() * right_norm.sqrt())
-    }
-}
-
-fn apply_patch_field<T>(field: PatchField<T>, current: Option<T>) -> Option<T> {
-    match field {
-        PatchField::Missing => current,
-        PatchField::Null => None,
-        PatchField::Value(value) => Some(value),
     }
 }
 

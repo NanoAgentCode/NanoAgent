@@ -1113,12 +1113,6 @@ button.danger:active:not(:disabled) {
   border: 1px solid rgba(0, 240, 255, 0.15);
 }
 
-.item-row .badge-task {
-  color: var(--accent-warning);
-  background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.15);
-}
-
 .item-row .badge-prompt {
   color: var(--accent-purple);
   background: rgba(168, 85, 247, 0.08);
@@ -1189,37 +1183,6 @@ button.danger:active:not(:disabled) {
   display: flex;
   align-items: center;
   gap: var(--control-gap);
-}
-
-.reminder-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 140px;
-  gap: 10px;
-}
-
-.reminder-controls label {
-  display: grid;
-  gap: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.reminder-controls input,
-.reminder-controls select {
-  width: 100%;
-  min-height: 36px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-pane);
-  color: var(--text-primary);
-  outline: none;
-  padding: 0 10px;
-}
-
-.reminder-controls input:focus,
-.reminder-controls select:focus {
-  border-color: var(--border-color-focus);
-  box-shadow: var(--focus-ring);
 }
 
 .editor-actions button {
@@ -2080,15 +2043,6 @@ button.danger:active:not(:disabled) {
 .confirm-popover button.ghost:hover {
   background: var(--control-bg-hover);
   border-color: var(--control-border-hover);
-}
-
-.reminder-alert {
-  border-color: var(--notification-warning-border);
-  background: linear-gradient(0deg, var(--notification-warning-bg), var(--notification-warning-bg)), var(--notification-bg);
-}
-
-.reminder-alert strong {
-  color: var(--notification-warning-text);
 }
 
 .modal-backdrop {
