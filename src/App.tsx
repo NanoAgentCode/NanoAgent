@@ -304,6 +304,13 @@ interface ParsedToolCall {
   raw: string;
 }
 
+interface ParsedToolResult {
+  name: string;
+  status: "success" | "failed" | "rejected" | "unknown";
+  summary: string;
+  detail: string;
+}
+
 function parseToolCall(content: string): ParsedToolCall | null {
   if (!content) return null;
   const match = content.match(/<tool_call\s+name="([^"]+)">([\s\S]*?)<\/tool_call>/);
@@ -320,6 +327,69 @@ function parseToolCall(content: string): ParsedToolCall | null {
   }
 
   return { name, args, raw: match[0] };
+}
+
+function parseToolResult(content: string): ParsedToolResult | null {
+  if (!content) return null;
+  const match = content.match(/^\[工具执行结果: ([^\]]+)\]\s*([\s\S]*)$/);
+  if (!match) return null;
+
+  const name = match[1].trim();
+  const body = match[2].trim();
+  if (body.startsWith("执行失败")) {
+    return {
+      name,
+      status: "failed",
+      summary: "执行失败",
+      detail: body.replace(/^执行失败[:：]?\s*/, "").trim() || body
+    };
+  }
+  if (body.startsWith("执行结果如下")) {
+    return {
+      name,
+      status: "success",
+      summary: "执行完成",
+      detail: body.replace(/^执行结果如下[:：]?\s*/, "").trim() || body
+    };
+  }
+  if (body.includes("用户拒绝")) {
+    return {
+      name,
+      status: "rejected",
+      summary: "用户拒绝",
+      detail: body
+    };
+  }
+
+  return {
+    name,
+    status: "unknown",
+    summary: "工具结果",
+    detail: body
+  };
+}
+
+function renderMessageContent(content: string) {
+  const toolResult = parseToolResult(content);
+  if (toolResult) {
+    return <ToolResultMessage result={toolResult} />;
+  }
+  return <MarkdownMessage content={content} />;
+}
+
+function ToolResultMessage({ result }: { result: ParsedToolResult }) {
+  return (
+    <details className={`tool-result-panel ${result.status}`}>
+      <summary className="tool-result-summary">
+        <span className="tool-result-title">工具执行结果</span>
+        <code>{result.name}</code>
+        <span className="tool-result-status">{result.summary}</span>
+      </summary>
+      <div className="tool-result-detail">
+        <MarkdownMessage content={result.detail || "无输出"} />
+      </div>
+    </details>
+  );
 }
 
 interface Skill {
@@ -402,7 +472,7 @@ const defaultSkills: Skill[] = [
   },
   {
     id: "tavily_search",
-    name: "Tavily Search",
+    name: "tavily-search",
     provider: "Tavily",
     description: "通过 Tavily CLI 执行面向大模型优化的网页搜索，支持域名过滤、时间范围、新闻/金融主题和不同搜索深度。",
     enabled: true,
@@ -414,7 +484,7 @@ const defaultSkills: Skill[] = [
   },
   {
     id: "tavily_cli",
-    name: "Tavily CLI Guide",
+    name: "tavily-cli",
     provider: "Tavily",
     description: "Tavily CLI 工作流指南，覆盖安装、登录、搜索、抽取、映射、抓取和研究的推荐使用路径。",
     enabled: true,
@@ -425,6 +495,12 @@ const defaultSkills: Skill[] = [
     docUrl: "https://github.com/tavily-ai/skills/tree/main/skills/tavily-cli"
   }
 ];
+
+const defaultSkillIds = new Set(defaultSkills.map((skill) => skill.id));
+
+function isBuiltInSkill(skillId: string) {
+  return defaultSkillIds.has(skillId);
+}
 
 function normalizeSkills(skills: Skill[]) {
   const skillMap = new Map(skills.map((skill) => [skill.id, skill]));
@@ -1525,6 +1601,11 @@ function App() {
 
 
   function handleDeleteSkill(id: string) {
+    if (isBuiltInSkill(id)) {
+      setNotice("系统内置技能只能禁用，不能删除。");
+      return;
+    }
+
     if (confirm("确定要删除该技能吗？")) {
       const nextSkills = skills.filter((s) => s.id !== id);
       setSkills(nextSkills);
@@ -3694,7 +3775,10 @@ function App() {
                                 {previewMessages.map((message) => {
                                   const webSearchMeta = message.metadata?.web_search;
                                   return (
-                                    <div key={message.id} className={`chat-message ${message.role}`}>
+                                    <div
+                                      key={message.id}
+                                      className={`chat-message ${message.role}${parseToolResult(message.content) ? " tool-result-message" : ""}`}
+                                    >
                                       {message.role === "assistant" && webSearchMeta && (
                                         <div className={`web-search-status ${webSearchMeta.used_fallback ? "fallback" : "primary"}`}>
                                           <span>{formatWebSearchBadge(webSearchMeta, webSearchMeta.result_count)}</span>
@@ -3705,7 +3789,7 @@ function App() {
                                           )}
                                         </div>
                                       )}
-                                      <MarkdownMessage content={message.content} />
+                                      {renderMessageContent(message.content)}
                                     </div>
                                   );
                                 })}
@@ -4063,6 +4147,7 @@ function App() {
                         ) : (() => {
                           const skill = skills.find((s) => s.id === selectedSkillId);
                           if (!skill) return <div className="empty">选择一个 Skill 以查看详情</div>;
+                          const isSystemSkill = isBuiltInSkill(skill.id);
 
                           return (
                             <>
@@ -4070,6 +4155,7 @@ function App() {
                                 <div className="skills-form-title-row">
                                   <h4>{skill.name}</h4>
                                   <span className="skills-provider-tag">{skill.provider}</span>
+                                  {isSystemSkill && <span className="skills-provider-tag">系统内置</span>}
                                 </div>
                                 <p style={{ fontSize: "0.85rem" }}>{skill.description}</p>
                                 {skill.docUrl && (
@@ -4102,7 +4188,7 @@ function App() {
                                 >
                                   {skill.enabled ? "禁用技能" : "启用技能"}
                                 </button>
-                                {skill.id !== "text_editor" && skill.id !== "bash_tool" && (
+                                {!isSystemSkill && (
                                   <button
                                     className="danger"
                                     onClick={() => handleDeleteSkill(skill.id)}
@@ -4366,7 +4452,10 @@ function App() {
             ) : false;
 
             return (
-              <div key={message.id} className={`chat-message ${message.role}`}>
+              <div
+                key={message.id}
+                className={`chat-message ${message.role}${parseToolResult(message.content) ? " tool-result-message" : ""}`}
+              >
                 {message.role === "assistant" && messageReasoning[message.id]?.trim() && (
                   <details className="reasoning-panel">
                     <summary className="reasoning-title">思考过程</summary>
@@ -4383,7 +4472,7 @@ function App() {
                     )}
                   </div>
                 )}
-                <MarkdownMessage content={message.content} />
+                {renderMessageContent(message.content)}
                 
                 {toolCall && (
                   <div className="tool-call-card" style={{
