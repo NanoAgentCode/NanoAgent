@@ -340,7 +340,7 @@ button.danger:active:not(:disabled) {
   overflow-y: auto;
 }
 .settings-tab-content h3 {
-  margin: 0 0 10px 0;
+  margin: 0 0 8px 0;
   font-size: var(--font-size-display);
   font-weight: 600;
   color: var(--text-primary);
@@ -348,22 +348,22 @@ button.danger:active:not(:disabled) {
 .settings-tab-content .description {
   font-size: var(--font-size-md);
   color: var(--text-secondary);
-  margin: -4px 0 16px 0;
+  margin: 0 0 14px 0;
   line-height: 1.5;
 }
 
 .description--tight {
-  margin-top: -4px;
+  margin-top: 0;
 }
 .description--no-margin {
-  margin: 0;
+  margin: 0 0 14px 0;
 }
 
 .model-header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   flex-shrink: 0;
 }
 .model-header-row h3 {

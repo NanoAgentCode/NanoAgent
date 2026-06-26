@@ -12,7 +12,7 @@ export default function SettingsSkillsTab({ skills }: SettingsSkillsTabProps) {
       <div className="skills-header-row">
         <div>
           <h3>Skills 管理</h3>
-          <p className="description description--no-margin">配置并扩展 AI 助手的工具与自动化能力（例如内置 Anthropic 官方的 Text Editor、Bash Tool 等）。</p>
+          <p className="description">配置并扩展 AI 助手的工具与自动化能力（例如内置 Anthropic 官方的 Text Editor、Bash Tool 等）。</p>
         </div>
       </div>
       <div className="skills-config-grid">
