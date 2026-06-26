@@ -50,7 +50,7 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
         </aside>
 
         <div className="model-config-form">
-          <div className="model-config-form">
+          <div className="model-form-card">
             <label>
               <span>配置名称</span>
               <input value={model.modelDraft.name} onChange={(event) => model.setModelDraft({ ...model.modelDraft, name: event.target.value })} placeholder="例如：OpenAI 主账号" />
