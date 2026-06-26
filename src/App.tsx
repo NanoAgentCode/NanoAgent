@@ -3225,18 +3225,17 @@ function App() {
             {traceGroups.map((trace) => (
               <button
                 key={trace.traceId}
-                className={selectedTrace?.traceId === trace.traceId ? "observability-trace-row active" : "observability-trace-row"}
+                className={selectedTrace?.traceId === trace.traceId ? "trace-config-row active" : "trace-config-row"}
                 onClick={() => setSelectedTraceId(trace.traceId)}
                 type="button"
               >
-                <div>
+                <div className="trace-config-row-header">
                   <strong>{trace.lastOperation || "trace"}</strong>
-                  <span>{trace.traceId}</span>
+                  <span className={`trace-indicator-badge ${trace.errors > 0 ? "error" : "success"}`}>
+                    {trace.errors > 0 ? "有错误" : "正常"}
+                  </span>
                 </div>
-                <small>
-                  {trace.spans.length} spans · {trace.duration} ms
-                  {trace.errors > 0 ? ` · ${trace.errors} errors` : ""}
-                </small>
+                <span>{trace.traceId} · {trace.spans.length} spans · {trace.duration} ms</span>
               </button>
             ))}
             {traceGroups.length === 0 && (
@@ -3742,30 +3741,20 @@ function App() {
                       <div className="archived-list-column">
                         <div className="archived-list">
                           {archivedConversations.map((conversation) => (
-                            <div key={conversation.id} className={`archived-row ${previewArchivedId === conversation.id ? "active" : ""}`}>
-                              <button onClick={() => void loadArchivedPreview(conversation.id)}>
+                            <button
+                              key={conversation.id}
+                              className={previewArchivedId === conversation.id ? "archive-config-row active" : "archive-config-row"}
+                              onClick={() => void loadArchivedPreview(conversation.id)}
+                              type="button"
+                            >
+                              <div className="archive-config-row-header">
                                 <strong>{conversation.title}</strong>
-                                <span>{conversation.archived_at || conversation.updated_at}</span>
-                              </button>
-                              <button
-                                className="icon-text-btn secondary"
-                                title="恢复并回复"
-                                onClick={() => void handleRestoreConversation(conversation)}
-                                type="button"
-                              >
-                                <RotateCcw />
-                                <span>恢复</span>
-                              </button>
-                              <button
-                                className="icon-text-btn danger-btn"
-                                title="删除归档对话"
-                                onClick={() => void handleDeleteArchivedConversation(conversation)}
-                                type="button"
-                              >
-                                <Trash2 />
-                                <span>删除</span>
-                              </button>
-                            </div>
+                                <span className="archive-indicator-badge">
+                                  已归档
+                                </span>
+                              </div>
+                              <span>{conversation.archived_at || conversation.updated_at}</span>
+                            </button>
                           ))}
                           {archivedConversations.length === 0 && <div className="empty">暂无归档对话</div>}
                         </div>
@@ -3780,18 +3769,34 @@ function App() {
                                   {archivedConversations.find((c) => c.id === previewArchivedId)?.archived_at || ""}
                                 </span>
                               </div>
-                              <button
-                                className="primary compact-btn"
-                                onClick={() => {
-                                  const conversation = archivedConversations.find((c) => c.id === previewArchivedId);
-                                  if (conversation) {
-                                    void handleRestoreConversation(conversation);
-                                  }
-                                }}
-                              >
-                                <RotateCcw size={14} />
-                                <span>恢复该对话</span>
-                              </button>
+                              <div className="archive-preview-actions">
+                                <button
+                                  className="primary compact-btn"
+                                  onClick={() => {
+                                    const conversation = archivedConversations.find((c) => c.id === previewArchivedId);
+                                    if (conversation) {
+                                      void handleRestoreConversation(conversation);
+                                    }
+                                  }}
+                                  type="button"
+                                >
+                                  <RotateCcw size={14} />
+                                  <span>恢复</span>
+                                </button>
+                                <button
+                                  className="danger compact-btn"
+                                  onClick={() => {
+                                    const conversation = archivedConversations.find((c) => c.id === previewArchivedId);
+                                    if (conversation) {
+                                      void handleDeleteArchivedConversation(conversation);
+                                    }
+                                  }}
+                                  type="button"
+                                >
+                                  <Trash2 size={14} />
+                                  <span>删除</span>
+                                </button>
+                              </div>
                             </div>
                             <div className="archive-preview-messages-container">
                               <div className="chat-log">
@@ -4246,45 +4251,34 @@ function App() {
                           const connected = server.status.connected;
                           const busy = mcpBusyId === server.config.id;
                           return (
-                            <div
+                            <button
                               key={server.config.id}
-                              className={server.config.id === selectedMcpServerId ? "model-config-row mcp-config-row active" : "model-config-row mcp-config-row"}
+                              className={server.config.id === selectedMcpServerId ? "mcp-config-row active" : "mcp-config-row"}
                               onClick={() => setSelectedMcpServerId(server.config.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  setSelectedMcpServerId(server.config.id);
-                                }
-                              }}
-                              role="button"
-                              tabIndex={0}
+                              type="button"
                             >
-                              <span
-                                className={connected ? "mcp-status-dot active" : "mcp-status-dot"}
-                                title={connected ? "已连接" : "未连接"}
-                              />
-                              <div className="mcp-server-row-content">
+                              <div className="mcp-config-row-header">
                                 <strong>{server.config.name}</strong>
-                                <span title={server.config.command || server.config.url}>{formatMcpTransportLabel(server.config.transport)} · {server.config.command || server.config.url} · {server.tools.length} tools</span>
+                                <button
+                                  className={connected ? "mcp-connection-badge connected" : "mcp-connection-badge"}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (connected) {
+                                      void handleDisconnectMcpServer(server.config.id);
+                                    } else {
+                                      void handleConnectMcpServer(server.config.id);
+                                    }
+                                  }}
+                                  disabled={busy}
+                                  title={connected ? "断开 MCP 服务器" : "连接 MCP 服务器"}
+                                  type="button"
+                                >
+                                  {busy ? <Loader2 style={{ width: 10, height: 10, animation: "spin 1s linear infinite" }} /> : <span className="mcp-pill-indicator" />}
+                                  <span>{connected ? "已连接" : "未连接"}</span>
+                                </button>
                               </div>
-                              <button
-                                className={connected ? "mcp-connection-pill compact connected" : "mcp-connection-pill compact"}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  if (connected) {
-                                    void handleDisconnectMcpServer(server.config.id);
-                                  } else {
-                                    void handleConnectMcpServer(server.config.id);
-                                  }
-                                }}
-                                disabled={busy}
-                                title={connected ? "断开 MCP 服务器" : "连接 MCP 服务器"}
-                                type="button"
-                              >
-                                {busy ? <Loader2 style={{ animation: "spin 1s linear infinite" }} /> : <span className="mcp-pill-indicator" />}
-                                <span>{connected ? "已连接" : "未连接"}</span>
-                              </button>
-                            </div>
+                              <span title={server.config.command || server.config.url}>{formatMcpTransportLabel(server.config.transport)} · {server.config.command || server.config.url} · {server.tools.length} tools</span>
+                            </button>
                           );
                         })}
                         {mcpServers.length === 0 && <div className="empty">暂无 MCP 服务器配置</div>}

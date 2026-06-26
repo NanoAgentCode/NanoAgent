@@ -2332,11 +2332,6 @@ button.danger:active:not(:disabled) {
   overflow-y: visible;
 }
 
-.archived-row.active > button:first-child {
-  border-color: var(--accent-cyan);
-  background: var(--option-bg-selected);
-  box-shadow: inset 3px 0 0 var(--accent-cyan);
-}
 
 .archived-preview-column {
   flex: 1;
@@ -2557,51 +2552,7 @@ button.danger:active:not(:disabled) {
   background: var(--bg-pane);
 }
 
-.observability-trace-row {
-  width: 100%;
-  min-height: 82px;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  background: var(--bg-card);
-  text-align: left;
-  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
-}
 
-.observability-trace-row:hover,
-.observability-trace-row.active {
-  border-color: var(--accent-cyan);
-  background: var(--option-bg-selected);
-}
-
-.observability-trace-row:hover {
-  transform: translateX(2px);
-}
-
-.observability-trace-row strong,
-.observability-trace-row span,
-.observability-trace-row small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.observability-trace-row strong {
-  display: block;
-  font-size: var(--font-size-md);
-}
-
-.observability-trace-row span,
-.observability-trace-row small {
-  display: block;
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-}
 
 .observability-span-list {
   min-height: 0;
@@ -2974,69 +2925,190 @@ button.danger:active:not(:disabled) {
   overflow-y: auto;
 }
 
-.skills-config-row {
+/* Remove container padding and gap for unified flat lists */
+.mcp-config-grid .model-config-list {
+  padding: 0;
+  gap: 0;
+}
+
+.observability-trace-list {
+  padding: 0;
+  gap: 0;
+}
+
+.archived-list-column {
+  padding: 0;
+}
+
+.archived-list-column .archived-list {
+  gap: 0;
+}
+
+.skills-config-row,
+.mcp-config-row,
+.trace-config-row,
+.archive-config-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 14px;
   border: 0;
   border-bottom: 1px solid var(--option-border);
   background: transparent;
   text-align: left;
   cursor: pointer;
   transition: var(--option-transition);
+  width: 100%;
+  height: 52px;
+  box-sizing: border-box;
 }
 
-.skills-config-row:hover {
+.skills-config-row:hover,
+.mcp-config-row:hover,
+.trace-config-row:hover,
+.archive-config-row:hover {
   background: var(--option-bg-hover);
 }
 
-.skills-config-row.active {
+.skills-config-row.active,
+.mcp-config-row.active,
+.trace-config-row.active,
+.archive-config-row.active {
   background: var(--option-bg-active);
-  border-left: 3px solid var(--accent-cyan);
-  padding-left: 11px; /* offset the border */
+  padding-left: 11px; /* offset the 3px border */
 }
 
-.skills-config-row-header {
+.skills-config-row.active {
+  border-left: 3px solid var(--accent-cyan) !important;
+}
+
+.mcp-config-row.active {
+  border-left: 3px solid var(--accent-emerald) !important;
+}
+
+.trace-config-row.active {
+  border-left: 3px solid var(--accent-purple) !important;
+}
+
+.archive-config-row.active {
+  border-left: 3px solid var(--accent-indigo) !important;
+}
+
+.skills-config-row-header,
+.mcp-config-row-header,
+.trace-config-row-header,
+.archive-config-row-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+  width: 100%;
 }
 
-.skills-config-row strong {
+.skills-config-row strong,
+.mcp-config-row strong,
+.trace-config-row strong,
+.archive-config-row strong {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--font-size-lg);
+  font-size: 13px;
+  line-height: 1.3;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-weight-medium);
+}
+
+.skills-config-row span,
+.mcp-config-row span,
+.trace-config-row span,
+.archive-config-row span {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--option-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.skills-config-row span {
-  font-size: 11.5px;
-  color: var(--option-text-muted);
-}
-
-.skills-indicator-badge {
+.skills-indicator-badge,
+.mcp-connection-badge,
+.trace-indicator-badge,
+.archive-indicator-badge {
   flex: 0 0 auto;
   font-size: var(--font-size-2xs);
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
-  font-weight: var(--font-weight-medium);
-  line-height: 1.5;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
   white-space: nowrap;
 }
 
 .skills-indicator-badge.enabled {
-  background: rgba(16, 185, 129, 0.12);
+  background: var(--control-success-soft-bg);
   color: var(--accent-emerald);
 }
 
 .skills-indicator-badge.disabled {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--control-bg-subtle);
+  color: var(--text-secondary);
+}
+
+/* MCP Connection Badge as button style */
+.mcp-connection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--control-border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: var(--control-transition);
+}
+
+.mcp-connection-badge.connected {
+  border-color: var(--control-success-border);
+  background: var(--control-success-soft-bg);
+  color: var(--accent-emerald);
+}
+
+.mcp-connection-badge:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+  background: var(--bg-card-hover);
+}
+
+.mcp-connection-badge.connected:hover:not(:disabled) {
+  border-color: var(--accent-emerald);
+}
+
+.mcp-connection-badge .mcp-pill-indicator {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.mcp-connection-badge.connected .mcp-pill-indicator {
+  background: var(--accent-emerald);
+}
+
+/* Trace Indicator Badge */
+.trace-indicator-badge {
+  background: var(--control-success-soft-bg);
+  color: var(--accent-emerald);
+}
+
+.trace-indicator-badge.error {
+  background: var(--control-danger-soft-bg);
+  color: var(--accent-danger);
+}
+
+/* Archive Indicator Badge */
+.archive-indicator-badge {
+  background: var(--control-bg-subtle);
   color: var(--text-secondary);
 }
 
@@ -3828,42 +3900,7 @@ button.danger:active:not(:disabled) {
   overflow: auto;
 }
 
-.archived-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 8px;
-  align-items: center;
-}
 
-.archived-row > button:first-child {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  min-height: 42px;
-  padding: 8px 10px;
-  border: 1px solid var(--option-border);
-  border-radius: var(--option-radius);
-  background: var(--option-bg);
-  text-align: left;
-  transition: var(--option-transition);
-}
-
-.archived-row > button:first-child:hover {
-  border-color: var(--option-border-active);
-  background: var(--option-bg-active);
-}
-
-.archived-row strong,
-.archived-row span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.archived-row span {
-  color: var(--option-text-muted);
-  font-size: 11px;
-}
 
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(5px); }
@@ -4226,6 +4263,9 @@ button.danger:active:not(:disabled) {
 .mcp-config h3,
 .model-config-row strong,
 .skills-config-row strong,
+.mcp-config-row strong,
+.trace-config-row strong,
+.archive-config-row strong,
 .mcp-server-title strong,
 .env-install-overlay span {
   color: var(--type-panel-color);
@@ -4240,7 +4280,9 @@ button.danger:active:not(:disabled) {
 .settings-workspace-grid .item-row small,
 .model-config-row span,
 .skills-config-row span,
-.archived-row span,
+.mcp-config-row span,
+.trace-config-row span,
+.archive-config-row span,
 .prompt-suggestion-item span {
   color: var(--type-panel-muted-color) !important;
 }
@@ -4251,7 +4293,7 @@ button.danger:active:not(:disabled) {
 .web-search-status,
 .web-search-status small,
 .prompt-suggestion-item small,
-.archived-row span {
+.archive-config-row span {
   font-size: var(--type-meta-size) !important;
 }
 
@@ -4260,10 +4302,15 @@ button.danger:active:not(:disabled) {
 .observability-tab-content strong,
 .observability-tab-content span,
 .observability-tab-content small,
-.observability-trace-row,
-.observability-trace-row strong,
-.observability-trace-row span,
-.observability-trace-row small,
+.trace-config-row,
+.trace-config-row strong,
+.trace-config-row span,
+.mcp-config-row,
+.mcp-config-row strong,
+.mcp-config-row span,
+.archive-config-row,
+.archive-config-row strong,
+.archive-config-row span,
 .observability-trace-summary,
 .observability-trace-summary strong,
 .observability-trace-summary span,
@@ -4280,7 +4327,9 @@ button.danger:active:not(:disabled) {
 }
 
 .observability-tab-content h3,
-.observability-trace-row strong,
+.trace-config-row strong,
+.mcp-config-row strong,
+.archive-config-row strong,
 .observability-trace-summary strong,
 .agent-run-header strong,
 .timeline-row-copy strong {
@@ -4289,8 +4338,9 @@ button.danger:active:not(:disabled) {
 }
 
 .observability-header p,
-.observability-trace-row span,
-.observability-trace-row small,
+.trace-config-row span,
+.mcp-config-row span,
+.archive-config-row span,
 .observability-trace-summary span,
 .agent-run-header span,
 .agent-run-header small,
@@ -4529,9 +4579,7 @@ button.danger:hover:not(:disabled),
 }
 
 .settings-nav-item,
-.archived-row > button:first-child,
 .model-config-row,
-.observability-trace-row,
 .timeline-row-toggle,
 .agent-timeline-row > .timeline-row-toggle {
   border-radius: var(--control-radius-md);
@@ -4540,9 +4588,7 @@ button.danger:hover:not(:disabled),
 }
 
 .settings-nav-item:hover,
-.archived-row > button:first-child:hover,
 .model-config-row:hover,
-.observability-trace-row:hover,
 .timeline-row-toggle:hover {
   background: var(--control-bg-subtle);
   color: var(--control-text) !important;
@@ -4552,9 +4598,7 @@ button.danger:hover:not(:disabled),
 
 .settings-nav-item.active,
 .theme-switcher button.active,
-.archived-row.active > button:first-child,
-.model-config-row.active,
-.observability-trace-row.active {
+.model-config-row.active {
   background: var(--option-bg-active);
   color: var(--accent-cyan) !important;
   border-color: var(--option-border-active);
@@ -4587,82 +4631,8 @@ button:active:not(:disabled),
 
 .skills-config-list > div:last-child {
   min-height: 0;
-  padding: 0 6px 8px 0;
-  gap: 6px !important;
-}
-
-.skills-config-row {
-  display: grid !important;
-  grid-template-rows: minmax(24px, auto) 18px;
-  align-content: center;
-  width: 100%;
-  min-width: 0;
-  min-height: 68px !important;
-  height: auto;
-  gap: 4px;
-  padding: 10px 12px !important;
-  border: 1px solid var(--option-border) !important;
-  border-radius: var(--control-radius-md) !important;
-  background: var(--bg-card);
-  overflow: hidden;
-  text-align: left;
-}
-
-.skills-config-row:hover {
-  background: var(--option-bg-hover);
-  border-color: var(--control-border-hover) !important;
-}
-
-.skills-config-row.active {
-  background: var(--option-bg-active);
-  border-color: var(--option-border-active) !important;
-  box-shadow: inset 3px 0 0 var(--accent-cyan);
-}
-
-.skills-config-row-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  width: 100%;
-}
-
-.skills-config-row strong {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--type-content-size) !important;
-  line-height: 1.35;
-  color: var(--type-panel-color);
-}
-
-.skills-config-row > span {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--type-meta-size) !important;
-  line-height: 18px;
-  color: var(--type-panel-muted-color) !important;
-}
-
-.skills-config-row .skills-indicator-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-width: 56px;
-  max-width: 64px;
-  height: 26px;
-  padding: 0 8px;
-  border-radius: var(--control-radius-sm);
-  font-size: var(--type-meta-size) !important;
-  line-height: 1;
-  white-space: nowrap;
+  padding: 0;
+  gap: 0 !important;
 }
 
 /* Icon + text action buttons */
@@ -4739,14 +4709,7 @@ button.success-btn:hover:not(:disabled) {
   gap: var(--control-gap);
 }
 
-.archived-row {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
 
-.archived-row .icon-text-btn {
-  min-width: 56px;
-  padding: 0 8px;
-}
 
 /* Project row add button alignment */
 .sidebar-project-item {
