@@ -92,13 +92,14 @@ import {
   readAbsoluteFile
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
+import AgentRuntimePanel from "./components/AgentRuntimePanel";
+import ObservabilityPanel, { type ObservabilityTraceGroup } from "./components/ObservabilityPanel";
 import type {
   ChatMessage,
   ChatStreamEvent,
   AgentRun,
   AgentRunTimeline,
   AgentRunDraft,
-  AgentStep,
   AgentStepDraft,
   AgentToolCallDraft,
   AgentToolCall,
@@ -135,14 +136,6 @@ const statusLabels: Record<string, string> = {
 
 type WorkspaceView = ItemKind | "all" | "memory";
 type ThemeMode = "system" | "light" | "dark";
-type AgentTimelineEvent = {
-  id: string;
-  time: string;
-  status: string;
-  title: string;
-  subtitle: string;
-  detail: string;
-};
 type SettingsTab =
   | "memory"
   | "theme"
@@ -755,7 +748,7 @@ function App() {
     () => mcpServers.find((server) => server.config.id === selectedMcpServerId) || null,
     [mcpServers, selectedMcpServerId]
   );
-  const traceGroups = useMemo(() => {
+  const traceGroups = useMemo<ObservabilityTraceGroup[]>(() => {
     const groups = new Map<string, ObservabilitySpan[]>();
     for (const span of observabilitySpans) {
       const current = groups.get(span.trace_id) || [];
@@ -786,10 +779,6 @@ function App() {
   const selectedTrace =
     traceGroups.find((trace) => trace.traceId === selectedTraceId) || traceGroups[0] || null;
   const activeRunTimeline = agentRunTimelines[0] || null;
-  const activeRunTimelineEvents = useMemo(
-    () => (activeRunTimeline ? buildAgentTimelineEvents(activeRunTimeline) : []),
-    [activeRunTimeline]
-  );
   const activeTraceTimelineItems = selectedTrace?.spans || [];
 
   useEffect(() => {
@@ -3302,112 +3291,20 @@ function App() {
 
   function renderObservabilityPanel() {
     return (
-      <div className="settings-tab-content observability-tab-content">
-        <div className="observability-header">
-          <div>
-            <h3>链路追踪</h3>
-            <p className="description">查看最近的本地调用链路、耗时和错误状态。</p>
-          </div>
-          <div className="observability-actions">
-            <button className="secondary compact-btn" onClick={() => void refreshObservability()} disabled={isLoadingObservability} type="button">
-              <RotateCcw size={14} />
-              <span>{isLoadingObservability ? "刷新中" : "刷新"}</span>
-            </button>
-            <button className="danger compact-btn" onClick={() => void handleClearObservability()} disabled={observabilitySpans.length === 0} type="button">
-              <Trash2 size={14} />
-              <span>清空</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="observability-grid">
-          <aside className="observability-trace-list">
-            {traceGroups.map((trace) => (
-              <button
-                key={trace.traceId}
-                className={selectedTrace?.traceId === trace.traceId ? "trace-config-row active" : "trace-config-row"}
-                onClick={() => setSelectedTraceId(trace.traceId)}
-                type="button"
-              >
-                <div className="trace-config-row-header">
-                  <strong>{trace.lastOperation || "trace"}</strong>
-                  <span className={`trace-indicator-badge ${trace.errors > 0 ? "error" : "success"}`}>
-                    {trace.errors > 0 ? "有错误" : "正常"}
-                  </span>
-                </div>
-                <span>{trace.traceId} · {trace.spans.length} spans · {trace.duration} ms</span>
-              </button>
-            ))}
-            {traceGroups.length === 0 && (
-              <div className="empty">暂无链路记录</div>
-            )}
-          </aside>
-
-          <section className="observability-span-list">
-            {selectedTrace ? (
-              <>
-                <div
-                  className="observability-trace-summary clickable"
-                  onClick={() => setTraceTimelineCollapsed(!traceTimelineCollapsed)}
-                >
-                  <div>
-                    <strong>{selectedTrace.lastOperation || "chat_stream"}</strong>
-                    <span>{selectedTrace.traceId}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span>{selectedTrace.spans.length} 条消息 · {formatDuration(selectedTrace.duration)}</span>
-                    {traceTimelineCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                  </div>
-                </div>
-                {!traceTimelineCollapsed && (
-                  <div className="observability-timeline">
-                    {activeTraceTimelineItems.map((span, index) => {
-                      const rowId = `span-${span.id}`;
-                      const isExpanded = expandedObservabilityRows.includes(rowId);
-                      const detail = buildObservabilitySpanDetail(span);
-
-                      return (
-                        <div key={span.id} className={`observability-span-row ${span.status}`}>
-                          <div className="observability-timeline-marker">
-                            <span className="observability-status-dot" />
-                            {index < activeTraceTimelineItems.length - 1 && <span className="observability-timeline-line" />}
-                          </div>
-                          <div className="observability-span-content">
-                            <button className="timeline-row-toggle" onClick={() => toggleTimelineRow(rowId)} type="button">
-                              <span className="timeline-row-copy">
-                                <strong>{span.operation}</strong>
-                                <small>{span.category}{span.entity_type ? ` / ${span.entity_type}` : ""}</small>
-                              </span>
-                              <span className="observability-span-meta">
-                                <span>{formatDuration(span.duration_ms ?? 0)}</span>
-                                <span>{formatShortTime(span.started_at)}</span>
-                              </span>
-                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                            </button>
-                            {isExpanded && detail && (
-                              <div className="timeline-row-detail">
-                                <ObservabilityDetailPanel detail={detail} />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {activeTraceTimelineItems.length === 0 && (
-                      <div className="empty">该链路暂无消息</div>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="archive-preview-placeholder">
-                <Activity size={48} className="placeholder-icon" />
-                <p>暂无可查看的链路</p>
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
+      <ObservabilityPanel
+        traces={traceGroups}
+        selectedTrace={selectedTrace}
+        timelineItems={activeTraceTimelineItems}
+        expandedRows={expandedObservabilityRows}
+        isTimelineCollapsed={traceTimelineCollapsed}
+        isLoading={isLoadingObservability}
+        spanCount={observabilitySpans.length}
+        onRefresh={() => void refreshObservability()}
+        onClear={() => void handleClearObservability()}
+        onSelectTrace={setSelectedTraceId}
+        onToggleTimeline={() => setTraceTimelineCollapsed(!traceTimelineCollapsed)}
+        onToggleRow={toggleTimelineRow}
+      />
     );
   }
 
@@ -4685,88 +4582,17 @@ function App() {
         </header>
 
         {showChatRuntime && (
-          <section ref={runtimePanelRef} className="agent-runtime-panel" style={{
-            position: "absolute",
-            top: "56px",
-            right: "20px",
-            width: "480px",
-            maxWidth: "calc(100% - 40px)",
-            maxHeight: "calc(100% - 100px)",
-            overflowY: "auto",
-            zIndex: 100,
-            background: "var(--bg-card)",
-            border: "1px solid var(--border-color)",
-            borderRadius: "8px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1)",
-            flexShrink: 0
-          }}>
-            <div
-              className="observability-trace-summary clickable"
-              onClick={() => setAgentRuntimeCollapsed(!agentRuntimeCollapsed)}
-            >
-              <div>
-                <strong>Agent Runtime</strong>
-                <span>{activeConversation?.title || "当前会话"}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span>
-                  {activeRunTimeline
-                    ? `${agentRunTimelines.length} runs · ${activeRunTimeline.run.status}`
-                    : activeConversationId
-                      ? "暂无运行记录"
-                      : "未选择会话"}
-                </span>
-                {activeRunTimeline && (agentRuntimeCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />)}
-              </div>
-            </div>
-            {activeRunTimeline && !agentRuntimeCollapsed ? (
-              <div className="agent-run-timeline">
-                <div className={`agent-run-header ${activeRunTimeline.run.status}`}>
-                  <div>
-                    <strong>{formatAgentRunTitle(activeRunTimeline.run)}</strong>
-                    <span>{activeRunTimeline.run.id}</span>
-                  </div>
-                  <small>{new Date(activeRunTimeline.run.created_at).toLocaleString()}</small>
-                </div>
-                {activeRunTimelineEvents.map((event) => (
-                  <div key={event.id} className={`agent-timeline-row ${event.status}`}>
-                    <button
-                      className="timeline-row-toggle"
-                      onClick={() => toggleTimelineRow(`runtime-${event.id}`)}
-                      type="button"
-                    >
-                      <span className="observability-status-dot" />
-                      <span className="timeline-row-copy">
-                        <strong>{event.title}</strong>
-                        <small>{event.subtitle}</small>
-                      </span>
-                      <span className="agent-timeline-meta">
-                        <span>{formatRuntimeStatus(event.status)}</span>
-                        <span>{formatShortTime(event.time)}</span>
-                      </span>
-                      {expandedObservabilityRows.includes(`runtime-${event.id}`) ? (
-                        <ChevronDown size={16} />
-                      ) : (
-                        <ChevronRight size={16} />
-                      )}
-                    </button>
-                    {expandedObservabilityRows.includes(`runtime-${event.id}`) && event.detail && (
-                      <div className="timeline-row-detail">
-                        <ObservabilityDetailPanel detail={event.detail} />
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {activeRunTimelineEvents.length === 0 && (
-                  <div className="empty">该 run 暂无步骤</div>
-                )}
-              </div>
-            ) : activeRunTimeline ? null : (
-              <div className="empty" style={{ padding: "20px" }}>
-                当前会话还没有 Agent Runtime 记录
-              </div>
-            )}
-          </section>
+          <AgentRuntimePanel
+            panelRef={runtimePanelRef}
+            activeConversationId={activeConversationId}
+            activeConversationTitle={activeConversation?.title}
+            timelines={agentRunTimelines}
+            activeTimeline={activeRunTimeline}
+            isCollapsed={agentRuntimeCollapsed}
+            expandedRows={expandedObservabilityRows}
+            onToggleCollapsed={() => setAgentRuntimeCollapsed(!agentRuntimeCollapsed)}
+            onToggleRow={toggleTimelineRow}
+          />
         )}
 
         <div className="chat-log">
@@ -5445,96 +5271,6 @@ function estimateTokens(content: string): number {
   return chineseChars.length + Math.ceil(englishWords.length * 1.3);
 }
 
-function buildAgentTimelineEvents(timeline: AgentRunTimeline): AgentTimelineEvent[] {
-  const stepEvents = timeline.steps.map((step) => ({
-    id: `step-${step.id}`,
-    time: step.created_at,
-    status: step.status,
-    title: formatAgentStepTitle(step),
-    subtitle: `step / ${step.kind}`,
-    detail: [step.input_summary, step.output_summary, step.metadata_json]
-      .filter(Boolean)
-      .join("\n")
-  }));
-
-  const toolEvents = timeline.tool_calls.map((toolCall) => ({
-    id: `tool-${toolCall.id}`,
-    time: toolCall.created_at,
-    status: toolCall.status,
-    title: `工具请求：${toolCall.name}`,
-    subtitle: `tool_call / message ${toolCall.message_id.slice(0, 8)}`,
-    detail: [
-      toolCall.args_json ? `args: ${toolCall.args_json}` : "",
-      toolCall.result_summary,
-      toolCall.error ? `error: ${toolCall.error}` : ""
-    ]
-      .filter(Boolean)
-      .join("\n")
-  }));
-
-  return [...stepEvents, ...toolEvents].sort(
-    (left, right) => Date.parse(left.time) - Date.parse(right.time)
-  );
-}
-
-function formatAgentRunTitle(run: AgentRun) {
-  const trigger = run.trigger_message_id ? `message ${run.trigger_message_id.slice(0, 8)}` : "manual";
-  return `${formatRuntimeStatus(run.status)} · ${trigger}`;
-}
-
-function formatAgentStepTitle(step: AgentStep) {
-  const labels: Record<string, string> = {
-    message: "用户消息",
-    model: "模型调用",
-    model_continue: "模型继续",
-    tool: "工具执行",
-    approval: "审批",
-    memory: "记忆写入",
-    error: "错误"
-  };
-  return labels[step.kind] || step.kind;
-}
-
-function formatRuntimeStatus(status: string) {
-  const labels: Record<string, string> = {
-    running: "运行中",
-    awaiting_tool: "等待工具",
-    pending_approval: "等待审批",
-    approved: "已批准",
-    rejected: "已拒绝",
-    completed: "已完成",
-    failed: "失败",
-    cancelled: "已取消"
-  };
-  return labels[status] || status;
-}
-
-function formatShortTime(value: string) {
-  return new Date(value).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-}
-
-function formatDuration(durationMs: number) {
-  if (durationMs >= 1000) {
-    return `${(durationMs / 1000).toFixed(durationMs >= 10000 ? 0 : 1)} s`;
-  }
-  return `${durationMs} ms`;
-}
-
-function buildObservabilitySpanDetail(span: ObservabilitySpan) {
-  return [
-    span.input_summary ? `输入：${span.input_summary}` : "",
-    span.output_summary ? `输出：${span.output_summary}` : "",
-    span.error ? `错误：${span.error}` : "",
-    span.metadata_json ? `元数据：${span.metadata_json}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
 async function safeCreateAgentRun(draft: AgentRunDraft): Promise<AgentRun | null> {
   try {
     return await createAgentRun(draft);
@@ -5648,120 +5384,6 @@ async function safeUpdateAgentToolCall(
     console.error("Failed to update agent tool call:", err);
     return null;
   }
-}
-
-interface DetailSection {
-  label: string;
-  type: string;
-  content: string;
-  icon?: string;
-}
-
-function parseDetailSections(detail: string): DetailSection[] {
-  const prefixes = [
-    { key: "输入：", label: "输入 (Input)", type: "input", icon: "📥" },
-    { key: "输出：", label: "输出 (Output)", type: "output", icon: "📤" },
-    { key: "错误：", label: "错误 (Error)", type: "error", icon: "❌" },
-    { key: "元数据：", label: "元数据 (Metadata)", type: "metadata", icon: "⚙️" },
-    { key: "args: ", label: "参数 (Arguments)", type: "args", icon: "🔧" },
-    { key: "error: ", label: "错误 (Error)", type: "error", icon: "❌" }
-  ];
-
-  const matches: { index: number; key: string; label: string; type: string; icon: string }[] = [];
-  
-  prefixes.forEach((pref) => {
-    let pos = detail.indexOf(pref.key);
-    while (pos !== -1) {
-      matches.push({ index: pos, ...pref });
-      pos = detail.indexOf(pref.key, pos + 1);
-    }
-  });
-
-  matches.sort((a, b) => a.index - b.index);
-
-  if (matches.length === 0) {
-    return [{ label: "详情 (Detail)", type: "general", content: detail.trim() }];
-  }
-
-  const sections: DetailSection[] = [];
-  
-  const firstMatchIndex = matches[0].index;
-  if (firstMatchIndex > 0) {
-    const leadContent = detail.substring(0, firstMatchIndex).trim();
-    if (leadContent) {
-      sections.push({ label: "详情 (Detail)", type: "general", content: leadContent });
-    }
-  }
-
-  for (let i = 0; i < matches.length; i++) {
-    const currentMatch = matches[i];
-    const startIndex = currentMatch.index + currentMatch.key.length;
-    const endIndex = i + 1 < matches.length ? matches[i + 1].index : detail.length;
-    
-    const content = detail.substring(startIndex, endIndex).trim();
-    sections.push({
-      label: currentMatch.label,
-      type: currentMatch.type,
-      content,
-      icon: currentMatch.icon
-    });
-  }
-
-  return sections;
-}
-
-function ObservabilityDetailPanel({ detail }: { detail: string }) {
-  const sections = parseDetailSections(detail);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-
-  const handleCopy = (text: string, index: number) => {
-    void navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
-
-  return (
-    <div className="trace-detail-panel">
-      {sections.map((section, idx) => {
-        let isJson = false;
-        let formattedContent = section.content;
-
-        if (section.type === "metadata" || section.type === "args" || section.content.startsWith("{") || section.content.startsWith("[")) {
-          try {
-            const parsed = JSON.parse(section.content);
-            formattedContent = JSON.stringify(parsed, null, 2);
-            isJson = true;
-          } catch (e) {
-            // Keep original if parsing fails
-          }
-        }
-
-        const isError = section.type === "error";
-
-        return (
-          <div key={idx} className={`trace-detail-section ${section.type} ${isError ? "error" : ""}`}>
-            <div className="trace-detail-section-header">
-              <span className="trace-detail-section-title">
-                {section.icon && <span className="trace-detail-section-icon">{section.icon}</span>}
-                {section.label}
-              </span>
-              <button
-                className="trace-detail-copy-btn"
-                onClick={() => handleCopy(formattedContent, idx)}
-                type="button"
-                title="复制内容"
-              >
-                {copiedIndex === idx ? "已复制 ✓" : "复制"}
-              </button>
-            </div>
-            <div className="trace-detail-section-body">
-              <pre className={isJson ? "json" : ""}>{formattedContent}</pre>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 export default App;
