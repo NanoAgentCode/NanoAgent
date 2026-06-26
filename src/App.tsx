@@ -680,6 +680,7 @@ function App() {
   const [agentRuntimeCollapsed, setAgentRuntimeCollapsed] = useState(false);
   const [traceTimelineCollapsed, setTraceTimelineCollapsed] = useState(false);
   const [isLoadingObservability, setIsLoadingObservability] = useState(false);
+  const [showChatRuntime, setShowChatRuntime] = useState(false);
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem("nano-agent-skills");
     if (saved) {
@@ -3272,13 +3273,13 @@ function App() {
     );
   }
 
-  function renderObservabilityPanel() {
-    const toggleTimelineRow = (id: string) => {
-      setExpandedObservabilityRows((current) =>
-        current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-      );
-    };
+  const toggleTimelineRow = (id: string) => {
+    setExpandedObservabilityRows((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  };
 
+  function renderObservabilityPanel() {
     return (
       <div className="settings-tab-content observability-tab-content">
         <div className="observability-header">
@@ -4692,17 +4693,119 @@ function App() {
             <strong>AI 助手</strong>
           </div>
           {activeConversationId && (
-            <button
-              className="icon"
-              aria-label="关闭当前会话"
-              title="关闭当前会话"
-              onClick={handleCloseConversation}
-              type="button"
-            >
-              <X size={15} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <button
+                className="compact-btn"
+                aria-label="Agent Runtime 运行详情"
+                title="Agent Runtime 运行详情"
+                onClick={() => setShowChatRuntime(!showChatRuntime)}
+                type="button"
+                style={{
+                  fontSize: "12px",
+                  padding: "4px 8px",
+                  height: "28px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  color: showChatRuntime ? "var(--accent-cyan)" : "var(--text-secondary)",
+                  borderColor: showChatRuntime ? "var(--accent-cyan)" : "var(--border-color)",
+                  background: "transparent",
+                  outline: "none"
+                }}
+              >
+                <Activity size={13} />
+                <span>运行详情</span>
+              </button>
+              <button
+                className="icon"
+                aria-label="关闭当前会话"
+                title="关闭当前会话"
+                onClick={handleCloseConversation}
+                type="button"
+              >
+                <X size={15} />
+              </button>
+            </div>
           )}
         </header>
+
+        {showChatRuntime && (
+          <section className="agent-runtime-panel" style={{
+            borderBottom: "1px solid var(--border-color)",
+            maxHeight: "360px",
+            overflowY: "auto",
+            flexShrink: 0
+          }}>
+            <div
+              className="observability-trace-summary clickable"
+              onClick={() => setAgentRuntimeCollapsed(!agentRuntimeCollapsed)}
+            >
+              <div>
+                <strong>Agent Runtime</strong>
+                <span>{activeConversation?.title || "当前会话"}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>
+                  {activeRunTimeline
+                    ? `${agentRunTimelines.length} runs · ${activeRunTimeline.run.status}`
+                    : activeConversationId
+                      ? "暂无运行记录"
+                      : "未选择会话"}
+                </span>
+                {activeRunTimeline && (agentRuntimeCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />)}
+              </div>
+            </div>
+            {activeRunTimeline && !agentRuntimeCollapsed ? (
+              <div className="agent-run-timeline">
+                <div className={`agent-run-header ${activeRunTimeline.run.status}`}>
+                  <div>
+                    <strong>{formatAgentRunTitle(activeRunTimeline.run)}</strong>
+                    <span>{activeRunTimeline.run.id}</span>
+                  </div>
+                  <small>{new Date(activeRunTimeline.run.created_at).toLocaleString()}</small>
+                </div>
+                {activeRunTimelineEvents.map((event) => (
+                  <div key={event.id} className={`agent-timeline-row ${event.status}`}>
+                    <button
+                      className="timeline-row-toggle"
+                      onClick={() => toggleTimelineRow(`runtime-${event.id}`)}
+                      type="button"
+                    >
+                      <span className="observability-status-dot" />
+                      <span className="timeline-row-copy">
+                        <strong>{event.title}</strong>
+                        <small>{event.subtitle}</small>
+                      </span>
+                      <span className="agent-timeline-meta">
+                        <span>{formatRuntimeStatus(event.status)}</span>
+                        <span>{formatShortTime(event.time)}</span>
+                      </span>
+                      {expandedObservabilityRows.includes(`runtime-${event.id}`) ? (
+                        <ChevronDown size={16} />
+                      ) : (
+                        <ChevronRight size={16} />
+                      )}
+                    </button>
+                    {expandedObservabilityRows.includes(`runtime-${event.id}`) && event.detail && (
+                      <div className="timeline-row-detail">
+                        <ObservabilityDetailPanel detail={event.detail} />
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {activeRunTimelineEvents.length === 0 && (
+                  <div className="empty">该 run 暂无步骤</div>
+                )}
+              </div>
+            ) : activeRunTimeline ? null : (
+              <div className="empty" style={{ padding: "20px" }}>
+                当前会话还没有 Agent Runtime 记录
+              </div>
+            )}
+          </section>
+        )}
 
         <div className="chat-log">
           {messages.map((message) => {
