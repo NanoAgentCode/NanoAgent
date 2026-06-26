@@ -5335,7 +5335,7 @@ function formatMcpTransportLabel(transport: string) {
 }
 
 function isSupportedRagFile(name: string) {
-  return /\.(txt|md|markdown|json|csv|tsv|log|js|jsx|ts|tsx|rs|py|java|go|yaml|yml|toml|html|css|xml)$/i.test(name);
+  return /\.(txt|md|markdown|json|csv|tsv|log|js|jsx|ts|tsx|rs|py|java|go|yaml|yml|toml|html|css|xml|pdf|doc|docx|xlsx|pptx)$/i.test(name);
 }
 
 function buildRuntimeContext() {

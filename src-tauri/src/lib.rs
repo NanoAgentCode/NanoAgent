@@ -2073,6 +2073,226 @@ struct AbsoluteFileContent {
     content: String,
 }
 
+fn extract_doc_binary_text(data: &[u8]) -> String {
+    let mut text = String::new();
+    let mut i = 0;
+    
+    while i < data.len() {
+        // Try UTF-16 LE sequence (Common in Windows legacy Word files)
+        let mut utf16_chars = Vec::new();
+        let mut j = i;
+        while j + 1 < data.len() {
+            let u = u16::from_le_bytes([data[j], data[j + 1]]);
+            if (u >= 0x20 && u <= 0x7E) || u == 0x0A || u == 0x0D || u == 0x09 || (u >= 0x4E00 && u <= 0x9FFF) {
+                utf16_chars.push(u);
+                j += 2;
+            } else {
+                break;
+            }
+        }
+        if utf16_chars.len() >= 4 {
+            if let Ok(s) = String::from_utf16(&utf16_chars) {
+                text.push_str(&s);
+                text.push(' ');
+                i = j;
+                continue;
+            }
+        }
+        
+        // Try ASCII sequence
+        let mut ascii_chars = Vec::new();
+        let mut j = i;
+        while j < data.len() {
+            let c = data[j];
+            if (c >= 0x20 && c <= 0x7E) || c == 0x0A || c == 0x0D || c == 0x09 {
+                ascii_chars.push(c);
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        if ascii_chars.len() >= 4 {
+            if let Ok(s) = String::from_utf8(ascii_chars) {
+                text.push_str(&s);
+                text.push(' ');
+                i = j;
+                continue;
+            }
+        }
+        
+        i += 1;
+    }
+    
+    // Clean up multiple spaces/newlines
+    let mut cleaned = String::new();
+    let mut prev_space = false;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            if !prev_space {
+                cleaned.push(' ');
+                prev_space = true;
+            }
+        } else {
+            cleaned.push(c);
+            prev_space = false;
+        }
+    }
+    cleaned.trim().to_string()
+}
+
+fn extract_text_from_file(path: &str) -> AppResult<String> {
+    let path_buf = std::path::Path::new(path);
+    let extension = path_buf
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match extension.as_str() {
+        "doc" => {
+            let data = std::fs::read(path)?;
+            Ok(extract_doc_binary_text(&data))
+        }
+        "pdf" => {
+            let doc = lopdf::Document::load(path)
+                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
+            let mut text = String::new();
+            let pages = doc.get_pages();
+            let num_pages = pages.len() as u32;
+            for i in 1..=num_pages {
+                if let Ok(page_text) = doc.extract_text(&[i]) {
+                    text.push_str(&page_text);
+                    text.push('\n');
+                }
+            }
+            Ok(text)
+        }
+        "docx" => {
+            let file = std::fs::File::open(path)?;
+            let mut archive = zip::ZipArchive::new(file)
+                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
+            let mut doc_file = archive.by_name("word/document.xml")
+                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
+            let mut xml_content = String::new();
+            use std::io::Read;
+            doc_file.read_to_string(&mut xml_content)?;
+            
+            let mut text = String::new();
+            let mut pos = 0;
+            while let Some(start) = xml_content[pos..].find("<w:t") {
+                let absolute_start = pos + start;
+                if let Some(close_tag_end) = xml_content[absolute_start..].find('>') {
+                    let text_start = absolute_start + close_tag_end + 1;
+                    if let Some(end) = xml_content[text_start..].find("</w:t>") {
+                        let absolute_end = text_start + end;
+                        text.push_str(&xml_content[text_start..absolute_end]);
+                        text.push(' ');
+                        pos = absolute_end + 6;
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            Ok(text.trim().to_string())
+        }
+        "pptx" => {
+            let file = std::fs::File::open(path)?;
+            let mut archive = zip::ZipArchive::new(file)
+                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
+            let mut text = String::new();
+            
+            let mut slide_names = Vec::new();
+            for i in 0..archive.len() {
+                if let Ok(archive_file) = archive.by_index(i) {
+                    let name = archive_file.name();
+                    if name.starts_with("ppt/slides/slide") && name.ends_with(".xml") {
+                        slide_names.push(name.to_string());
+                    }
+                }
+            }
+            slide_names.sort_by_key(|name| {
+                name.strip_prefix("ppt/slides/slide")
+                    .and_then(|s| s.strip_suffix(".xml"))
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0)
+            });
+
+            for name in slide_names {
+                if let Ok(mut slide_file) = archive.by_name(&name) {
+                    let mut xml_content = String::new();
+                    use std::io::Read;
+                    if slide_file.read_to_string(&mut xml_content).is_ok() {
+                        let mut pos = 0;
+                        while let Some(start) = xml_content[pos..].find("<a:t") {
+                            let absolute_start = pos + start;
+                            if let Some(close_tag_end) = xml_content[absolute_start..].find('>') {
+                                let text_start = absolute_start + close_tag_end + 1;
+                                if let Some(end) = xml_content[text_start..].find("</a:t>") {
+                                    let absolute_end = text_start + end;
+                                    text.push_str(&xml_content[text_start..absolute_end]);
+                                    text.push(' ');
+                                    pos = absolute_end + 6;
+                                } else {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(text.trim().to_string())
+        }
+        "xlsx" => {
+            use calamine::{Reader, Data};
+            let mut excel = calamine::open_workbook_auto(path)
+                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
+            let mut markdown = String::new();
+            
+            for sheet_name in excel.sheet_names().to_owned() {
+                if let Ok(range) = excel.worksheet_range(&sheet_name) {
+                    markdown.push_str(&format!("## Sheet: {}\n\n", sheet_name));
+                    
+                    for (row_idx, row) in range.rows().enumerate() {
+                        markdown.push('|');
+                        for cell in row {
+                            let val = match cell {
+                                Data::Empty => "".to_string(),
+                                Data::String(s) => s.clone(),
+                                Data::Int(i) => i.to_string(),
+                                Data::Float(f) => f.to_string(),
+                                Data::Bool(b) => b.to_string(),
+                                Data::Error(e) => format!("Error({:?})", e),
+                                Data::DateTime(d) => d.to_string(),
+                                _ => format!("{:?}", cell),
+                            };
+                            let escaped = val.replace('|', "\\|");
+                            markdown.push_str(&format!(" {} |", escaped));
+                        }
+                        markdown.push('\n');
+                        
+                        if row_idx == 0 {
+                            markdown.push('|');
+                            for _ in row {
+                                markdown.push_str(" --- |");
+                            }
+                            markdown.push('\n');
+                        }
+                    }
+                    markdown.push('\n');
+                }
+            }
+            Ok(markdown.trim().to_string())
+        }
+        _ => {
+            Ok(std::fs::read_to_string(path)?)
+        }
+    }
+}
+
 #[tauri::command]
 async fn read_absolute_file(
     state: State<'_, AppState>,
@@ -2111,7 +2331,7 @@ async fn read_absolute_file(
             .unwrap_or("unknown")
             .to_string();
         let size = metadata.len();
-        let content = std::fs::read_to_string(target_path)?;
+        let content = extract_text_from_file(&path)?;
 
         Ok(AbsoluteFileContent { name, size, content })
     })();
