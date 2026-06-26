@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { Activity, Bot, FileText, Plus, SendHorizontal, X } from "lucide-react";
 import MarkdownMessage from "./MarkdownMessage";
 import AgentRuntimePanel from "./AgentRuntimePanel";
@@ -65,6 +65,23 @@ export default function ChatPane({
   const runtimePanelRef = useRef<HTMLElement | null>(null);
   const runtimeToggleBtnRef = useRef<HTMLButtonElement | null>(null);
 
+  // AgentRuntime 打开时，点击面板和切换按钮之外的任意位置收起
+  useEffect(() => {
+    if (!obs.showChatRuntime) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        runtimePanelRef.current?.contains(target) ||
+        runtimeToggleBtnRef.current?.contains(target)
+      ) {
+        return;
+      }
+      obs.setShowChatRuntime(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [obs.showChatRuntime, obs]);
+
   return (
     <aside className="chat-pane">
       <header className="chat-header">
@@ -73,40 +90,25 @@ export default function ChatPane({
           <strong>AI 助手</strong>
         </div>
         {activeConversationId && (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div className="chat-header-actions">
             <button
               ref={runtimeToggleBtnRef}
-              className="compact-btn"
+              className={`chat-header-square ${obs.showChatRuntime ? "active" : ""}`}
               aria-label="Agent Runtime 运行详情"
               title="Agent Runtime 运行详情"
               onClick={() => obs.setShowChatRuntime(!obs.showChatRuntime)}
               type="button"
-              style={{
-                fontSize: "12px",
-                padding: "4px 8px",
-                height: "28px",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                borderRadius: "6px",
-                cursor: "pointer",
-                color: obs.showChatRuntime ? "var(--accent-cyan)" : "var(--text-secondary)",
-                borderColor: obs.showChatRuntime ? "var(--accent-cyan)" : "var(--border-color)",
-                background: "transparent",
-                outline: "none"
-              }}
             >
-              <Activity size={13} />
-              <span>运行详情</span>
+              <Activity size={16} />
             </button>
             <button
-              className="icon"
+              className="icon chat-header-square"
               aria-label="关闭当前会话"
               title="关闭当前会话"
               onClick={handleCloseConversation}
               type="button"
             >
-              <X size={15} />
+              <X size={16} />
             </button>
           </div>
         )}
@@ -261,13 +263,11 @@ export default function ChatPane({
             </select>
           </div>
           <div className="chat-input-actions">
-            <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
-              <Plus size={20} />
-              <span>新建</span>
+            <button className="project-add-chat-btn" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
+              <Plus size={16} />
             </button>
-            <button className="chat-input-action send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
+            <button className="chat-header-square send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
               <SendHorizontal size={20} />
-              <span>发送</span>
             </button>
           </div>
         </div>

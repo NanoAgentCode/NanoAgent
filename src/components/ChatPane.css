@@ -26,6 +26,71 @@
 .chat-header > div svg {
   color: var(--accent-cyan);
 }
+/* 顶部右侧操作区 */
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* 统一方形按钮（运行详情 / 关闭 / 新建 / 发送 共用） */
+.chat-header-square {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color-active);
+  border-radius: var(--control-radius-sm, 6px);
+  background: var(--control-bg);
+  color: var(--control-text);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.chat-header-square svg { stroke-width: 2.2; stroke: currentColor; }
+.chat-header-square:hover {
+  background: var(--control-bg-hover);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+.chat-header-square:focus-visible {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.18);
+}
+/* 激活态（运行详情开启时） */
+.chat-header-square.active {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+/* 幽灵态（新建按钮）：透明背景，青色图标高对比 */
+.chat-header-square.ghost {
+  background: transparent;
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+/* 发送态：主色填充 */
+.chat-header-square.send {
+  background: var(--control-primary-bg);
+  color: var(--control-primary-text);
+  border-color: rgba(255,255,255,0.12);
+  box-shadow: 0 6px 16px rgba(99,102,241,0.24);
+}
+.chat-header-square.send:hover {
+  background: var(--control-primary-bg-hover);
+  color: var(--control-primary-text);
+  border-color: var(--accent-cyan);
+  box-shadow: var(--control-primary-shadow);
+}
+.chat-header-square:disabled {
+  background: var(--control-bg-subtle);
+  color: var(--text-muted);
+  border-color: var(--border-color-active);
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .chat-log {
   display: flex;
   flex: 1;
@@ -271,33 +336,18 @@
 .chat-input-actions {
   display: flex; align-items: center; gap: 8px; pointer-events: auto;
 }
-.chat-input-action {
-  width: auto; height: 34px; min-width: 64px; min-height: 34px;
-  padding: 0 10px; gap: 6px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: var(--control-radius-md); pointer-events: auto; font-weight: 600;
+/* 新对话 + 复用 project-add-chat-btn，但在输入区常显并加边框 */
+.chat-input-actions .project-add-chat-btn {
+  opacity: 1;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color-active);
+  border-radius: var(--control-radius-sm);
+  background: var(--control-bg-subtle);
 }
-.chat-input-action svg { width: 16px; height: 16px; stroke-width: 2.2; }
-.chat-input-action span { font-size: var(--type-meta-size); line-height: 1; white-space: nowrap; }
-.chat-input-action.ghost {
-  background: var(--bg-pane); color: var(--accent-cyan);
-  border: 1px solid var(--control-border); box-shadow: none;
-}
-.chat-input-action.send {
-  background: var(--control-primary-bg); color: var(--control-primary-text);
-  border: 1px solid rgba(255,255,255,0.08);
-  box-shadow: 0 8px 22px rgba(99,102,241,0.24);
-}
-.chat-input-action.ghost:hover {
-  background: var(--control-bg-hover); border-color: var(--accent-cyan);
-  box-shadow: var(--focus-ring);
-}
-.chat-input-action.send:hover {
-  background: var(--control-primary-bg-hover);
-  box-shadow: var(--control-primary-shadow);
-}
-.chat-input-action:disabled {
-  background: var(--control-bg); border-color: var(--control-border); box-shadow: none;
+.chat-input-actions .project-add-chat-btn svg {
+  width: 20px;
+  height: 20px;
 }
 .notice {
   position: absolute; right: 20px; bottom: 20px; max-width: calc(100% - 40px);
