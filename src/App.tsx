@@ -45,7 +45,6 @@ import {
   deleteConversation,
   deleteItem,
   deleteMessages,
-  deleteModelConfig,
   testLlmConnectivity,
   testEmbeddingConnectivity,
   deleteRagFile,
@@ -55,10 +54,8 @@ import {
   listConversations,
   listItems,
   listMessages,
-  listModelConfigs,
   listProjectFiles,
   listRagFiles,
-  saveModelConfig,
   searchRagContext,
   searchItems,
   listLocalSkills,
@@ -88,6 +85,7 @@ import ToolResultMessage from "./components/ToolResultMessage";
 import { useEnv } from "./hooks/useEnv";
 import { useMcp } from "./hooks/useMcp";
 import { useMemory } from "./hooks/useMemory";
+import { useModel, normalizeModelDraft } from "./hooks/useModel";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -198,57 +196,6 @@ const systemMessage: ChatMessage = {
   content: "你是一个专注的本地效率助手。请保持回答简明且实用。记忆写入由应用本地功能处理；除非应用明确提供结果，否则不要声称已经保存或更新记忆。"
 };
 
-const emptyModelDraft: ModelConfigDraft = {
-  name: "OpenAI",
-  provider: "openai-compatible",
-  base_url: "https://api.openai.com/v1",
-  model: "gpt-4o-mini",
-  api_key: "",
-  embedding_provider: "openai-compatible",
-  embedding_base_url: "https://api.openai.com/v1",
-  embedding_model: "text-embedding-3-small",
-  embedding_api_key: ""
-};
-
-const emptyEmbeddingDraft: ModelConfigDraft = {
-  id: "embedding-config",
-  name: "嵌入模型",
-  provider: "openai-compatible",
-  base_url: "https://api.openai.com/v1",
-  model: "text-embedding-3-small",
-  api_key: "",
-  embedding_provider: "openai-compatible",
-  embedding_base_url: "https://api.openai.com/v1",
-  embedding_model: "text-embedding-3-small",
-  embedding_api_key: ""
-};
-const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model">> = {
-  "openai-compatible": {
-    base_url: "https://api.openai.com/v1",
-    model: "gpt-4o-mini"
-  },
-  anthropic: {
-    base_url: "https://api.anthropic.com",
-    model: "claude-3-5-sonnet-latest"
-  }
-};
-
-const embeddingProviderDefaults: Record<string, Pick<ModelConfigDraft, "embedding_base_url" | "embedding_model">> = {
-  "openai-compatible": {
-    embedding_base_url: "https://api.openai.com/v1",
-    embedding_model: "text-embedding-3-small"
-  }
-};
-
-function normalizeModelDraft(model: ModelConfig | ModelConfigDraft): ModelConfigDraft {
-  return {
-    ...model,
-    embedding_provider: model.embedding_provider || "openai-compatible",
-    embedding_base_url: model.embedding_base_url || "https://api.openai.com/v1",
-    embedding_model: model.embedding_model || "text-embedding-3-small",
-    embedding_api_key: model.embedding_api_key || ""
-  };
-}
 
 const themeLabels: Record<ThemeMode, string> = {
   system: "跟随系统",
@@ -327,84 +274,7 @@ function App() {
   const [tagsText, setTagsText] = useState("");
   const [status, setStatus] = useState("active");
 
-  const [models, setModels] = useState<ModelConfig[]>([]);
-  const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
-  const [activeModelId, setActiveModelId] = useState("");
-  const [embeddingDraft, setEmbeddingDraft] = useState<ModelConfigDraft>(emptyEmbeddingDraft);
 
-
-  const [llmTestStatus, setLlmTestStatus] = useState<{
-    status: "idle" | "testing" | "success" | "error";
-    message?: string;
-  }>({ status: "idle" });
-
-  const [modelTestStatuses, setModelTestStatuses] = useState<Record<string, {
-    status: "idle" | "testing" | "success" | "error";
-    message?: string;
-  }>>({});
-
-  useEffect(() => {
-    const modelId = modelDraft.id || "new-config";
-    const savedModel = models.find((m) => m.id === modelDraft.id);
-    const isDirty = savedModel 
-      ? (modelDraft.name !== savedModel.name ||
-         modelDraft.provider !== savedModel.provider ||
-         modelDraft.base_url !== savedModel.base_url ||
-         modelDraft.model !== savedModel.model ||
-         modelDraft.api_key !== savedModel.api_key)
-      : (modelDraft.name !== emptyModelDraft.name ||
-         modelDraft.provider !== emptyModelDraft.provider ||
-         modelDraft.base_url !== emptyModelDraft.base_url ||
-         modelDraft.model !== emptyModelDraft.model ||
-         modelDraft.api_key !== emptyModelDraft.api_key);
-
-    if (isDirty) {
-      const currentStatus = modelTestStatuses[modelId]?.status || "idle";
-      if (currentStatus !== "idle") {
-        setModelTestStatuses((prev) => ({
-          ...prev,
-          [modelId]: { status: "idle" }
-        }));
-      }
-    }
-  }, [
-    modelDraft.id,
-    modelDraft.name,
-    modelDraft.provider,
-    modelDraft.base_url,
-    modelDraft.model,
-    modelDraft.api_key,
-    models,
-    modelTestStatuses
-  ]);
-
-  useEffect(() => {
-    const modelId = modelDraft.id || "new-config";
-    setLlmTestStatus(modelTestStatuses[modelId] || { status: "idle" });
-  }, [modelDraft.id, modelTestStatuses]);
-
-  const [embeddingTestStatus, setEmbeddingTestStatus] = useState<{
-    status: "idle" | "testing" | "success" | "error";
-    message?: string;
-  }>({ status: "idle" });
-
-  useEffect(() => {
-    setEmbeddingTestStatus({ status: "idle" });
-  }, [
-    embeddingDraft.embedding_provider,
-    embeddingDraft.embedding_base_url,
-    embeddingDraft.embedding_model,
-    embeddingDraft.embedding_api_key
-  ]);
-
-  useEffect(() => {
-    const existing = models.find((m) => m.id === "embedding-config");
-    if (existing) {
-      setEmbeddingDraft(normalizeModelDraft(existing));
-    } else {
-      setEmbeddingDraft(emptyEmbeddingDraft);
-    }
-  }, [models]);
   const [projects, setProjects] = useState<ProjectEntry[]>(() => loadSavedProjects());
   const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem(activeProjectStorageKey) || "");
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => {
@@ -486,6 +356,7 @@ function App() {
   const env = useEnv(setNotice);
   const mcp = useMcp(setNotice);
   const memory = useMemory(setNotice);
+  const model = useModel(setNotice, activeConversationId, setConversations);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -696,13 +567,13 @@ function App() {
     if (!conversationModelId) {
       return;
     }
-    if (!models.some((model) => model.id === conversationModelId)) {
+    if (!model.models.some((m) => m.id === conversationModelId)) {
       return;
     }
-    if (conversationModelId !== activeModelId) {
-      setActiveModelId(conversationModelId);
+    if (conversationModelId !== model.activeModelId) {
+      model.setActiveModelId(conversationModelId);
     }
-  }, [activeConversation?.id, activeConversation?.model_config_id, activeModelId, models]);
+  }, [activeConversation?.id, activeConversation?.model_config_id, model.activeModelId, model.models]);
 
   useEffect(() => {
     if (showModelConfig && activeSettingsTab === "observability") {
@@ -740,7 +611,7 @@ function App() {
         unlisten();
       }
     };
-  }, [activeConversationId, activeModelId]);
+  }, [activeConversationId, model.activeModelId]);
 
   async function refreshObservability() {
     setIsLoadingObservability(true);
@@ -781,20 +652,18 @@ function App() {
 
   async function loadAll() {
     try {
-      const [nextItems, nextModels, nextConversations, nextArchivedConversations] = await Promise.all([
+      const [nextItems, nextConversations, nextArchivedConversations] = await Promise.all([
         listItems(),
-        listModelConfigs(),
         listConversations(),
         listArchivedConversations()
       ]);
       setItems(nextItems);
-      setModels(nextModels);
       setConversations(nextConversations);
       setArchivedConversations(nextArchivedConversations);
       setSelectedId((current) => current || nextItems[0]?.id || "");
-      setActiveModelId((current) => current || nextModels.find((m) => m.id !== "embedding-config")?.id || "");
       setActiveConversationId((current) => current || nextConversations[0]?.id || "");
       void memory.refreshMemories("");
+      void model.refreshModels();
     } catch (error) {
       setNotice(String(error));
     }
@@ -1102,11 +971,11 @@ function App() {
       (conversationId ? findConversationById(conversationId)?.model_config_id : activeConversation?.model_config_id) ||
       "";
 
-    if (savedModelId && models.some((model) => model.id === savedModelId)) {
+    if (savedModelId && model.models.some((m) => m.id === savedModelId)) {
       return savedModelId;
     }
 
-    return activeModelId;
+    return model.activeModelId;
   }
 
   function upsertProject(path: string) {
@@ -1470,167 +1339,11 @@ function App() {
 
 
 
-  async function handleSaveModel() {
-    const saved = await saveModelConfig(modelDraft);
-    const nextModels = await listModelConfigs();
-    setModels(nextModels);
-    setActiveModelId(saved.id);
-    setModelDraft(normalizeModelDraft(saved));
-    setNotice("模型配置已保存");
-  }
 
-  async function handleEditModel(id: string) {
-    if (!id) {
-      setModelDraft(emptyModelDraft);
-      return;
-    }
-    const model = models.find((item) => item.id === id);
-    if (model) {
-      setModelDraft(normalizeModelDraft(model));
-    }
-  }
-
-  function handleOpenModelConfig() {
-    const model = models.find((item) => item.id === activeModelId) || models.find((item) => item.id !== "embedding-config");
-    setModelDraft(model ? normalizeModelDraft(model) : emptyModelDraft);
-    setShowModelConfig(true);
-  }
-
-  function handleNewModelConfig() {
-    setModelDraft(emptyModelDraft);
-    setShowModelConfig(true);
-  }
-
-  async function handleDeleteModel() {
-    if (!modelDraft.id) {
-      setModelDraft(emptyModelDraft);
-      return;
-    }
-
-    await deleteModelConfig(modelDraft.id);
-    const nextModels = await listModelConfigs();
-    setModels(nextModels);
-    if (modelDraft.id === activeModelId) {
-      setActiveModelId(nextModels.find((m) => m.id !== "embedding-config")?.id || "");
-    }
-    setModelDraft(emptyModelDraft);
-  }
-
-  function handleProviderChange(provider: string) {
-    const defaults = providerDefaults[provider];
-    setModelDraft((current) => ({
-      ...current,
-      provider,
-      base_url:
-        current.base_url === providerDefaults["openai-compatible"].base_url ||
-        current.base_url === providerDefaults.anthropic.base_url
-          ? defaults.base_url
-          : current.base_url,
-      model:
-        current.model === providerDefaults["openai-compatible"].model ||
-        current.model === providerDefaults.anthropic.model
-          ? defaults.model
-          : current.model,
-    }));
-  }
-
-  function handleEmbeddingProviderChange(embeddingProvider: string) {
-    const defaults = embeddingProviderDefaults[embeddingProvider];
-    setEmbeddingDraft((current) => ({
-      ...current,
-      embedding_provider: embeddingProvider,
-      embedding_base_url:
-        current.embedding_base_url === embeddingProviderDefaults["openai-compatible"].embedding_base_url
-          ? defaults.embedding_base_url
-          : current.embedding_base_url,
-      embedding_model:
-        current.embedding_model === embeddingProviderDefaults["openai-compatible"].embedding_model
-          ? defaults.embedding_model
-          : current.embedding_model
-    }));
-  }
-
-  async function handleSaveEmbeddingModel() {
-    const updatedDraft = {
-      ...embeddingDraft,
-      id: "embedding-config",
-      name: "嵌入模型",
-      provider: embeddingDraft.embedding_provider,
-      base_url: embeddingDraft.embedding_base_url,
-      model: embeddingDraft.embedding_model,
-      api_key: embeddingDraft.embedding_api_key,
-    };
-    const saved = await saveModelConfig(updatedDraft);
-    const nextModels = await listModelConfigs();
-    setModels(nextModels);
-    setEmbeddingDraft(normalizeModelDraft(saved));
-    setNotice("嵌入模型配置已保存");
-  }
-
-  function handleOpenEmbeddingConfig() {
-    const existing = models.find((m) => m.id === "embedding-config");
-    setEmbeddingDraft(existing ? normalizeModelDraft(existing) : emptyEmbeddingDraft);
-  }
-
-  async function handleTestLlm() {
-    const modelId = modelDraft.id || "new-config";
-    setLlmTestStatus({ status: "testing" });
-    setModelTestStatuses((prev) => ({
-      ...prev,
-      [modelId]: { status: "testing" }
-    }));
-    try {
-      await testLlmConnectivity(modelDraft);
-      setLlmTestStatus({ status: "success" });
-      setModelTestStatuses((prev) => ({
-        ...prev,
-        [modelId]: { status: "success" }
-      }));
-    } catch (err: any) {
-      setLlmTestStatus({ status: "error", message: String(err) });
-      setModelTestStatuses((prev) => ({
-        ...prev,
-        [modelId]: { status: "error", message: String(err) }
-      }));
-    }
-  }
-
-  async function handleTestEmbedding() {
-    setEmbeddingTestStatus({ status: "testing" });
-    try {
-      const updatedDraft = {
-        ...embeddingDraft,
-        id: "embedding-config",
-        name: "嵌入模型",
-        provider: embeddingDraft.embedding_provider,
-        base_url: embeddingDraft.embedding_base_url,
-        model: embeddingDraft.embedding_model,
-        api_key: embeddingDraft.embedding_api_key,
-      };
-      await testEmbeddingConnectivity(updatedDraft);
-      setEmbeddingTestStatus({ status: "success" });
-    } catch (err: any) {
-      setEmbeddingTestStatus({ status: "error", message: String(err) });
-    }
-  }
-
-  async function handleActiveModelChange(modelId: string) {
-    setActiveModelId(modelId);
-    if (activeConversationId) {
-      try {
-        await updateConversationModel(activeConversationId, modelId || null);
-        setConversations((current) =>
-          current.map((c) => (c.id === activeConversationId ? { ...c, model_config_id: modelId || null } : c))
-        );
-      } catch (error) {
-        setNotice(String(error));
-      }
-    }
-  }
 
   async function createConversationForCurrentScope(project: ProjectEntry | null) {
     const conversation = await createConversation({
-      model_config_id: activeModelId || null,
+      model_config_id: model.activeModelId || null,
       project_path: project?.path || null
     });
 
@@ -2876,7 +2589,7 @@ function App() {
           )}
         </div>
 
-        <button className="settings-entry" onClick={handleOpenModelConfig}>
+        <button className="settings-entry" onClick={() => model.handleOpenModelConfig(setShowModelConfig)}>
           <Settings size={18} />
           <span>系统设置</span>
         </button>
@@ -3002,7 +2715,7 @@ function App() {
                   className={activeSettingsTab === "embedding" ? "settings-nav-item active" : "settings-nav-item"}
                   onClick={() => {
                     setActiveSettingsTab("embedding");
-                    handleOpenEmbeddingConfig();
+                    model.handleOpenEmbeddingConfig();
                   }}
                 >
                   <Cpu size={16} />
@@ -3186,18 +2899,18 @@ function App() {
                 )}
 
                 {activeSettingsTab === "model" && (() => {
-                  const llmModels = models.filter((model) => model.id !== "embedding-config");
+                  const llmModels = model.models.filter((m) => m.id !== "embedding-config");
                   return (
                     <div className="settings-tab-content model-tab-content">
                       <div className="model-header-row">
                         <h3>LLM管理</h3>
-                        <button className="icon-only-btn compact" onClick={handleNewModelConfig} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
+                        <button className="icon-only-btn compact" onClick={() => model.handleNewModelConfig(setShowModelConfig)} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
                       </div>
                       <p className="description" style={{ marginTop: "-4px" }}>配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
                       <div className="model-config-grid">
                         <aside className="model-config-list">
-                          {llmModels.map((model) => {
-                            const statusInfo = modelTestStatuses[model.id] || { status: "idle" };
+                          {llmModels.map((m) => {
+                            const statusInfo = model.modelTestStatuses[m.id] || { status: "idle" };
                             let dotColor = "#9ca3af";
                             let dotTitle = "未测试";
 
@@ -3214,9 +2927,9 @@ function App() {
 
                             return (
                               <button
-                                key={model.id}
-                                className={model.id === modelDraft.id ? "model-config-row active" : "model-config-row"}
-                                onClick={() => setModelDraft(normalizeModelDraft(model))}
+                                key={m.id}
+                                className={m.id === model.modelDraft.id ? "model-config-row active" : "model-config-row"}
+                                onClick={() => model.setModelDraft(normalizeModelDraft(m))}
                                 style={{ display: "flex", alignItems: "center", gap: "10px" }}
                               >
                                 <span
@@ -3230,8 +2943,8 @@ function App() {
                                   title={dotTitle}
                                 />
                                 <div style={{ display: "grid", gap: "4px", flex: 1, minWidth: 0 }}>
-                                  <strong>{model.name}</strong>
-                                  <span>{model.provider} / {model.model}</span>
+                                  <strong>{m.name}</strong>
+                                  <span>{m.provider} / {m.model}</span>
                                 </div>
                               </button>
                             );
@@ -3240,20 +2953,20 @@ function App() {
                         </aside>
 
                         <div className="model-config-form">
-                          <div className="model-form-card">
+                          <div className="model-config-form">
                             <label>
                               <span>配置名称</span>
                               <input
-                                value={modelDraft.name}
-                                onChange={(event) => setModelDraft({ ...modelDraft, name: event.target.value })}
+                                value={model.modelDraft.name}
+                                onChange={(event) => model.setModelDraft({ ...model.modelDraft, name: event.target.value })}
                                 placeholder="例如：OpenAI 主账号"
                               />
                             </label>
                             <label>
                               <span>协议类型</span>
                               <select
-                                value={modelDraft.provider}
-                                onChange={(event) => handleProviderChange(event.target.value)}
+                                value={model.modelDraft.provider}
+                                onChange={(event) => model.handleProviderChange(event.target.value)}
                               >
                                 <option value="openai-compatible">OpenAI 兼容协议</option>
                                 <option value="anthropic">Anthropic 兼容协议</option>
@@ -3262,64 +2975,64 @@ function App() {
                             <label>
                               <span>接口地址</span>
                               <input
-                                value={modelDraft.base_url}
-                                onChange={(event) => setModelDraft({ ...modelDraft, base_url: event.target.value })}
+                                value={model.modelDraft.base_url}
+                                onChange={(event) => model.setModelDraft({ ...model.modelDraft, base_url: event.target.value })}
                                 placeholder="https://api.openai.com/v1"
                               />
                             </label>
                             <label>
                               <span>模型标识</span>
                               <input
-                                value={modelDraft.model}
-                                onChange={(event) => setModelDraft({ ...modelDraft, model: event.target.value })}
+                                value={model.modelDraft.model}
+                                onChange={(event) => model.setModelDraft({ ...model.modelDraft, model: event.target.value })}
                                 placeholder="gpt-4o-mini"
                               />
                             </label>
                             <label>
                               <span>API Key</span>
                               <input
-                                value={modelDraft.api_key}
+                                value={model.modelDraft.api_key}
                                 type="password"
-                                onChange={(event) => setModelDraft({ ...modelDraft, api_key: event.target.value })}
+                                onChange={(event) => model.setModelDraft({ ...model.modelDraft, api_key: event.target.value })}
                                 placeholder="用于对话模型调用"
                               />
                             </label>
                           </div>
                           <div className="modal-actions icon-actions" style={{ display: "flex", alignItems: "center", width: "100%" }}>
-                            {llmTestStatus.status === "success" && (
+                            {model.llmTestStatus.status === "success" && (
                               <span style={{ color: "var(--accent-green)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }}>
                                 <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-green)" }} />
                                 连通性正常
                               </span>
                             )}
-                            {llmTestStatus.status === "error" && (
-                              <span style={{ color: "var(--accent-red)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }} title={llmTestStatus.message}>
+                            {model.llmTestStatus.status === "error" && (
+                              <span style={{ color: "var(--accent-red)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }} title={model.llmTestStatus.message}>
                                 <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-red)" }} />
                                 连通性异常 (悬浮查看详情)
                               </span>
                             )}
-                            {(llmTestStatus.status === "idle" || llmTestStatus.status === "testing") && (
+                            {(model.llmTestStatus.status === "idle" || model.llmTestStatus.status === "testing") && (
                               <div style={{ marginRight: "auto" }} />
                             )}
                             <button
                               className="icon-text-btn"
-                              onClick={handleTestLlm}
-                              disabled={llmTestStatus.status === "testing"}
+                              onClick={model.handleTestLlm}
+                              disabled={model.llmTestStatus.status === "testing"}
                               title="测试连接"
                               type="button"
                             >
-                              {llmTestStatus.status === "testing" ? (
+                              {model.llmTestStatus.status === "testing" ? (
                                 <Loader2 style={{ animation: "spin 1s linear infinite" }} />
                               ) : (
                                 <Activity />
                               )}
-                              <span>{llmTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
+                              <span>{model.llmTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
                             </button>
-                            <button className="icon-text-btn success-btn" onClick={handleSaveModel} title="保存并使用" type="button">
+                            <button className="icon-text-btn success-btn" onClick={model.handleSaveModel} title="保存并使用" type="button">
                               <Save />
                               <span>保存并使用</span>
                             </button>
-                            <button className="icon-text-btn danger-btn" title="删除模型" onClick={handleDeleteModel} disabled={!modelDraft.id || modelDraft.id === "embedding-config"} type="button">
+                            <button className="icon-text-btn danger-btn" title="删除模型" onClick={model.handleDeleteModel} disabled={!model.modelDraft.id || model.modelDraft.id === "embedding-config"} type="button">
                               <Trash2 />
                               <span>删除</span>
                             </button>
@@ -3350,8 +3063,8 @@ function App() {
                           <label>
                             <span>协议类型</span>
                             <select
-                              value={embeddingDraft.embedding_provider}
-                              onChange={(event) => handleEmbeddingProviderChange(event.target.value)}
+                              value={model.embeddingDraft.embedding_provider}
+                              onChange={(event) => model.handleEmbeddingProviderChange(event.target.value)}
                               disabled
                             >
                               <option value="openai-compatible">OpenAI 兼容协议</option>
@@ -3360,60 +3073,60 @@ function App() {
                           <label>
                             <span>接口地址</span>
                             <input
-                              value={embeddingDraft.embedding_base_url}
-                              onChange={(event) => setEmbeddingDraft({ ...embeddingDraft, embedding_base_url: event.target.value })}
+                              value={model.embeddingDraft.embedding_base_url}
+                              onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_base_url: event.target.value })}
                               placeholder="https://api.openai.com/v1"
                             />
                           </label>
                           <label>
                             <span>模型标识</span>
                             <input
-                              value={embeddingDraft.embedding_model}
-                              onChange={(event) => setEmbeddingDraft({ ...embeddingDraft, embedding_model: event.target.value })}
+                              value={model.embeddingDraft.embedding_model}
+                              onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_model: event.target.value })}
                               placeholder="text-embedding-3-small"
                             />
                           </label>
                           <label>
                             <span>API Key</span>
                             <input
-                              value={embeddingDraft.embedding_api_key}
+                              value={model.embeddingDraft.embedding_api_key}
                               type="password"
-                              onChange={(event) => setEmbeddingDraft({ ...embeddingDraft, embedding_api_key: event.target.value })}
+                              onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_api_key: event.target.value })}
                               placeholder="用于 RAG 向量化，可与大模型不同"
                             />
                           </label>
                         </div>
                         <div className="modal-actions icon-actions" style={{ display: "flex", alignItems: "center", width: "100%" }}>
-                          {embeddingTestStatus.status === "success" && (
+                          {model.embeddingTestStatus.status === "success" && (
                             <span style={{ color: "var(--accent-green)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }}>
                               <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-green)" }} />
                               连通性正常
                             </span>
                           )}
-                          {embeddingTestStatus.status === "error" && (
-                            <span style={{ color: "var(--accent-red)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }} title={embeddingTestStatus.message}>
+                          {model.embeddingTestStatus.status === "error" && (
+                            <span style={{ color: "var(--accent-red)", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px", marginRight: "auto" }} title={model.embeddingTestStatus.message}>
                               <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--accent-red)" }} />
                               连通性异常 (悬浮查看详情)
                             </span>
                           )}
-                          {(embeddingTestStatus.status === "idle" || embeddingTestStatus.status === "testing") && (
+                          {(model.embeddingTestStatus.status === "idle" || model.embeddingTestStatus.status === "testing") && (
                             <div style={{ marginRight: "auto" }} />
                           )}
                           <button
                             className="icon-text-btn"
-                            onClick={handleTestEmbedding}
-                            disabled={embeddingTestStatus.status === "testing"}
+                            onClick={model.handleTestEmbedding}
+                            disabled={model.embeddingTestStatus.status === "testing"}
                             title="测试连接"
                             type="button"
                           >
-                            {embeddingTestStatus.status === "testing" ? (
+                            {model.embeddingTestStatus.status === "testing" ? (
                               <Loader2 style={{ animation: "spin 1s linear infinite" }} />
                             ) : (
                               <Activity />
                             )}
-                            <span>{embeddingTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
+                            <span>{model.embeddingTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
                           </button>
-                          <button className="icon-text-btn success-btn" onClick={handleSaveEmbeddingModel} title="保存并使用" type="button">
+                          <button className="icon-text-btn success-btn" onClick={model.handleSaveEmbeddingModel} title="保存并使用" type="button">
                             <Save />
                             <span>保存并使用</span>
                           </button>
@@ -4133,10 +3846,10 @@ function App() {
           />
           <div className="chat-input-footer">
             <div className="chat-input-left">
-              <select value={activeModelId} onChange={(event) => void handleActiveModelChange(event.target.value)}>
+              <select value={model.activeModelId} onChange={(event) => void model.handleActiveModelChange(event.target.value)}>
                 <option value="">选择模型</option>
-                {models.filter((model) => model.id !== "embedding-config").map((model) => (
-                  <option key={model.id} value={model.id}>{model.name}</option>
+                {model.models.filter((m) => m.id !== "embedding-config").map((m) => (
+                  <option key={m.id} value={m.id}>{m.name}</option>
                 ))}
               </select>
             </div>
