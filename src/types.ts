@@ -396,3 +396,16 @@ export interface AgentRunTimeline {
   steps: AgentStep[];
   tool_calls: AgentToolCall[];
 }
+
+export type WorkspaceView = ItemKind | "all" | "memory";
+export type ThemeMode = "system" | "light" | "dark";
+export type SettingsTab =
+  | "memory"
+  | "theme"
+  | "archive"
+  | "model"
+  | "embedding"
+  | "skills"
+  | "mcp"
+  | "observability"
+  | "environment";

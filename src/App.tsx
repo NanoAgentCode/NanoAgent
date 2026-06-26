@@ -38,10 +38,8 @@ import {
   chat,
   chatStream,
   createConversation,
-  createItem,
   createMemory,
   deleteConversation,
-  deleteItem,
   deleteMessages,
   testLlmConnectivity,
   testEmbeddingConnectivity,
@@ -55,10 +53,8 @@ import {
   listProjectFiles,
   listRagFiles,
   searchRagContext,
-  searchItems,
   getTavilyApiKey,
   saveTavilyApiKey,
-  updateItem,
   checkEnv,
   installEnv,
   createAgentRun,
@@ -83,6 +79,7 @@ import { useModel, normalizeModelDraft } from "./hooks/useModel";
 import { useSkills } from "./hooks/useSkills";
 import { useObservability } from "./hooks/useObservability";
 import { useProjects } from "./hooks/useProjects";
+import { useWorkspace } from "./hooks/useWorkspace";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -209,21 +206,11 @@ function renderMessageContent(content: string) {
 }
 
 function App() {
-  const listRequestRef = useRef(0);
   const messageLoadRequestRef = useRef(0);
   const activeConversationIdRef = useRef("");
   const workspaceRef = useRef<HTMLElement | null>(null);
   const runtimePanelRef = useRef<HTMLElement | null>(null);
   const runtimeToggleBtnRef = useRef<HTMLButtonElement | null>(null);
-  const [items, setItems] = useState<Item[]>([]);
-  const [selectedId, setSelectedId] = useState("");
-  const [activeKind, setActiveKind] = useState<WorkspaceView>("note");
-  const [query, setQuery] = useState("");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [tagsText, setTagsText] = useState("");
-  const [status, setStatus] = useState("active");
-
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
@@ -251,16 +238,12 @@ function App() {
   const skills = useSkills(setNotice);
   const obs = useObservability(setNotice, activeConversationId, showModelConfig, activeSettingsTab);
   const projects = useProjects(setNotice, conversations);
+  const workspace = useWorkspace(setNotice, memory);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
     return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
   });
-
-  const selectedItem = useMemo(
-    () => items.find((item) => item.id === selectedId),
-    [items, selectedId]
-  );
   const activeConversation = useMemo(() => {
     const allProjectConversations = Object.values(projects.projectConversations).flat();
     return [...conversations, ...allProjectConversations].find(
@@ -309,10 +292,6 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void refreshItems(query, activeKind);
-  }, [activeKind, query]);
-
-  useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
       let resolvedTheme = themeMode;
@@ -338,21 +317,6 @@ function App() {
       setPreviewMessages([]);
     }
   }, [showModelConfig, activeSettingsTab]);
-
-  useEffect(() => {
-    if (!selectedItem) {
-      setTitle("");
-      setBody("");
-      setTagsText("");
-      setStatus("active");
-      return;
-    }
-
-    setTitle(selectedItem.title);
-    setBody(selectedItem.body);
-    setTagsText(selectedItem.tags.join(", "));
-    setStatus(selectedItem.status);
-  }, [selectedItem]);
 
 
 
@@ -422,15 +386,12 @@ function App() {
 
   async function loadAll() {
     try {
-      const [nextItems, nextConversations, nextArchivedConversations] = await Promise.all([
-        listItems(),
+      const [nextConversations, nextArchivedConversations] = await Promise.all([
         listConversations(),
         listArchivedConversations()
       ]);
-      setItems(nextItems);
       setConversations(nextConversations);
       setArchivedConversations(nextArchivedConversations);
-      setSelectedId((current) => current || nextItems[0]?.id || "");
       setActiveConversationId((current) => current || nextConversations[0]?.id || "");
       void memory.refreshMemories("");
       void model.refreshModels();
@@ -713,47 +674,11 @@ function App() {
     }
   }
 
-  async function refreshItems(nextQuery = query, kind = activeKind) {
-    const requestId = ++listRequestRef.current;
-
-    try {
-      if (kind === "memory") {
-        await memory.refreshMemories(nextQuery);
-        return;
-      }
-
-      const nextItems = nextQuery.trim()
-        ? await searchItems(nextQuery)
-        : await listItems(kind === "all" ? undefined : kind);
-      if (requestId !== listRequestRef.current) {
-        return;
-      }
-      setItems(nextItems);
-      setSelectedId((current) =>
-        nextItems.some((item) => item.id === current)
-          ? current
-          : nextItems[0]?.id || ""
-      );
-    } catch (error) {
-      setNotice(String(error));
-    }
-  }
 
 
 
-  function handleKindChange(kind: WorkspaceView) {
-    setActiveKind(kind);
-    setQuery("");
-    if (kind === "memory") {
-      memory.setSelectedMemoryId("");
-    } else {
-      setSelectedId("");
-    }
-  }
 
-  function handleSearch(value: string) {
-    setQuery(value);
-  }
+
 
   function beginWorkspaceSplitResize() {
     const rect = workspaceRef.current?.getBoundingClientRect();
@@ -787,48 +712,7 @@ function App() {
     window.addEventListener("mouseup", handleUp);
   }
 
-  async function handleNewItem(kind: ItemKind) {
-    const item = await createItem({
-      kind,
-      title: `新建${kindLabels[kind]}`,
-      body: "",
-      status: "active",
-      tags: []
-    });
-    setActiveKind(kind);
-    setQuery("");
-    await refreshItems("", kind);
-    setSelectedId(item.id);
-  }
 
-  async function handleSaveItem() {
-    if (!selectedItem) {
-      return;
-    }
-
-    await updateItem({
-      id: selectedItem.id,
-      title,
-      body,
-      status,
-      tags: parseTags(tagsText)
-    });
-
-    await refreshItems(query, activeKind);
-    setNotice("已保存");
-  }
-
-
-
-  async function handleDeleteItem() {
-    if (!selectedItem) {
-      return;
-    }
-
-    await deleteItem(selectedItem.id);
-    setSelectedId("");
-    await refreshItems(query, activeKind);
-  }
 
 
 
@@ -1481,8 +1365,8 @@ function App() {
 
       if (memoryDraft) {
         const savedMemory = await createMemory(memoryDraft);
-        await refreshItems(query, "memory");
-        if (activeKind === "memory") {
+        await workspace.refreshItems(workspace.query, "memory");
+        if (workspace.activeKind === "memory") {
           memory.setSelectedMemoryId(savedMemory.id);
         }
 
@@ -1720,20 +1604,20 @@ function App() {
       <section className="settings-workspace-grid" ref={workspaceRef}>
         <section className="list-pane" style={{ flexBasis: "320px" }}>
           <header className="list-header">
-            <strong>{workspaceLabels[activeKind]}</strong>
-            <span>{activeKind === "memory" ? memory.memoryItems.length : items.length} 条</span>
+            <strong>{workspaceLabels[workspace.activeKind]}</strong>
+            <span>{workspace.activeKind === "memory" ? memory.memoryItems.length : workspace.items.length} 条</span>
           </header>
           <div className="search-bar">
             <Search size={18} />
             <input
-              value={query}
-              onChange={(event) => handleSearch(event.target.value)}
+              value={workspace.query}
+              onChange={(event) => workspace.handleSearch(event.target.value)}
               placeholder="搜索"
             />
           </div>
 
           <div className="item-list">
-            {activeKind === "memory" ? (
+            {workspace.activeKind === "memory" ? (
               <>
                 {memory.memoryItems.map((item) => (
                   <button
@@ -1750,16 +1634,16 @@ function App() {
                   </button>
                 ))}
                 {memory.memoryItems.length === 0 && (
-                  <div className="empty">{query.trim() ? "没有匹配的记忆" : "暂无记忆"}</div>
+                  <div className="empty">{workspace.query.trim() ? "没有匹配的记忆" : "暂无记忆"}</div>
                 )}
               </>
             ) : (
               <>
-                {items.map((item) => (
+                {workspace.items.map((item) => (
                   <button
                     key={item.id}
-                    className={item.id === selectedId ? "item-row selected" : "item-row"}
-                    onClick={() => setSelectedId(item.id)}
+                    className={item.id === workspace.selectedId ? "item-row selected" : "item-row"}
+                    onClick={() => workspace.setSelectedId(item.id)}
                   >
                     <div className="item-row-header">
                       <span className={`badge-${item.kind}`}>{kindLabels[item.kind as ItemKind] || item.kind}</span>
@@ -1769,28 +1653,28 @@ function App() {
                     <small>{item.body || "暂无内容"}</small>
                   </button>
                 ))}
-                {items.length === 0 && <div className="empty">暂无内容</div>}
+                {workspace.items.length === 0 && <div className="empty">暂无内容</div>}
               </>
             )}
           </div>
-          {activeKind !== "memory" && (
+          {workspace.activeKind !== "memory" && (
             <div style={{ padding: "12px", borderTop: "1px solid var(--border-color)", display: "flex", justifyContent: "center" }}>
               <button
                 className="icon-text-btn secondary"
-                onClick={() => void handleNewItem(activeKind === "all" ? "note" : activeKind as ItemKind)}
-                title={`新建${kindLabels[activeKind as ItemKind] || "笔记"}`}
-                aria-label={`新建${kindLabels[activeKind as ItemKind] || "笔记"}`}
+                onClick={() => void workspace.handleNewItem(workspace.activeKind === "all" ? "note" : workspace.activeKind as ItemKind)}
+                title={`新建${kindLabels[workspace.activeKind as ItemKind] || "笔记"}`}
+                aria-label={`新建${kindLabels[workspace.activeKind as ItemKind] || "笔记"}`}
                 type="button"
               >
                 <Plus />
-                <span>新建{kindLabels[activeKind as ItemKind] || "笔记"}</span>
+                <span>新建{kindLabels[workspace.activeKind as ItemKind] || "笔记"}</span>
               </button>
             </div>
           )}
         </section>
 
         <section className="editor-pane">
-          {activeKind === "memory" ? (
+          {workspace.activeKind === "memory" ? (
             <>
               <div className="editor-header">
                 <label className="memory-toggle">
@@ -1803,11 +1687,11 @@ function App() {
                   在对话中启用
                 </label>
                 <div className="editor-actions">
-                  <button className="icon-text-btn success-btn" onClick={() => void memory.handleSaveMemory(query)} disabled={!memory.selectedMemory} type="button">
+                  <button className="icon-text-btn success-btn" onClick={() => void memory.handleSaveMemory(workspace.query)} disabled={!memory.selectedMemory} type="button">
                     <Save />
                     <span>保存</span>
                   </button>
-                  <button className="icon-text-btn danger-btn" onClick={() => void memory.handleDeleteMemory(query)} disabled={!memory.selectedMemory} type="button">
+                  <button className="icon-text-btn danger-btn" onClick={() => void memory.handleDeleteMemory(workspace.query)} disabled={!memory.selectedMemory} type="button">
                     <Trash2 />
                     <span>删除</span>
                   </button>
@@ -1839,18 +1723,18 @@ function App() {
           ) : (
             <>
               <div className="editor-header">
-                <select value={status} onChange={(event) => setStatus(event.target.value)}>
+                <select value={workspace.status} onChange={(event) => workspace.setStatus(event.target.value)}>
                   <option value="active">活跃</option>
                   <option value="todo">待办</option>
                   <option value="done">已完成</option>
                   <option value="archived">已归档</option>
                 </select>
                 <div className="editor-actions">
-                  <button className="icon-text-btn success-btn" onClick={handleSaveItem} disabled={!selectedItem} type="button">
+                  <button className="icon-text-btn success-btn" onClick={workspace.handleSaveItem} disabled={!workspace.selectedItem} type="button">
                     <Save />
                     <span>保存</span>
                   </button>
-                  <button className="icon-text-btn danger-btn" onClick={handleDeleteItem} disabled={!selectedItem} type="button">
+                  <button className="icon-text-btn danger-btn" onClick={workspace.handleDeleteItem} disabled={!workspace.selectedItem} type="button">
                     <Trash2 />
                     <span>删除</span>
                   </button>
@@ -1859,24 +1743,24 @@ function App() {
 
               <input
                 className="title-input"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                value={workspace.title}
+                onChange={(event) => workspace.setTitle(event.target.value)}
                 placeholder="标题"
-                disabled={!selectedItem}
+                disabled={!workspace.selectedItem}
               />
               <textarea
                 className="body-input"
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
+                value={workspace.body}
+                onChange={(event) => workspace.setBody(event.target.value)}
                 placeholder="在此编写笔记内容..."
-                disabled={!selectedItem}
+                disabled={!workspace.selectedItem}
               />
               <input
                 className="tag-input"
-                value={tagsText}
-                onChange={(event) => setTagsText(event.target.value)}
+                value={workspace.tagsText}
+                onChange={(event) => workspace.setTagsText(event.target.value)}
                 placeholder="标签，以英文逗号分隔"
-                disabled={!selectedItem}
+                disabled={!workspace.selectedItem}
               />
             </>
           )}
@@ -2161,7 +2045,7 @@ function App() {
                   className={activeSettingsTab === "memory" ? "settings-nav-item active" : "settings-nav-item"}
                   onClick={() => {
                     setActiveSettingsTab("memory");
-                    handleKindChange("memory");
+                    workspace.handleKindChange("memory");
                   }}
                 >
                   <Brain size={16} />
