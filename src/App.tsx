@@ -47,13 +47,9 @@ import {
   deleteMemory,
   deleteMessages,
   deleteModelConfig,
-  deleteMcpServer,
   testLlmConnectivity,
   testEmbeddingConnectivity,
   deleteRagFile,
-  connectMcpServer,
-  disconnectMcpServer,
-  refreshMcpTools,
   indexRagFile,
   listEnabledMemories,
   listArchivedConversations,
@@ -62,11 +58,9 @@ import {
   listMemories,
   listMessages,
   listModelConfigs,
-  listMcpServers,
   listProjectFiles,
   listRagFiles,
   saveModelConfig,
-  saveMcpServer,
   searchRagContext,
   searchItems,
   searchMemories,
@@ -96,6 +90,7 @@ import AgentRuntimePanel from "./components/AgentRuntimePanel";
 import ObservabilityPanel, { type ObservabilityTraceGroup } from "./components/ObservabilityPanel";
 import ToolResultMessage from "./components/ToolResultMessage";
 import { useEnv } from "./hooks/useEnv";
+import { useMcp } from "./hooks/useMcp";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -129,10 +124,6 @@ import {
   normalizeSkills,
   type Skill
 } from "./lib/skills";
-import {
-  formatStdioCommandLine,
-  parseStdioCommandLine
-} from "./lib/stdioCommand";
 import type {
   ChatMessage,
   ChatStreamEvent,
@@ -145,7 +136,6 @@ import type {
   ItemKind,
   MessageMetadata,
   Memory,
-  McpServerDraft,
   McpServerView,
   ModelConfig,
   ModelConfigDraft,
@@ -235,19 +225,6 @@ const emptyEmbeddingDraft: ModelConfigDraft = {
   embedding_model: "text-embedding-3-small",
   embedding_api_key: ""
 };
-
-const emptyMcpDraft: McpServerDraft = {
-  name: "filesystem-server",
-  transport: "stdio",
-  command: "npx",
-  args_json: "[\"-y\", \"@modelcontextprotocol/server-filesystem\", \"C:\\\\Users\\\\13439\\\\Desktop\"]",
-  env_json: "{}",
-  url: "",
-  headers_json: "{}",
-  working_dir: "",
-  enabled: true
-};
-
 const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model">> = {
   "openai-compatible": {
     base_url: "https://api.openai.com/v1",
@@ -362,11 +339,7 @@ function App() {
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
   const [activeModelId, setActiveModelId] = useState("");
   const [embeddingDraft, setEmbeddingDraft] = useState<ModelConfigDraft>(emptyEmbeddingDraft);
-  const [mcpServers, setMcpServers] = useState<McpServerView[]>([]);
-  const [mcpDraft, setMcpDraft] = useState<McpServerDraft>(emptyMcpDraft);
-  const [stdioCommandLine, setStdioCommandLine] = useState(formatStdioCommandLine(emptyMcpDraft));
-  const [selectedMcpServerId, setSelectedMcpServerId] = useState("");
-  const [mcpBusyId, setMcpBusyId] = useState("");
+
 
   const [llmTestStatus, setLlmTestStatus] = useState<{
     status: "idle" | "testing" | "success" | "error";
@@ -519,6 +492,7 @@ function App() {
     docUrl: ""
   });
   const env = useEnv(setNotice);
+  const mcp = useMcp(setNotice);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -549,10 +523,6 @@ function App() {
   const activeProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) || null,
     [activeProjectId, projects]
-  );
-  const selectedMcpServer = useMemo(
-    () => mcpServers.find((server) => server.config.id === selectedMcpServerId) || null,
-    [mcpServers, selectedMcpServerId]
   );
   const traceGroups = useMemo<ObservabilityTraceGroup[]>(() => {
     const groups = new Map<string, ObservabilitySpan[]>();
@@ -730,28 +700,7 @@ function App() {
     setMemoryEnabled(selectedMemory.enabled);
   }, [selectedMemory]);
 
-  useEffect(() => {
-    if (!selectedMcpServer) {
-      setMcpDraft(emptyMcpDraft);
-      setStdioCommandLine(formatStdioCommandLine(emptyMcpDraft));
-      return;
-    }
 
-    const nextDraft = {
-      id: selectedMcpServer.config.id,
-      name: selectedMcpServer.config.name,
-      transport: selectedMcpServer.config.transport || "stdio",
-      command: selectedMcpServer.config.command,
-      args_json: selectedMcpServer.config.args_json,
-      env_json: selectedMcpServer.config.env_json,
-      url: selectedMcpServer.config.url,
-      headers_json: selectedMcpServer.config.headers_json,
-      working_dir: selectedMcpServer.config.working_dir,
-      enabled: selectedMcpServer.config.enabled
-    };
-    setMcpDraft(nextDraft);
-    setStdioCommandLine(formatStdioCommandLine(nextDraft));
-  }, [selectedMcpServer]);
 
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
@@ -856,25 +805,22 @@ function App() {
 
   async function loadAll() {
     try {
-      const [nextItems, nextModels, nextConversations, nextArchivedConversations, nextMemories, nextMcpServers] = await Promise.all([
+      const [nextItems, nextModels, nextConversations, nextArchivedConversations, nextMemories] = await Promise.all([
         listItems(),
         listModelConfigs(),
         listConversations(),
         listArchivedConversations(),
-        loadVisibleMemories(""),
-        listMcpServers()
+        loadVisibleMemories("")
       ]);
       setItems(nextItems);
       setModels(nextModels);
       setConversations(nextConversations);
       setArchivedConversations(nextArchivedConversations);
       setMemoryItems(nextMemories);
-      setMcpServers(nextMcpServers);
       setSelectedId((current) => current || nextItems[0]?.id || "");
       setActiveModelId((current) => current || nextModels.find((m) => m.id !== "embedding-config")?.id || "");
       setActiveConversationId((current) => current || nextConversations[0]?.id || "");
       setSelectedMemoryId((current) => current || nextMemories[0]?.id || "");
-      setSelectedMcpServerId((current) => current || nextMcpServers[0]?.config.id || "");
     } catch (error) {
       setNotice(String(error));
     }
@@ -903,134 +849,7 @@ function App() {
     }
   }
 
-  async function refreshMcpServers(selectId?: string) {
-    try {
-      const servers = await listMcpServers();
-      setMcpServers(servers);
-      setSelectedMcpServerId((current) => {
-        if (selectId && servers.some((server) => server.config.id === selectId)) {
-          return selectId;
-        }
-        if (current && servers.some((server) => server.config.id === current)) {
-          return current;
-        }
-        return servers[0]?.config.id || "";
-      });
-    } catch (error) {
-      setNotice(`加载 MCP 配置失败：${String(error)}`);
-    }
-  }
 
-  function updateMcpServerView(view: McpServerView) {
-    setMcpServers((current) => {
-      const exists = current.some((server) => server.config.id === view.config.id);
-      if (!exists) return [view, ...current];
-      return current.map((server) => (server.config.id === view.config.id ? view : server));
-    });
-  }
-
-  function handleNewMcpServer() {
-    setSelectedMcpServerId("");
-    setMcpDraft(emptyMcpDraft);
-    setStdioCommandLine(formatStdioCommandLine(emptyMcpDraft));
-  }
-
-  async function handleSaveMcpServer() {
-    try {
-      const isStdio = mcpDraft.transport === "stdio";
-      const stdioCommand = isStdio ? parseStdioCommandLine(stdioCommandLine) : null;
-      const saved = await saveMcpServer({
-        ...mcpDraft,
-        command: stdioCommand ? stdioCommand.command : "",
-        args_json: stdioCommand ? JSON.stringify(stdioCommand.args) : "[]",
-        env_json: isStdio ? mcpDraft.env_json : "{}",
-        url: isStdio ? "" : mcpDraft.url,
-        headers_json: isStdio ? "{}" : mcpDraft.headers_json,
-        working_dir: isStdio ? mcpDraft.working_dir : "",
-        enabled: true
-      });
-      await refreshMcpServers(saved.id);
-      setNotice("MCP 服务器配置已保存。");
-    } catch (error) {
-      setNotice(`保存 MCP 服务器失败：${String(error)}`);
-    }
-  }
-
-  async function handleDeleteMcpServer() {
-    if (!mcpDraft.id) {
-      handleNewMcpServer();
-      return;
-    }
-    if (!confirm("确定要删除该 MCP 服务器配置吗？")) {
-      return;
-    }
-    setMcpBusyId(mcpDraft.id);
-    try {
-      await deleteMcpServer(mcpDraft.id);
-      await refreshMcpServers();
-      setNotice("MCP 服务器已删除。");
-    } catch (error) {
-      setNotice(`删除 MCP 服务器失败：${String(error)}`);
-    } finally {
-      setMcpBusyId("");
-    }
-  }
-
-  async function handleConnectMcpServer(id: string) {
-    setMcpBusyId(id);
-    try {
-      const view = await connectMcpServer(id);
-      updateMcpServerView(view);
-      setSelectedMcpServerId(id);
-      setNotice(`MCP 服务器 ${view.config.name} 已连接，发现 ${view.tools.length} 个工具。`);
-    } catch (error) {
-      await refreshMcpServers(id);
-      setNotice(`连接 MCP 服务器失败：${String(error)}`);
-    } finally {
-      setMcpBusyId("");
-    }
-  }
-
-  async function handleDisconnectMcpServer(id: string) {
-    setMcpBusyId(id);
-    try {
-      await disconnectMcpServer(id);
-      await refreshMcpServers(id);
-      setNotice("MCP 服务器已断开。");
-    } catch (error) {
-      setNotice(`断开 MCP 服务器失败：${String(error)}`);
-    } finally {
-      setMcpBusyId("");
-    }
-  }
-
-  async function handleRefreshMcpTools(id: string) {
-    setMcpBusyId(id);
-    try {
-      const tools = await refreshMcpTools(id);
-      setMcpServers((current) =>
-        current.map((server) =>
-          server.config.id === id
-            ? {
-                ...server,
-                tools,
-                status: {
-                  ...server.status,
-                  connected: true,
-                  tool_count: tools.length,
-                  error: null
-                }
-              }
-            : server
-        )
-      );
-      setNotice(`工具列表已刷新，共 ${tools.length} 个工具。`);
-    } catch (error) {
-      setNotice(`刷新 MCP 工具失败：${String(error)}`);
-    } finally {
-      setMcpBusyId("");
-    }
-  }
 
   async function handleRagFiles(files: FileList | File[]) {
     const selectedFiles = Array.from(files).filter((file) => isSupportedRagFile(file.name));
@@ -2159,7 +1978,7 @@ function App() {
         projectForRequest,
         projectFiles,
         skills,
-        mcpServers,
+        mcp.mcpServers,
         ragMatches,
         tempDir
       ),
@@ -2619,7 +2438,7 @@ function App() {
           projectForRequest,
           projectFiles,
           skills,
-          mcpServers,
+          mcp.mcpServers,
           ragMatches,
           tempDir
         ),
@@ -3840,20 +3659,20 @@ function App() {
                   <div className="settings-tab-content model-tab-content">
                     <div className="model-header-row">
                       <h3>MCP 配置</h3>
-                      <button className="icon-only-btn compact" onClick={handleNewMcpServer} title="添加 MCP 服务器" aria-label="添加 MCP 服务器" type="button"><Plus /></button>
+                      <button className="icon-only-btn compact" onClick={mcp.handleNewMcpServer} title="添加 MCP 服务器" aria-label="添加 MCP 服务器" type="button"><Plus /></button>
                     </div>
                     <p className="description" style={{ marginTop: "-4px" }}>连接符合 Model Context Protocol 规范的工具服务器，支持 stdio、SSE 和 Streamable HTTP。</p>
 
                     <div className="model-config-grid mcp-config-grid">
                       <aside className="model-config-list">
-                        {mcpServers.map((server) => {
+                        {mcp.mcpServers.map((server) => {
                           const connected = server.status.connected;
-                          const busy = mcpBusyId === server.config.id;
+                          const busy = mcp.mcpBusyId === server.config.id;
                           return (
                             <button
                               key={server.config.id}
-                              className={server.config.id === selectedMcpServerId ? "mcp-config-row active" : "mcp-config-row"}
-                              onClick={() => setSelectedMcpServerId(server.config.id)}
+                              className={server.config.id === mcp.selectedMcpServerId ? "mcp-config-row active" : "mcp-config-row"}
+                              onClick={() => mcp.setSelectedMcpServerId(server.config.id)}
                               type="button"
                             >
                               <div className="mcp-config-row-header">
@@ -3863,9 +3682,9 @@ function App() {
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     if (connected) {
-                                      void handleDisconnectMcpServer(server.config.id);
+                                      void mcp.handleDisconnectMcpServer(server.config.id);
                                     } else {
-                                      void handleConnectMcpServer(server.config.id);
+                                      void mcp.handleConnectMcpServer(server.config.id);
                                     }
                                   }}
                                   disabled={busy}
@@ -3880,7 +3699,7 @@ function App() {
                             </button>
                           );
                         })}
-                        {mcpServers.length === 0 && <div className="empty">暂无 MCP 服务器配置</div>}
+                        {mcp.mcpServers.length === 0 && <div className="empty">暂无 MCP 服务器配置</div>}
                       </aside>
 
                       <div className="model-config-form">
@@ -3888,29 +3707,29 @@ function App() {
                           <label>
                             <span>服务名称</span>
                             <input
-                              value={mcpDraft.name}
-                              onChange={(event) => setMcpDraft({ ...mcpDraft, name: event.target.value })}
+                              value={mcp.mcpDraft.name}
+                              onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, name: event.target.value })}
                               placeholder="amap-maps"
                             />
                           </label>
                           <label>
                             <span>协议</span>
                             <select
-                              value={mcpDraft.transport}
-                              onChange={(event) => setMcpDraft({ ...mcpDraft, transport: event.target.value })}
+                              value={mcp.mcpDraft.transport}
+                              onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, transport: event.target.value })}
                             >
                               <option value="stdio">stdio 本地进程</option>
                               <option value="sse">SSE</option>
                               <option value="streamable_http">Streamable HTTP</option>
                             </select>
                           </label>
-                          {mcpDraft.transport === "stdio" ? (
+                          {mcp.mcpDraft.transport === "stdio" ? (
                             <>
                               <label>
                                 <span>命令</span>
                                 <textarea
-                                  value={stdioCommandLine}
-                                  onChange={(event) => setStdioCommandLine(event.target.value)}
+                                  value={mcp.stdioCommandLine}
+                                  onChange={(event) => mcp.setStdioCommandLine(event.target.value)}
                                   rows={3}
                                   placeholder={"npx -y @modelcontextprotocol/server-filesystem C:\\Users\\13439\\Desktop"}
                                   spellCheck={false}
@@ -3919,8 +3738,8 @@ function App() {
                               <label>
                                 <span>环境变量 JSON</span>
                                 <textarea
-                                  value={mcpDraft.env_json}
-                                  onChange={(event) => setMcpDraft({ ...mcpDraft, env_json: event.target.value })}
+                                  value={mcp.mcpDraft.env_json}
+                                  onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, env_json: event.target.value })}
                                   rows={3}
                                   placeholder={"{\"API_KEY\": \"...\"}"}
                                 />
@@ -3928,8 +3747,8 @@ function App() {
                               <label>
                                 <span>工作目录</span>
                                 <input
-                                  value={mcpDraft.working_dir}
-                                  onChange={(event) => setMcpDraft({ ...mcpDraft, working_dir: event.target.value })}
+                                  value={mcp.mcpDraft.working_dir}
+                                  onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, working_dir: event.target.value })}
                                   placeholder="可选"
                                 />
                               </label>
@@ -3939,16 +3758,16 @@ function App() {
                               <label>
                                 <span>地址</span>
                                 <input
-                                  value={mcpDraft.url}
-                                  onChange={(event) => setMcpDraft({ ...mcpDraft, url: event.target.value })}
-                                  placeholder={mcpDraft.transport === "sse" ? "https://example.com/sse" : "https://example.com/mcp"}
+                                  value={mcp.mcpDraft.url}
+                                  onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, url: event.target.value })}
+                                  placeholder={mcp.mcpDraft.transport === "sse" ? "https://example.com/sse" : "https://example.com/mcp"}
                                 />
                               </label>
                               <label>
                                 <span>请求头 JSON</span>
                                 <textarea
-                                  value={mcpDraft.headers_json}
-                                  onChange={(event) => setMcpDraft({ ...mcpDraft, headers_json: event.target.value })}
+                                  value={mcp.mcpDraft.headers_json}
+                                  onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, headers_json: event.target.value })}
                                   rows={3}
                                   placeholder={"{\"Authorization\": \"Bearer ...\"}"}
                                 />
@@ -3959,35 +3778,35 @@ function App() {
 
                         <div className="modal-actions icon-actions mcp-actions">
                           <div className="mcp-action-status">
-                            {selectedMcpServer?.status.error && (
-                              <span className="mcp-status-text error" title={selectedMcpServer.status.error}>连接错误</span>
+                            {mcp.selectedMcpServer?.status.error && (
+                              <span className="mcp-status-text error" title={mcp.selectedMcpServer.status.error}>连接错误</span>
                             )}
-                            {selectedMcpServer && (
+                            {mcp.selectedMcpServer && (
                               <div className="mcp-tools-tooltip-wrap">
                                 <button className="icon-only-btn compact" type="button" aria-label="查看工具详情" title="查看工具详情">
                                   <Info />
                                 </button>
                                 <div className="mcp-tools-tooltip" role="tooltip">
                                   <div className="mcp-tools-tooltip-header">
-                                    <strong>工具详情{selectedMcpServer.status.connected ? ` · ${selectedMcpServer.tools.length}` : ""}</strong>
-                                    {selectedMcpServer.status.connected && (
+                                    <strong>工具详情{mcp.selectedMcpServer.status.connected ? ` · ${mcp.selectedMcpServer.tools.length}` : ""}</strong>
+                                    {mcp.selectedMcpServer.status.connected && (
                                       <button
                                         className="icon-only-btn compact"
-                                        onClick={() => void handleRefreshMcpTools(selectedMcpServer.config.id)}
-                                        disabled={mcpBusyId === selectedMcpServer.config.id}
+                                        onClick={() => void mcp.handleRefreshMcpTools(mcp.selectedMcpServer!.config.id)}
+                                        disabled={mcp.mcpBusyId === mcp.selectedMcpServer.config.id}
                                         type="button"
                                         title="刷新工具列表"
                                         aria-label="刷新工具列表"
                                       >
-                                        {mcpBusyId === selectedMcpServer.config.id ? <Loader2 style={{ animation: "spin 1s linear infinite" }} /> : <RotateCcw />}
+                                        {mcp.mcpBusyId === mcp.selectedMcpServer.config.id ? <Loader2 style={{ animation: "spin 1s linear infinite" }} /> : <RotateCcw />}
                                       </button>
                                     )}
                                   </div>
-                                  {!selectedMcpServer.status.connected && <div className="mcp-tools-tooltip-empty">连接后可查看工具</div>}
-                                  {selectedMcpServer.status.connected && selectedMcpServer.tools.length === 0 && <div className="mcp-tools-tooltip-empty">该服务器暂未暴露工具</div>}
-                                  {selectedMcpServer.status.connected && selectedMcpServer.tools.length > 0 && (
+                                  {!mcp.selectedMcpServer.status.connected && <div className="mcp-tools-tooltip-empty">连接后可查看工具</div>}
+                                  {mcp.selectedMcpServer.status.connected && mcp.selectedMcpServer.tools.length === 0 && <div className="mcp-tools-tooltip-empty">该服务器暂未暴露工具</div>}
+                                  {mcp.selectedMcpServer.status.connected && mcp.selectedMcpServer.tools.length > 0 && (
                                     <div className="mcp-tools-tooltip-list">
-                                      {selectedMcpServer.tools.map((tool) => (
+                                      {mcp.selectedMcpServer.tools.map((tool) => (
                                         <div key={`${tool.server_id}:${tool.name}`} className="mcp-tools-tooltip-item">
                                           <strong>{tool.name}</strong>
                                           {tool.description && <span>{tool.description}</span>}
@@ -3999,11 +3818,11 @@ function App() {
                               </div>
                             )}
                           </div>
-                          <button className="icon-text-btn success-btn" onClick={handleSaveMcpServer} title="保存配置" type="button">
+                          <button className="icon-text-btn success-btn" onClick={mcp.handleSaveMcpServer} title="保存配置" type="button">
                             <Save />
                             <span>保存</span>
                           </button>
-                          <button className="icon-text-btn danger-btn" title="删除 MCP 服务器" onClick={handleDeleteMcpServer} disabled={mcpBusyId === mcpDraft.id} type="button">
+                          <button className="icon-text-btn danger-btn" title="删除 MCP 服务器" onClick={mcp.handleDeleteMcpServer} disabled={mcp.mcpBusyId === mcp.mcpDraft.id} type="button">
                             <Trash2 />
                             <span>删除</span>
                           </button>
