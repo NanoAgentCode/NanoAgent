@@ -3849,7 +3849,7 @@ function App() {
                                   已归档
                                 </span>
                               </div>
-                              <span>{conversation.archived_at || conversation.updated_at}</span>
+                              <span>{formatDateTime(conversation.archived_at || conversation.updated_at)}</span>
                             </button>
                           ))}
                           {archivedConversations.length === 0 && <div className="empty">暂无归档对话</div>}
@@ -3862,7 +3862,7 @@ function App() {
                               <div className="archive-preview-title-container">
                                 <h4>{archivedConversations.find((c) => c.id === previewArchivedId)?.title || "对话预览"}</h4>
                                 <span className="archive-preview-date">
-                                  {archivedConversations.find((c) => c.id === previewArchivedId)?.archived_at || ""}
+                                  {formatDateTime(archivedConversations.find((c) => c.id === previewArchivedId)?.archived_at)}
                                 </span>
                               </div>
                               <div className="archive-preview-actions">
@@ -5336,6 +5336,18 @@ function formatMcpTransportLabel(transport: string) {
 
 function isSupportedRagFile(name: string) {
   return /\.(txt|md|markdown|json|csv|tsv|log|js|jsx|ts|tsx|rs|py|java|go|yaml|yml|toml|html|css|xml|pdf|doc|docx|xlsx|pptx)$/i.test(name);
+}
+
+function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  } catch {
+    return dateStr;
+  }
 }
 
 function buildRuntimeContext() {
