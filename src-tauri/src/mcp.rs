@@ -247,7 +247,14 @@ impl StdioSession {
     async fn start(config: &McpServerConfig) -> AppResult<Self> {
         let args = parse_args(&config.args_json)?;
         let env = parse_env(&config.env_json)?;
-        let mut command = Command::new(&config.command);
+        let mut command = if cfg!(windows) {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C");
+            cmd.arg(&config.command);
+            cmd
+        } else {
+            Command::new(&config.command)
+        };
         command.args(args);
         if !config.working_dir.trim().is_empty() {
             command.current_dir(config.working_dir.trim());
