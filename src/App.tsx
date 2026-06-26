@@ -63,9 +63,6 @@ import {
   updateItem,
   checkEnv,
   installEnv,
-  listObservabilitySpans,
-  clearObservabilitySpans,
-  listAgentRunTimelines,
   createAgentRun,
   finishAgentRun,
   recordAgentStep,
@@ -79,13 +76,14 @@ import {
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import AgentRuntimePanel from "./components/AgentRuntimePanel";
-import ObservabilityPanel, { type ObservabilityTraceGroup } from "./components/ObservabilityPanel";
+import ObservabilityPanel from "./components/ObservabilityPanel";
 import ToolResultMessage from "./components/ToolResultMessage";
 import { useEnv } from "./hooks/useEnv";
 import { useMcp } from "./hooks/useMcp";
 import { useMemory } from "./hooks/useMemory";
 import { useModel, normalizeModelDraft } from "./hooks/useModel";
 import { useSkills } from "./hooks/useSkills";
+import { useObservability } from "./hooks/useObservability";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -313,20 +311,12 @@ function App() {
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("theme");
-  const [observabilitySpans, setObservabilitySpans] = useState<ObservabilitySpan[]>([]);
-  const [agentRunTimelines, setAgentRunTimelines] = useState<AgentRunTimeline[]>([]);
-  const [selectedTraceId, setSelectedTraceId] = useState("");
-  const [expandedObservabilityRows, setExpandedObservabilityRows] = useState<string[]>([]);
-  const [agentRuntimeCollapsed, setAgentRuntimeCollapsed] = useState(false);
-  const [traceTimelineCollapsed, setTraceTimelineCollapsed] = useState(false);
-  const [isLoadingObservability, setIsLoadingObservability] = useState(false);
-  const [showChatRuntime, setShowChatRuntime] = useState(false);
-
   const env = useEnv(setNotice);
   const mcp = useMcp(setNotice);
   const memory = useMemory(setNotice);
   const model = useModel(setNotice, activeConversationId, setConversations);
   const skills = useSkills(setNotice);
+  const obs = useObservability(setNotice, activeConversationId, showModelConfig, activeSettingsTab);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -354,47 +344,9 @@ function App() {
     () => projects.find((project) => project.id === activeProjectId) || null,
     [activeProjectId, projects]
   );
-  const traceGroups = useMemo<ObservabilityTraceGroup[]>(() => {
-    const groups = new Map<string, ObservabilitySpan[]>();
-    for (const span of observabilitySpans) {
-      const current = groups.get(span.trace_id) || [];
-      current.push(span);
-      groups.set(span.trace_id, current);
-    }
-
-    return Array.from(groups.entries())
-      .map(([traceId, spans]) => {
-        const sorted = [...spans].sort(
-          (left, right) => Date.parse(left.started_at) - Date.parse(right.started_at)
-        );
-        const errors = sorted.filter((span) => span.status === "error").length;
-        const duration = sorted.reduce((sum, span) => sum + (span.duration_ms || 0), 0);
-        const startedAt = sorted[0]?.started_at || "";
-        const lastSpan = sorted[sorted.length - 1];
-        return {
-          traceId,
-          spans: sorted,
-          errors,
-          duration,
-          startedAt,
-          lastOperation: lastSpan?.operation || ""
-        };
-      })
-      .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
-  }, [observabilitySpans]);
-  const selectedTrace =
-    traceGroups.find((trace) => trace.traceId === selectedTraceId) || traceGroups[0] || null;
-  const activeRunTimeline = agentRunTimelines[0] || null;
-  const activeTraceTimelineItems = selectedTrace?.spans || [];
-
-  useEffect(() => {
-    setExpandedObservabilityRows([]);
-    setTraceTimelineCollapsed(false);
-  }, [selectedTrace?.traceId]);
-
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (!showChatRuntime) return;
+      if (!obs.showChatRuntime) return;
       const target = event.target as Node;
       if (
         runtimePanelRef.current &&
@@ -402,14 +354,14 @@ function App() {
         runtimeToggleBtnRef.current &&
         !runtimeToggleBtnRef.current.contains(target)
       ) {
-        setShowChatRuntime(false);
+        obs.setShowChatRuntime(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [showChatRuntime]);
+  }, [obs.showChatRuntime]);
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -528,11 +480,7 @@ function App() {
     }
   }, [activeConversation?.id, activeConversation?.model_config_id, model.activeModelId, model.models]);
 
-  useEffect(() => {
-    if (showModelConfig && activeSettingsTab === "observability") {
-      void refreshObservability();
-    }
-  }, [showModelConfig, activeSettingsTab, activeConversationId]);
+
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -566,42 +514,7 @@ function App() {
     };
   }, [activeConversationId, model.activeModelId]);
 
-  async function refreshObservability() {
-    setIsLoadingObservability(true);
-    try {
-      const spans = await listObservabilitySpans(200);
-      setObservabilitySpans(spans);
-      if (activeConversationId) {
-        setAgentRunTimelines(await listAgentRunTimelines(activeConversationId, 20));
-      } else {
-        setAgentRunTimelines([]);
-      }
-      setSelectedTraceId((current) =>
-        current && spans.some((span) => span.trace_id === current)
-          ? current
-          : spans[0]?.trace_id || ""
-      );
-    } catch (error) {
-      setNotice(String(error));
-    } finally {
-      setIsLoadingObservability(false);
-    }
-  }
 
-  async function handleClearObservability() {
-    if (!confirm("Clear all observability spans?")) {
-      return;
-    }
-
-    try {
-      await clearObservabilitySpans();
-      setObservabilitySpans([]);
-      setAgentRunTimelines([]);
-      setSelectedTraceId("");
-    } catch (error) {
-      setNotice(String(error));
-    }
-  }
 
   async function loadAll() {
     try {
@@ -2224,30 +2137,7 @@ function App() {
     );
   }
 
-  const toggleTimelineRow = (id: string) => {
-    setExpandedObservabilityRows((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-    );
-  };
 
-  function renderObservabilityPanel() {
-    return (
-      <ObservabilityPanel
-        traces={traceGroups}
-        selectedTrace={selectedTrace}
-        timelineItems={activeTraceTimelineItems}
-        expandedRows={expandedObservabilityRows}
-        isTimelineCollapsed={traceTimelineCollapsed}
-        isLoading={isLoadingObservability}
-        spanCount={observabilitySpans.length}
-        onRefresh={() => void refreshObservability()}
-        onClear={() => void handleClearObservability()}
-        onSelectTrace={setSelectedTraceId}
-        onToggleTimeline={() => setTraceTimelineCollapsed(!traceTimelineCollapsed)}
-        onToggleRow={toggleTimelineRow}
-      />
-    );
-  }
 
   return (
     <main
@@ -3122,7 +3012,22 @@ function App() {
                   </div>
                 )}
 
-                                {activeSettingsTab === "observability" && renderObservabilityPanel()}
+                                {activeSettingsTab === "observability" && (
+                                  <ObservabilityPanel
+                                    traces={obs.traceGroups}
+                                    selectedTrace={obs.selectedTrace}
+                                    timelineItems={obs.activeTraceTimelineItems}
+                                    expandedRows={obs.expandedObservabilityRows}
+                                    isTimelineCollapsed={obs.traceTimelineCollapsed}
+                                    isLoading={obs.isLoadingObservability}
+                                    spanCount={obs.observabilitySpans.length}
+                                    onRefresh={() => void obs.refreshObservability()}
+                                    onClear={() => void obs.handleClearObservability()}
+                                    onSelectTrace={obs.setSelectedTraceId}
+                                    onToggleTimeline={() => obs.setTraceTimelineCollapsed(!obs.traceTimelineCollapsed)}
+                                    onToggleRow={obs.toggleTimelineRow}
+                                  />
+                                )}
 
 {activeSettingsTab === "mcp" && (
                   <div className="settings-tab-content model-tab-content">
@@ -3489,7 +3394,7 @@ function App() {
                 className="compact-btn"
                 aria-label="Agent Runtime 运行详情"
                 title="Agent Runtime 运行详情"
-                onClick={() => setShowChatRuntime(!showChatRuntime)}
+                onClick={() => obs.setShowChatRuntime(!obs.showChatRuntime)}
                 type="button"
                 style={{
                   fontSize: "12px",
@@ -3500,8 +3405,8 @@ function App() {
                   gap: "4px",
                   borderRadius: "6px",
                   cursor: "pointer",
-                  color: showChatRuntime ? "var(--accent-cyan)" : "var(--text-secondary)",
-                  borderColor: showChatRuntime ? "var(--accent-cyan)" : "var(--border-color)",
+                  color: obs.showChatRuntime ? "var(--accent-cyan)" : "var(--text-secondary)",
+                  borderColor: obs.showChatRuntime ? "var(--accent-cyan)" : "var(--border-color)",
                   background: "transparent",
                   outline: "none"
                 }}
@@ -3522,17 +3427,17 @@ function App() {
           )}
         </header>
 
-        {showChatRuntime && (
+        {obs.showChatRuntime && (
           <AgentRuntimePanel
             panelRef={runtimePanelRef}
             activeConversationId={activeConversationId}
             activeConversationTitle={activeConversation?.title}
-            timelines={agentRunTimelines}
-            activeTimeline={activeRunTimeline}
-            isCollapsed={agentRuntimeCollapsed}
-            expandedRows={expandedObservabilityRows}
-            onToggleCollapsed={() => setAgentRuntimeCollapsed(!agentRuntimeCollapsed)}
-            onToggleRow={toggleTimelineRow}
+            timelines={obs.agentRunTimelines}
+            activeTimeline={obs.activeRunTimeline}
+            isCollapsed={obs.agentRuntimeCollapsed}
+            expandedRows={obs.expandedObservabilityRows}
+            onToggleCollapsed={() => obs.setAgentRuntimeCollapsed(!obs.agentRuntimeCollapsed)}
+            onToggleRow={obs.toggleTimelineRow}
           />
         )}
 
