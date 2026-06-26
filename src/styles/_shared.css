@@ -301,6 +301,13 @@ button.danger:active:not(:disabled) {
   border-top: 1px solid var(--border-color);
 }
 
+/* Override for icon-actions: remove border/padding/margin from inline action bars */
+.modal-actions.icon-actions {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .compact-btn {
   min-height: 32px !important;
   font-size: var(--font-size-md) !important;

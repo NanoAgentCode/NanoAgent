@@ -76,6 +76,7 @@
 .mcp-tools-tooltip-item strong { color: var(--text-primary); font-size: 12px; }
 .mcp-tools-tooltip-item span, .mcp-tools-tooltip-empty { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
 
+/* Small spinning loader for MCP connection buttons */
 .mcp-loader-small.svg-spin {
   width: 10px;
   height: 10px;

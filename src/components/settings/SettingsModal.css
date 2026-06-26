@@ -41,6 +41,9 @@
   background: var(--bg-pane); display: flex;
   flex-direction: column; min-height: 0; overflow-y: auto;
 }
+.archived-list {
+  display: grid; gap: 10px; max-height: none; overflow-y: visible;
+}
 .archived-list-column .archived-list {
   display: grid; gap: 10px; max-height: none; overflow-y: visible;
 }
