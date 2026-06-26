@@ -38,14 +38,15 @@
 }
 .archived-list-column {
   border-right: 1px solid var(--border-color);
-  background: var(--bg-pane); display: flex;
+  background: var(--bg-sidebar); display: flex;
   flex-direction: column; min-height: 0; overflow-y: auto;
+  padding: 8px;
 }
 .archived-list {
-  display: grid; gap: 10px; max-height: none; overflow-y: visible;
+  display: flex; flex-direction: column; gap: 4px; max-height: none; overflow-y: visible;
 }
 .archived-list-column .archived-list {
-  display: grid; gap: 10px; max-height: none; overflow-y: visible;
+  display: flex; flex-direction: column; gap: 4px; max-height: none; overflow-y: visible;
 }
 .archived-preview-column {
   flex: 1; display: flex; flex-direction: column;

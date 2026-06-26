@@ -101,10 +101,10 @@
   display: flex; justify-content: space-between; align-items: center;
 }
 .skills-config-list-inner {
-  display: flex; flex-direction: column; gap: 8px; overflow: hidden;
+  display: flex; flex-direction: column; gap: 4px; overflow: hidden;
 }
 .skills-config-list-scroll {
-  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;
 }
 .skills-config-form-scroll {
   display: flex; flex-direction: column; overflow-y: auto;
@@ -140,6 +140,9 @@
 .skills-h4-no-margin {
   margin: 0;
 }
-.mcp-config-grid .model-config-list { padding: 0; gap: 0; }
-.skills-config-list { padding: 0; gap: 0; }
-.skills-config-list { padding: 14px; gap: 8px; }
+.mcp-config-grid .model-config-list { padding: 8px; gap: 4px; }
+.skills-config-list {
+  background: var(--bg-sidebar) !important;
+  padding: 8px;
+  gap: 4px;
+}

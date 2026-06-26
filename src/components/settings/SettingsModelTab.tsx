@@ -38,7 +38,7 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
                 className={m.id === model.modelDraft.id ? "model-config-row active" : "model-config-row"}
                 onClick={() => model.setModelDraft(normalizeModelDraft(m))}
               >
-                <span className="status-dot" style={{ backgroundColor: dotColor }} title={dotTitle} />
+                <span className={`status-dot status-dot--${statusInfo.status}`} title={dotTitle} />
                 <div className="model-config-row-info">
                   <strong>{m.name}</strong>
                   <span>{m.provider} / {m.model}</span>
