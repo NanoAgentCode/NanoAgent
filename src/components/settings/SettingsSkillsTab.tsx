@@ -1,4 +1,4 @@
-import { Save, Power, Trash2 } from "lucide-react";
+import { Save, Power, Trash2, Plus } from "lucide-react";
 import { isBuiltInSkill } from "../../lib/skills";
 import type { UseSkillsReturn } from "../../hooks/useSkills";
 
@@ -9,20 +9,15 @@ interface SettingsSkillsTabProps {
 export default function SettingsSkillsTab({ skills }: SettingsSkillsTabProps) {
   return (
     <div className="settings-tab-content skills-tab-layout">
-      <div className="skills-header-row">
-        <div>
-          <h3>Skills 管理</h3>
-          <p className="description">配置并扩展 AI 助手的工具与自动化能力（例如内置 Anthropic 官方的 Text Editor、Bash Tool 等）。</p>
-        </div>
+      <div className="model-header-row">
+        <h3>Skills 管理</h3>
+        <button className="icon-only-btn compact" onClick={() => { skills.setIsAddingSkill(true); skills.setSelectedSkillId(""); }} title="添加自定义技能" aria-label="添加自定义技能" type="button">
+          <Plus />
+        </button>
       </div>
+      <p className="description">配置并扩展 AI 助手的工具与自动化能力（例如内置 Anthropic 官方的 Text Editor、Bash Tool 等）。</p>
       <div className="skills-config-grid">
         <aside className="skills-config-list skills-config-list-inner">
-          <div style={{ marginBottom: "4px" }}>
-            <button className="secondary skills-add-btn-full"
-              onClick={() => { skills.setIsAddingSkill(true); skills.setSelectedSkillId(""); }} type="button">
-              添加自定义技能
-            </button>
-          </div>
           <div className="skills-config-list-scroll">
             {skills.skills.map((skill) => (
               <button key={skill.id} className={!skills.isAddingSkill && skill.id === skills.selectedSkillId ? "skills-config-row active" : "skills-config-row"}
