@@ -259,9 +259,10 @@
   color: var(--accent-cyan);
 }
 .settings-entry {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: flex-start;
+  position: relative;
   gap: 10px;
   min-height: var(--control-height-lg);
   margin-top: auto;
@@ -270,7 +271,14 @@
   border-radius: var(--control-radius-md);
   background: transparent;
   color: var(--text-primary);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-normal);
+}
+.settings-entry span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  pointer-events: none;
 }
 .settings-entry:hover {
   color: var(--accent-cyan);
