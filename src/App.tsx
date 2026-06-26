@@ -106,13 +106,10 @@ import {
   safeUpdateAgentToolCall
 } from "./lib/agentSafe";
 import {
-  formatBytes,
-  formatJson,
   formatMcpTransportLabel,
   formatProjectFileTree,
   formatDateTime,
   buildRuntimeContext,
-  formatErrorMessage,
   estimateTokens,
   isSupportedRagFile,
   MAX_CONTEXT_TOKENS
@@ -135,10 +132,7 @@ import type {
   AgentRun,
   AgentRunTimeline,
   AgentRunDraft,
-  AgentStepDraft,
-  AgentToolCallDraft,
   AgentToolCall,
-  AgentToolExecutionRequest,
   Conversation,
   Item,
   ItemKind,
