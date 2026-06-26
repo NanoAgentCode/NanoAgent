@@ -52,11 +52,11 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
             {mcp.mcpDraft.transport === "stdio" ? (
               <>
                 <label><span>命令</span>
-                  <textarea value={mcp.stdioCommandLine} onChange={(event) => mcp.setStdioCommandLine(event.target.value)} rows={3}
+                  <textarea value={mcp.stdioCommandLine} onChange={(event) => mcp.setStdioCommandLine(event.target.value)} rows={2}
                     placeholder={"npx -y @modelcontextprotocol/server-filesystem C:\\Users\\13439\\Desktop"} spellCheck={false} />
                 </label>
                 <label><span>环境变量 JSON</span>
-                  <textarea value={mcp.mcpDraft.env_json} onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, env_json: event.target.value })} rows={3} placeholder={'{"API_KEY": "..."}'} />
+                  <textarea value={mcp.mcpDraft.env_json} onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, env_json: event.target.value })} rows={2} placeholder={'{"API_KEY": "..."}'} />
                 </label>
                 <label><span>工作目录</span>
                   <input value={mcp.mcpDraft.working_dir} onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, working_dir: event.target.value })} placeholder="可选" />
@@ -69,7 +69,7 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
                     placeholder={mcp.mcpDraft.transport === "sse" ? "https://example.com/sse" : "https://example.com/mcp"} />
                 </label>
                 <label><span>请求头 JSON</span>
-                  <textarea value={mcp.mcpDraft.headers_json} onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, headers_json: event.target.value })} rows={3} placeholder={'{"Authorization": "Bearer ..."}'} />
+                  <textarea value={mcp.mcpDraft.headers_json} onChange={(event) => mcp.setMcpDraft({ ...mcp.mcpDraft, headers_json: event.target.value })} rows={2} placeholder={'{"Authorization": "Bearer ..."}'} />
                 </label>
               </>
             )}

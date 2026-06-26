@@ -44,7 +44,7 @@
 .mcp-connection-badge .mcp-pill-indicator { width: 5px; height: 5px; border-radius: 999px; background: var(--text-muted); }
 .mcp-connection-badge.connected .mcp-pill-indicator { background: var(--accent-emerald); }
 .mcp-form-card textarea {
-  width: 100%; min-height: 82px; padding: 10px 12px;
+  width: 100%; min-height: 58px; padding: 10px 12px;
   border: 1px solid var(--border-color); border-radius: 8px;
   outline: none; background: var(--bg-pane); color: var(--text-primary);
   resize: vertical; font-family: var(--font-mono);
