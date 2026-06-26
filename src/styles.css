@@ -3687,6 +3687,13 @@ button.danger:active:not(:disabled) {
   box-shadow: var(--focus-ring);
 }
 
+.model-config-form input:disabled,
+.model-config-form select:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  background: var(--option-bg);
+}
+
 .model-form-section-title {
   margin-top: 4px;
   color: var(--text-secondary);

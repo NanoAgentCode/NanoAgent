@@ -3998,6 +3998,7 @@ function App() {
                             <select
                               value={embeddingDraft.embedding_provider}
                               onChange={(event) => handleEmbeddingProviderChange(event.target.value)}
+                              disabled
                             >
                               <option value="openai-compatible">OpenAI 兼容协议</option>
                             </select>
