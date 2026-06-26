@@ -30,7 +30,7 @@ interface ChatPaneProps {
   handleExecuteTool: (messageId: string, toolCall: ParsedToolCall) => Promise<void>;
   handleRejectTool: (messageId: string, toolCall: ParsedToolCall) => Promise<void>;
   handleInputChange: (value: string, cursorIndex: number) => Promise<void>;
-  handleChatInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => Promise<void>;
+  handleChatInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   insertPrompt: (item: Item) => void;
   handleDeleteRagFile: (id: string) => Promise<void>;
   setNotice: (message: string) => void;

@@ -58,7 +58,6 @@ function App() {
     model,
     skills,
     mcp,
-    memory,
     showModelConfig,
     activeSettingsTab
   });

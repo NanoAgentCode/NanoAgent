@@ -1,0 +1,136 @@
+import { buildRuntimeContext, formatProjectFileTree } from "./formatters";
+import type { ChatMessage, Memory, McpServerView, ProjectEntry, ProjectFileEntry, RagChunkMatch } from "../types";
+
+export const systemMessage: ChatMessage = {
+  role: "system",
+  content: "你是一个专注的本地效率助手。请保持回答简明且实用。记忆写入由应用本地功能处理；除非应用明确提供结果，否则不要声称已经保存或更新记忆。"
+};
+
+export function buildSystemMessage(
+  memories: Memory[],
+  activeProject: ProjectEntry | null = null,
+  projectFiles: ProjectFileEntry[] = [],
+  skills: any[] = [],
+  mcpServers: McpServerView[] = [],
+  ragMatches: RagChunkMatch[] = [],
+  tempDir?: string
+): ChatMessage {
+  const runtimeContext = buildRuntimeContext();
+
+  const memoryContext = memories
+    .map((memory) => `- ${memory.title}: ${memory.content}`)
+    .join("\n");
+
+  const ragContext = ragMatches.length > 0
+    ? ragMatches
+        .map((match, index) => {
+          const score = Number.isFinite(match.score) ? match.score.toFixed(3) : "0.000";
+          return `[${index + 1}] ${match.file_name} · chunk ${match.chunk_index + 1} · score ${score}\n${match.text}`;
+        })
+        .join("\n\n")
+    : "";
+
+  const projectContext = activeProject
+    ? [
+        "当前项目上下文：",
+        `- 项目显示名称：${activeProject.name}（仅用于应用界面展示，不代表目录名，也不要用于拼接路径）`,
+        `- 真实工作目录：${activeProject.path}`,
+        "- 所有文件、命令、读写操作必须以真实工作目录为准；不要根据项目显示名称推断或追加子目录。",
+        projectFiles.length > 0
+          ? `- 当前项目文件列表（最多 300 项，已跳过 node_modules、.git、target、dist 等大目录）：\n${formatProjectFileTree(projectFiles)}`
+          : "- 当前项目文件列表为空，或暂时无法读取。"
+      ].join("\n")
+    : "";
+
+  const enabledSkills = skills.filter((s) => s.enabled);
+  const mcpTools = mcpServers.flatMap((server) =>
+    server.status.connected
+      ? server.tools.map((tool) => ({
+          callName: `mcp__${tool.server_id}__${tool.name}`,
+          serverName: server.config.name,
+          tool
+        }))
+      : []
+  );
+  const mcpContext = mcpTools.length > 0
+    ? [
+        "当前已连接的 MCP 工具：",
+        ...mcpTools.map(({ callName, serverName, tool }) =>
+          `- ${callName}\n  服务器：${serverName}\n  描述：${tool.description || "无"}\n  参数 schema：${tool.input_schema_json}`
+        )
+      ].join("\n")
+    : "";
+  const skillsContext = enabledSkills.length > 0
+    ? [
+        "当前已启用的本地/系统技能（Skills）：",
+        ...enabledSkills.map((s) => {
+          const parameters = { ...s.parameters };
+          if (activeProject?.path) {
+            if ("workspace_root" in parameters) {
+              parameters.workspace_root = activeProject.path;
+            }
+            if ("output_dir" in parameters) {
+              parameters.output_dir = activeProject.path;
+            }
+            if ("skills_root" in parameters) {
+              parameters.skills_root = activeProject.path + "\\.agents\\skills";
+            }
+          } else if (tempDir) {
+            if ("workspace_root" in parameters) {
+              parameters.workspace_root = tempDir;
+            }
+            if ("output_dir" in parameters) {
+              parameters.output_dir = tempDir;
+            }
+          }
+
+          const params = parameters && Object.keys(parameters).length > 0
+            ? "\n  自动运行参数：\n" + Object.entries(parameters)
+                .map(([k, v]) => `    * ${k}: ${v}`)
+                .join("\n")
+            : "";
+          return `- 名称：${s.name} (ID: ${s.id})\n  提供者：${s.provider}\n  描述：${s.description}${params}`;
+        })
+      ].join("\n")
+    : "";
+
+  const toolsSystemInstruction = `
+如果你需要使用已启用的技能来执行操作（如读取文件、写入文件或执行命令），你必须在回答中输出以下格式的 XML 标签来发出工具调用请求：
+
+1. 写入文件（如果文件不存在会自动创建并写入，用于创建或修改文件）：
+<tool_call name="write_file">
+  <path>文件名或路径（如 a.txt）</path>
+  <content>写入的完整文件内容</content>
+</tool_call>
+
+2. 读取文件（读取本地文件内容）：
+<tool_call name="read_file">
+  <path>文件名或路径</path>
+</tool_call>
+
+3. 执行命令（对应 Bash Tool，仅在已启用 Bash Tool 时可用）：
+<tool_call name="execute_command">
+  <command>具体的终端命令行</command>
+</tool_call>
+
+4. 调用 MCP 工具（仅限上方列出的已连接 MCP 工具）：
+<tool_call name="mcp__server_id__tool_name">
+  <arguments>{"key":"value"}</arguments>
+</tool_call>
+
+注意：请一次仅发出一个 <tool_call>，等待用户确认执行并向你回传结果后，你再根据执行结果继续后续思考或操作。`;
+
+  const sections = [
+    runtimeContext,
+    projectContext,
+    mcpContext,
+    skillsContext || mcpContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext || "无已启用本地技能"}\n\n${toolsSystemInstruction}` : "",
+    memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
+    ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
+  ].filter(Boolean);
+
+  return {
+    role: "system",
+    content: `${systemMessage.content}\n\n${sections.join("\n\n")}`
+  };
+}
