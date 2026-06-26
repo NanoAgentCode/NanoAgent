@@ -92,6 +92,53 @@
   border-color: var(--accent-cyan); color: var(--control-text);
   background: var(--option-bg-active);
 }
+
+/* ===== Inline style cleanup classes ===== */
+.skills-tab-layout {
+  display: flex; flex-direction: column; height: 100%; overflow: hidden; gap: 16px;
+}
+.skills-header-row {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.skills-config-list-inner {
+  display: flex; flex-direction: column; gap: 8px; overflow: hidden;
+}
+.skills-config-list-scroll {
+  flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+}
+.skills-config-form-scroll {
+  display: flex; flex-direction: column; overflow-y: auto;
+}
+.skills-add-form-inner {
+  display: flex; flex-direction: column; gap: 12px; height: 100%;
+}
+.skills-add-form-actions {
+  margin-top: auto; display: flex; gap: 12px; justify-content: flex-end;
+}
+.skills-field-label {
+  font-size: 0.8rem;
+}
+.skills-desc-text {
+  font-size: 0.85rem;
+}
+.skills-link-text {
+  font-size: 0.8rem;
+}
+.skills-add-btn-full {
+  width: 100%; padding: 6px 8px; font-size: 0.8rem; height: auto;
+}
+.skills-textarea-custom {
+  width: 100%; box-sizing: border-box; border-radius: 4px;
+  border: 1px solid var(--border-color); padding: 8px;
+  background-color: var(--bg-main); color: var(--text-main);
+  resize: vertical; font-size: 0.85rem;
+}
+.skills-form-section-margin {
+  margin-top: 12px;
+}
+.skills-h4-no-margin {
+  margin: 0;
+}
 .mcp-config-grid .model-config-list { padding: 0; gap: 0; }
 .skills-config-list { padding: 0; gap: 0; }
 .skills-config-list { padding: 14px; gap: 8px; }
