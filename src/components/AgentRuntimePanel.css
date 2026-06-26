@@ -1,0 +1,52 @@
+.agent-runtime-panel {
+  flex-shrink: 0; border-bottom: 1px solid var(--border-color);
+  background: var(--bg-editor);
+}
+.agent-run-timeline {
+  max-height: 320px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 18px 16px;
+}
+.agent-run-header {
+  display: grid; grid-template-columns: minmax(0,1fr) auto;
+  gap: 8px 14px; padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px; background: var(--bg-card);
+}
+.agent-run-header.awaiting_tool,
+.agent-timeline-row.pending_approval,
+.agent-timeline-row.approved {
+  border-color: var(--accent-cyan); background: var(--option-bg-selected);
+}
+.agent-run-header.failed,
+.agent-timeline-row.failed,
+.agent-timeline-row.rejected {
+  border-color: var(--control-danger-border); background: var(--control-danger-soft-bg);
+}
+.agent-timeline-row {
+  border: 1px solid var(--border-color); border-radius: 8px;
+  background: var(--bg-card); overflow: hidden; flex-shrink: 0;
+}
+.agent-run-header strong, .agent-run-header span, .agent-run-header small,
+.timeline-row-copy strong, .timeline-row-copy small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-run-header span, .agent-run-header small,
+.timeline-row-copy small, .agent-timeline-meta {
+  color: var(--text-secondary); font-size: var(--font-size-xs);
+}
+.timeline-row-toggle {
+  width: 100%; min-height: 58px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border: 0; background: transparent;
+  color: var(--text-primary); text-align: left;
+}
+.timeline-row-toggle:hover { background: var(--bg-pane); }
+.timeline-row-copy { flex: 1; min-width: 0; }
+.agent-timeline-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; white-space: nowrap; }
+.timeline-row-detail { padding: 0 14px 14px 14px; }
+.timeline-row-detail pre {
+  margin: 0; padding: 10px; border-radius: 6px; background: var(--bg-pane);
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: var(--font-size-xs); white-space: pre-wrap; word-break: break-word;
+}

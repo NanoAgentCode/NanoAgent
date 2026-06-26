@@ -1,0 +1,114 @@
+.settings-modal-layout {
+  display: flex; flex: 1; min-height: 0; overflow: hidden;
+}
+.settings-sidebar {
+  width: 220px; border-right: 1px solid var(--border-color);
+  background: var(--bg-sidebar); padding: 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  overflow-y: auto; flex-shrink: 0;
+}
+.settings-content {
+  flex: 1; display: flex; flex-direction: column;
+  min-height: 0; background: var(--bg-pane);
+  position: relative; overflow: hidden;
+}
+.settings-nav-item {
+  display: inline-flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 38px; padding: 0 12px;
+  border-radius: 8px; font-size: 13.5px; font-weight: 500;
+  color: var(--text-secondary); background: transparent;
+  text-align: left; border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+.settings-nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text-primary); }
+.settings-nav-item.active {
+  background: rgba(99,102,241,0.08); color: var(--accent-cyan);
+  font-weight: 600; border-color: rgba(99,102,241,0.2);
+  box-shadow: inset 3px 0 0 var(--accent-cyan);
+}
+.settings-nav-item svg { color: currentColor; flex-shrink: 0; }
+.theme-tab-content .theme-switcher { max-width: 500px; margin-top: 10px; }
+.archive-tab-content { overflow: hidden !important; }
+.archive-split-layout {
+  flex: 1; display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  min-height: 0; border: 1px solid var(--border-color);
+  border-radius: 12px; overflow: hidden;
+  background: var(--bg-card); margin-top: 10px;
+}
+.archived-list-column {
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-pane); display: flex;
+  flex-direction: column; min-height: 0; overflow-y: auto;
+}
+.archived-list-column .archived-list {
+  display: grid; gap: 10px; max-height: none; overflow-y: visible;
+}
+.archived-preview-column {
+  flex: 1; display: flex; flex-direction: column;
+  min-height: 0; min-width: 0; background: var(--bg-editor);
+}
+.archive-preview-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border-color);
+  background: var(--bg-card);
+}
+.archive-preview-title-container {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+.archive-preview-title-container h4 {
+  margin: 0; font-size: 15px; font-weight: 600;
+  color: var(--text-primary); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.archive-preview-date { font-size: 11px; color: var(--text-secondary); }
+.archive-preview-messages-container {
+  flex: 1; overflow-y: auto; padding: 20px; min-height: 0;
+}
+.archive-preview-messages-container .chat-log { padding-right: 0; }
+.archive-preview-messages-container .chat-message { max-width: 95%; }
+.archive-preview-placeholder {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px;
+  color: var(--text-secondary); padding: 40px; text-align: center;
+}
+.archive-preview-placeholder .placeholder-icon { opacity: 0.2; }
+.archive-preview-placeholder p { margin: 0; font-size: 13.5px; }
+.settings-tab-content .model-config-grid {
+  flex: 1; display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 0; border: 1px solid var(--border-color);
+  border-radius: 12px; overflow: hidden; background: var(--bg-card);
+}
+.settings-tab-content .model-config-list {
+  border-top: 0; border-bottom: 0; border-left: 0; max-height: none;
+}
+.settings-tab-content .model-config-form { overflow-y: auto; }
+.model-config-row-flex { display: flex; align-items: center; gap: 10px; }
+.theme-section { display: grid; gap: 14px; margin-top: 6px; }
+.theme-switcher { display: flex; gap: 8px; }
+.theme-switcher button {
+  flex: 1; display: inline-flex; align-items: center;
+  justify-content: center; gap: 8px;
+  min-height: var(--control-height-md);
+  border: 1px solid var(--control-border);
+  border-radius: var(--control-radius-md);
+  background: var(--control-bg);
+  color: var(--control-text-muted);
+  font-size: 13px; font-weight: 500;
+  transition: var(--control-transition);
+}
+.theme-switcher button:hover {
+  background: var(--control-bg-hover);
+  color: var(--control-text); border-color: var(--control-border-hover);
+}
+.theme-switcher button.active {
+  background: var(--option-bg-active);
+  color: var(--accent-cyan); border-color: var(--option-border-active);
+}
+.archived-list-column {
+  padding: 16px;
+}
+.archived-list-column .archived-list {
+  gap: 10px;
+}

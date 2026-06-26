@@ -1,0 +1,91 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 960px;
+  min-height: 100vh;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+  background: none;
+  transition: var(--control-transition);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4 !important;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Global Focus Ring */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--border-color-focus);
+  outline-offset: 1px;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-areas: "sidebar chat";
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.is-resizing,
+.is-resizing * {
+  user-select: none;
+}
+
+.sidebar,
+.workspace-pane,
+.list-pane,
+.editor-pane,
+.chat-pane {
+  min-height: 0;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 940px) {
+  .app-shell {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+}

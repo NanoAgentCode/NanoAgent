@@ -1,0 +1,281 @@
+.sidebar {
+  grid-area: sidebar;
+  padding: 16px;
+  background: var(--bg-sidebar);
+  gap: 20px;
+  display: flex;
+  flex-direction: column;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 16px;
+  border-bottom: 1px dashed var(--border-color);
+  flex-shrink: 0;
+}
+.brand svg {
+  color: var(--accent-cyan);
+  filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.4));
+  animation: pulse-glow 3s infinite alternate;
+}
+.brand strong {
+  display: block;
+  font-size: var(--font-size-display);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.5px;
+  color: var(--text-primary);
+}
+.brand span {
+  color: var(--text-secondary);
+  display: block;
+  font-size: var(--font-size-xs);
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar-section.projects {
+  flex-shrink: 0;
+  max-height: 42%;
+}
+.sidebar-section.chats {
+  flex: 1;
+}
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin-bottom: 10px;
+}
+.sidebar-section-header > div,
+.sidebar-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-section-toggle {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+.sidebar-section-toggle:hover {
+  color: var(--text-primary);
+}
+.sidebar-section-toggle:hover svg {
+  color: var(--text-primary) !important;
+}
+.sidebar-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sidebar-section-header svg {
+  color: var(--text-muted);
+}
+.sidebar-project-list,
+.sidebar-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sidebar-project-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.sidebar-chat-list {
+  overflow-y: auto;
+  flex: 1;
+  padding-right: 4px;
+}
+.sidebar-chat-list .sidebar-chat-item {
+  padding-left: 22px;
+}
+.sidebar-project-item,
+.sidebar-chat-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--control-height-md);
+  padding: 0 10px;
+  border-radius: var(--option-radius);
+  font-size: var(--font-size-lg);
+  color: var(--option-text-muted);
+  background: transparent;
+  text-align: left;
+  border: 1px solid transparent;
+  transition: var(--option-transition);
+}
+.sidebar-project-item:hover,
+.sidebar-chat-item:hover {
+  background: var(--control-bg-subtle);
+  color: var(--option-text);
+}
+.sidebar-project-item.active,
+.sidebar-chat-item.active {
+  background: var(--option-bg-active);
+  color: var(--accent-cyan);
+  border-color: var(--option-border-active);
+}
+.sidebar-project-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.sidebar-project-item.active .sidebar-project-dot {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--accent-cyan);
+}
+.sidebar-project-item .project-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.project-expand-btn,
+.project-remove-btn,
+.project-add-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--control-radius-sm);
+  color: var(--text-muted);
+  opacity: 0;
+  flex-shrink: 0;
+}
+.project-expand-btn {
+  opacity: 1;
+  width: 22px;
+  color: var(--text-muted);
+}
+.project-expand-btn svg,
+.project-remove-btn svg,
+.project-add-chat-btn svg,
+.new-chat-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+.sidebar-project-item:hover .project-remove-btn,
+.sidebar-project-item.active .project-remove-btn,
+.sidebar-project-item:hover .project-add-chat-btn,
+.sidebar-project-item.active .project-add-chat-btn {
+  opacity: 1;
+}
+.project-expand-btn:hover {
+  color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.1);
+}
+.project-remove-btn:hover {
+  color: var(--accent-danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+.project-add-chat-btn:hover {
+  color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.1);
+}
+.project-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 1px 0 5px 24px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.project-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.project-chat-list .sidebar-chat-item {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+.project-empty {
+  padding: 8px 10px;
+  font-size: var(--font-size-sm);
+}
+.active-project-path {
+  margin-top: 8px;
+  padding: 0 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-chat-item .chat-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.sidebar-chat-item.active .chat-icon {
+  color: var(--accent-cyan);
+}
+.sidebar-chat-item .chat-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.new-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--control-radius-sm);
+  color: var(--text-secondary);
+  background: transparent;
+  transition: var(--control-transition);
+}
+.new-chat-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--accent-cyan);
+}
+.settings-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: var(--control-height-lg);
+  margin-top: auto;
+  padding: 0 2px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+.settings-entry:hover {
+  color: var(--accent-cyan);
+  background: var(--option-bg-active);
+}
+.settings-entry svg {
+  color: currentColor;
+}
