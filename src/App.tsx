@@ -94,6 +94,41 @@ import {
 import MarkdownMessage from "./MarkdownMessage";
 import AgentRuntimePanel from "./components/AgentRuntimePanel";
 import ObservabilityPanel, { type ObservabilityTraceGroup } from "./components/ObservabilityPanel";
+import {
+  safeCreateAgentRun,
+  safeFinishAgentRun,
+  safeRecordAgentStep,
+  safeResolveAgentModelOutput,
+  safeExecuteAgentToolCall,
+  safeApproveAgentToolCall,
+  safeRejectAgentToolCall,
+  safeCreateAgentToolCall,
+  safeUpdateAgentToolCall
+} from "./lib/agentSafe";
+import {
+  formatBytes,
+  formatJson,
+  formatMcpTransportLabel,
+  formatProjectFileTree,
+  formatDateTime,
+  buildRuntimeContext,
+  formatErrorMessage,
+  estimateTokens,
+  isSupportedRagFile,
+  MAX_CONTEXT_TOKENS
+} from "./lib/formatters";
+import {
+  parseTags,
+  extractMemoryDraft,
+  parseToolCall,
+  parseToolResult,
+  type ParsedToolCall,
+  type ParsedToolResult
+} from "./lib/messageHelpers";
+import {
+  formatStdioCommandLine,
+  parseStdioCommandLine
+} from "./lib/stdioCommand";
 import type {
   ChatMessage,
   ChatStreamEvent,
@@ -291,77 +326,6 @@ function saveProjects(projects: ProjectEntry[], activeProjectId: string) {
   } else {
     localStorage.removeItem(activeProjectStorageKey);
   }
-}
-
-interface ParsedToolCall {
-  name: string;
-  args: Record<string, string>;
-  raw: string;
-}
-
-interface ParsedToolResult {
-  name: string;
-  status: "success" | "failed" | "rejected" | "unknown";
-  summary: string;
-  detail: string;
-}
-
-function parseToolCall(content: string): ParsedToolCall | null {
-  if (!content) return null;
-  const match = content.match(/<tool_call\s+name="([^"]+)">([\s\S]*?)<\/tool_call>/);
-  if (!match) return null;
-
-  const name = match[1];
-  const body = match[2];
-  const args: Record<string, string> = {};
-
-  const tagRegex = /<([^>]+)>([\s\S]*?)<\/\1>/g;
-  let tagMatch;
-  while ((tagMatch = tagRegex.exec(body)) !== null) {
-    args[tagMatch[1]] = tagMatch[2].trim();
-  }
-
-  return { name, args, raw: match[0] };
-}
-
-function parseToolResult(content: string): ParsedToolResult | null {
-  if (!content) return null;
-  const match = content.match(/^\[工具执行结果: ([^\]]+)\]\s*([\s\S]*)$/);
-  if (!match) return null;
-
-  const name = match[1].trim();
-  const body = match[2].trim();
-  if (body.startsWith("执行失败")) {
-    return {
-      name,
-      status: "failed",
-      summary: "执行失败",
-      detail: body.replace(/^执行失败[:：]?\s*/, "").trim() || body
-    };
-  }
-  if (body.startsWith("执行结果如下")) {
-    return {
-      name,
-      status: "success",
-      summary: "执行完成",
-      detail: body.replace(/^执行结果如下[:：]?\s*/, "").trim() || body
-    };
-  }
-  if (body.includes("用户拒绝")) {
-    return {
-      name,
-      status: "rejected",
-      summary: "用户拒绝",
-      detail: body
-    };
-  }
-
-  return {
-    name,
-    status: "unknown",
-    summary: "工具结果",
-    detail: body
-  };
 }
 
 function renderMessageContent(content: string) {
@@ -4951,46 +4915,6 @@ function App() {
   );
 }
 
-function parseTags(value: string) {
-  return value
-    .split(",")
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-}
-
-function extractMemoryDraft(content: string) {
-  const normalized = content.trim();
-  const memoryIntent =
-    /(记住|记一下|记到记忆|保存到记忆|加入记忆|更新(?:一下)?(?:我的)?记忆|修改(?:一下)?(?:我的)?记忆|以后记得)/.test(normalized);
-
-  if (!memoryIntent) {
-    return null;
-  }
-
-  const memoryContent = normalized
-    .replace(/^(请|帮我|麻烦你|你)?\s*/, "")
-    .replace(/^(记住|记一下|记到记忆|保存到记忆|加入记忆|以后记得)[：:\s]*/i, "")
-    .replace(/^更新(?:一下)?(?:我的)?记忆[：:\s]*/i, "")
-    .replace(/^修改(?:一下)?(?:我的)?记忆[：:\s]*/i, "")
-    .trim();
-
-  if (!memoryContent) {
-    return null;
-  }
-
-  const title = memoryContent
-    .replace(/[。.!！?？\n\r].*$/s, "")
-    .slice(0, 24)
-    .trim() || "聊天记忆";
-
-  return {
-    title,
-    content: memoryContent,
-    tags: ["chat"],
-    enabled: true
-  };
-}
-
 function buildSystemMessage(
   memories: Memory[],
   activeProject: ProjectEntry | null = null,
@@ -5118,272 +5042,6 @@ function buildSystemMessage(
     role: "system",
     content: `${systemMessage.content}\n\n${sections.join("\n\n")}`
   };
-}
-
-function formatProjectFileTree(files: ProjectFileEntry[]) {
-  return files
-    .map((file) => {
-      const depth = Math.max(0, file.path.split("/").length - 1);
-      const indent = "  ".repeat(depth);
-      const name = file.path.split("/").pop() || file.path;
-      const suffix = file.is_dir ? "/" : file.size != null ? ` (${formatBytes(file.size)})` : "";
-      return `${indent}- ${name}${suffix}`;
-    })
-    .join("\n");
-}
-
-function formatBytes(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatJson(value: string) {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
-function formatStdioCommandLine(draft: McpServerDraft) {
-  const args = parseJsonStringArray(draft.args_json);
-  return [draft.command, ...args].filter(Boolean).map(quoteCommandPart).join(" ");
-}
-
-function parseStdioCommandLine(value: string) {
-  const parts = splitCommandLine(value.trim());
-  if (parts.length === 0 || !parts[0]) {
-    throw new Error("stdio 命令不能为空。");
-  }
-  return {
-    command: parts[0],
-    args: parts.slice(1)
-  };
-}
-
-function parseJsonStringArray(value: string) {
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function quoteCommandPart(value: string) {
-  if (!value) return "";
-  if (!/[\s"]/u.test(value)) return value;
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-function splitCommandLine(value: string) {
-  const parts: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-
-  for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
-    const next = value[index + 1];
-    if (quote) {
-      if (quote === '"' && char === "\\" && (next === '"' || next === "\\")) {
-        current += next;
-        index += 1;
-        continue;
-      }
-      if (char === quote) {
-        quote = null;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (/\s/u.test(char)) {
-      if (current) {
-        parts.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += char;
-  }
-
-  if (quote) {
-    throw new Error("stdio 命令中的引号未闭合。");
-  }
-  if (current) parts.push(current);
-  return parts;
-}
-
-function formatMcpTransportLabel(transport: string) {
-  if (transport === "streamable_http") return "Streamable HTTP";
-  if (transport === "sse") return "SSE";
-  return "stdio";
-}
-
-function isSupportedRagFile(name: string) {
-  return /\.(txt|md|markdown|json|csv|tsv|log|js|jsx|ts|tsx|rs|py|java|go|yaml|yml|toml|html|css|xml|pdf|doc|docx|xlsx|pptx)$/i.test(name);
-}
-
-function formatDateTime(dateStr: string | null | undefined): string {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  } catch {
-    return dateStr;
-  }
-}
-
-function buildRuntimeContext() {
-  const now = new Date();
-  const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "long",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-    timeZoneName: "short"
-  });
-
-  return [
-    "运行上下文：",
-    `- 当前本地日期时间：${dateTimeFormatter.format(now)}`,
-    `- 当前 ISO 时间：${now.toISOString()}`,
-    "- 用户询问当前日期、时间、今天、明天、昨天或相对日期时，必须以本运行上下文为准。"
-  ].join("\n");
-}
-
-const MAX_CONTEXT_TOKENS = 4000;
-
-function estimateTokens(content: string): number {
-  const chineseChars = content.match(/[\u4e00-\u9fa5]/g) || [];
-  const englishWords = content.replace(/[\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(Boolean);
-  return chineseChars.length + Math.ceil(englishWords.length * 1.3);
-}
-
-async function safeCreateAgentRun(draft: AgentRunDraft): Promise<AgentRun | null> {
-  try {
-    return await createAgentRun(draft);
-  } catch (error) {
-    console.error("Failed to create agent run:", error);
-    return null;
-  }
-}
-
-async function safeFinishAgentRun(
-  id: string,
-  status: string,
-  error?: string | null
-): Promise<AgentRun | null> {
-  try {
-    return await finishAgentRun(id, status, error);
-  } catch (err) {
-    console.error("Failed to finish agent run:", err);
-    return null;
-  }
-}
-
-async function safeRecordAgentStep(draft: AgentStepDraft) {
-  try {
-    return await recordAgentStep(draft);
-  } catch (error) {
-    console.error("Failed to record agent step:", error);
-    return null;
-  }
-}
-
-async function safeResolveAgentModelOutput(
-  runId: string,
-  messageId: string,
-  content: string,
-  stepKind: string,
-  inputSummary: string
-) {
-  try {
-    return await resolveAgentModelOutput(runId, messageId, content, stepKind, inputSummary);
-  } catch (error) {
-    console.error("Failed to resolve agent model output:", error);
-    return null;
-  }
-}
-
-async function safeExecuteAgentToolCall(request: AgentToolExecutionRequest) {
-  try {
-    return await executeAgentToolCall(request);
-  } catch (error) {
-    console.error("Failed to execute agent tool call:", error);
-    throw new Error(formatErrorMessage(error));
-  }
-}
-
-function formatErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
-}
-
-async function safeApproveAgentToolCall(id: string): Promise<AgentToolCall | null> {
-  try {
-    return await approveAgentToolCall(id);
-  } catch (error) {
-    console.error("Failed to approve agent tool call:", error);
-    return null;
-  }
-}
-
-async function safeRejectAgentToolCall(
-  id: string,
-  reason?: string | null
-): Promise<AgentToolCall | null> {
-  try {
-    return await rejectAgentToolCall(id, reason);
-  } catch (error) {
-    console.error("Failed to reject agent tool call:", error);
-    return null;
-  }
-}
-
-async function safeCreateAgentToolCall(
-  draft: AgentToolCallDraft
-): Promise<AgentToolCall | null> {
-  try {
-    return await createAgentToolCall(draft);
-  } catch (error) {
-    console.error("Failed to create agent tool call:", error);
-    return null;
-  }
-}
-
-async function safeUpdateAgentToolCall(
-  id: string,
-  status: string,
-  resultSummary?: string | null,
-  error?: string | null
-): Promise<AgentToolCall | null> {
-  try {
-    return await updateAgentToolCall(id, status, resultSummary, error);
-  } catch (err) {
-    console.error("Failed to update agent tool call:", err);
-    return null;
-  }
 }
 
 export default App;
