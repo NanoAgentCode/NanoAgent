@@ -1,6 +1,6 @@
 import type { ItemKind, WebSearchStatus, WorkspaceView, ThemeMode } from "../types";
 import { parseToolResult } from "./messageHelpers";
-import MarkdownMessage from "../MarkdownMessage";
+import MarkdownMessage from "../components/MarkdownMessage";
 import ToolResultMessage from "../components/ToolResultMessage";
 
 export const kindLabels: Record<ItemKind, string> = {

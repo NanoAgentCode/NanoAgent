@@ -1,4 +1,4 @@
-import MarkdownMessage from "../MarkdownMessage";
+import MarkdownMessage from "./MarkdownMessage";
 import type { ParsedToolResult } from "../lib/messageHelpers";
 
 export default function ToolResultMessage({ result }: { result: ParsedToolResult }) {

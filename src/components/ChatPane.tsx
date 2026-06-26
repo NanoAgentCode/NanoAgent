@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Activity, Bot, FileText, Plus, SendHorizontal, X } from "lucide-react";
-import MarkdownMessage from "../MarkdownMessage";
+import MarkdownMessage from "./MarkdownMessage";
 import AgentRuntimePanel from "./AgentRuntimePanel";
 import { formatWebSearchBadge, renderMessageContent } from "../lib/appHelpers";
 import { parseToolCall, parseToolResult } from "../lib/messageHelpers";
