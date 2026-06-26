@@ -58,7 +58,6 @@ import {
   listRagFiles,
   searchRagContext,
   searchItems,
-  listLocalSkills,
   getTavilyApiKey,
   saveTavilyApiKey,
   updateItem,
@@ -86,6 +85,7 @@ import { useEnv } from "./hooks/useEnv";
 import { useMcp } from "./hooks/useMcp";
 import { useMemory } from "./hooks/useMemory";
 import { useModel, normalizeModelDraft } from "./hooks/useModel";
+import { useSkills } from "./hooks/useSkills";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -114,9 +114,7 @@ import {
   type ParsedToolCall
 } from "./lib/messageHelpers";
 import {
-  defaultSkills,
   isBuiltInSkill,
-  normalizeSkills,
   type Skill
 } from "./lib/skills";
 import type {
@@ -291,7 +289,6 @@ function App() {
   const [projectApprovalText, setProjectApprovalText] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
-  const [skillsDir, setSkillsDir] = useState<string>("");
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -300,9 +297,6 @@ function App() {
     project: ProjectEntry | null;
   }>({ x: 0, y: 0, visible: false, conversation: null, project: null });
 
-  const tempDir = skillsDir
-    ? skillsDir.replace(/[\\/]skills$/, "") + (skillsDir.includes("/") ? "/temp" : "\\temp")
-    : "C:\\Users\\13439\\Desktop\\temp";
   const [previewArchivedId, setPreviewArchivedId] = useState("");
   const [previewMessages, setPreviewMessages] = useState<PersistedMessage[]>([]);
   const [activeConversationId, setActiveConversationId] = useState("");
@@ -327,36 +321,12 @@ function App() {
   const [traceTimelineCollapsed, setTraceTimelineCollapsed] = useState(false);
   const [isLoadingObservability, setIsLoadingObservability] = useState(false);
   const [showChatRuntime, setShowChatRuntime] = useState(false);
-  const [skills, setSkills] = useState<Skill[]>(() => {
-    const saved = localStorage.getItem("nano-agent-skills");
-    if (saved) {
-      try {
-        return normalizeSkills(JSON.parse(saved) as Skill[]);
-      } catch (e) {
-        console.error("Failed to parse skills from localStorage", e);
-      }
-    }
-    return defaultSkills;
-  });
-  const [selectedSkillId, setSelectedSkillId] = useState<string>("text_editor");
-  const [isAddingSkill, setIsAddingSkill] = useState(false);
-  const [newSkillDraft, setNewSkillDraft] = useState<{
-    id: string;
-    name: string;
-    provider: string;
-    description: string;
-    docUrl: string;
-  }>({
-    id: "",
-    name: "",
-    provider: "Custom",
-    description: "",
-    docUrl: ""
-  });
+
   const env = useEnv(setNotice);
   const mcp = useMcp(setNotice);
   const memory = useMemory(setNotice);
   const model = useModel(setNotice, activeConversationId, setConversations);
+  const skills = useSkills(setNotice);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -479,23 +449,6 @@ function App() {
 
   useEffect(() => {
     void loadAll();
-    void checkLocalSkills();
-
-    // Check if skills contain "computer_use" and clean it up
-    const saved = localStorage.getItem("nano-agent-skills");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Skill[];
-        if (parsed.some((s) => s.id === "computer_use")) {
-          localStorage.removeItem("nano-agent-skills");
-          setSkills(defaultSkills);
-          setSelectedSkillId("text_editor");
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
     // Environment startup check is handled by useEnv.
   }, []);
 
@@ -916,13 +869,7 @@ function App() {
     }
   }
 
-  function handleToggleSkill(id: string, enabled: boolean) {
-    const nextSkills = skills.map((s) =>
-      s.id === id ? { ...s, enabled } : s
-    );
-    setSkills(nextSkills);
-    localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
-  }
+
 
   function toggleProjectExpanded(projectId: string) {
     setExpandedProjectIds((current) =>
@@ -1083,128 +1030,6 @@ function App() {
     setNotice("项目入口已移除，磁盘文件未删除。");
   }
 
-
-
-  async function checkLocalSkills() {
-    try {
-      const [skillsDir, localSkills] = await listLocalSkills();
-      setSkillsDir(skillsDir);
-      setSkills((current) => {
-        const skillMap = new Map(current.map((s) => [s.id, s]));
-        const scannedLocalIds = new Set<string>();
-
-        localSkills.forEach((localSkill) => {
-          const id = `local_${localSkill.slug}`;
-          scannedLocalIds.add(id);
-
-          if (!skillMap.has(id)) {
-            skillMap.set(id, {
-              id,
-              name: localSkill.name,
-              provider: "Local",
-              description: localSkill.description,
-              enabled: true,
-              parameters: {
-                workspace_root: "C:\\Users\\13439\\Desktop"
-              },
-              docUrl: localSkill.doc_url
-            });
-          } else {
-            const existing = skillMap.get(id);
-            if (existing) {
-              skillMap.set(id, {
-                ...existing,
-                name: localSkill.name || existing.name,
-                description: localSkill.description || existing.description,
-                docUrl: localSkill.doc_url || existing.docUrl
-              });
-            }
-          }
-        });
-
-        // Remove local skills that are no longer in the directory
-        Array.from(skillMap.keys()).forEach((id) => {
-          if (id.startsWith("local_") && !scannedLocalIds.has(id)) {
-            skillMap.delete(id);
-          }
-        });
-
-        // Update default skill_creator's skills_root parameter dynamically
-        const skillCreator = skillMap.get("skill_creator");
-        if (skillCreator && skillCreator.parameters.skills_root !== skillsDir) {
-          skillMap.set("skill_creator", {
-            ...skillCreator,
-            parameters: {
-              ...skillCreator.parameters,
-              skills_root: skillsDir
-            }
-          });
-        }
-
-        const merged = Array.from(skillMap.values());
-        localStorage.setItem("nano-agent-skills", JSON.stringify(merged));
-        return merged;
-      });
-    } catch (error) {
-      console.error("Failed to check local skills:", error);
-    }
-  }
-
-  function handleDeleteSkill(id: string) {
-    if (isBuiltInSkill(id)) {
-      setNotice("系统内置技能只能禁用，不能删除。");
-      return;
-    }
-
-    if (confirm("确定要删除该技能吗？")) {
-      const nextSkills = skills.filter((s) => s.id !== id);
-      setSkills(nextSkills);
-      localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
-      if (selectedSkillId === id) {
-        setSelectedSkillId(nextSkills.length > 0 ? nextSkills[0].id : "");
-      }
-      setNotice("技能已成功删除！");
-    }
-  }
-
-  function handleSaveNewSkill() {
-    if (!newSkillDraft.id || !newSkillDraft.name) {
-      alert("请填写技能ID和技能名称！");
-      return;
-    }
-    
-    if (skills.some((s) => s.id === newSkillDraft.id)) {
-      alert("该技能ID已存在，请使用其他ID！");
-      return;
-    }
-
-    const newSkill: Skill = {
-      id: newSkillDraft.id,
-      name: newSkillDraft.name,
-      provider: "Custom",
-      description: newSkillDraft.description || "自定义导入的技能工具。",
-      enabled: true,
-      parameters: {},
-      docUrl: newSkillDraft.docUrl
-    };
-
-    const nextSkills = [...skills, newSkill];
-    setSkills(nextSkills);
-    localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
-    
-    setIsAddingSkill(false);
-    setSelectedSkillId(newSkill.id);
-    
-    setNewSkillDraft({
-      id: "",
-      name: "",
-      provider: "Custom",
-      description: "",
-      docUrl: ""
-    });
-
-    setNotice("自定义技能添加成功！");
-  }
 
   async function refreshConversations(selectId?: string) {
     const [nextConversations, nextArchivedConversations] = await Promise.all([
@@ -1621,10 +1446,10 @@ function App() {
         enabledMemories,
         projectForRequest,
         projectFiles,
-        skills,
+        skills.skills,
         mcp.mcpServers,
         ragMatches,
-        tempDir
+        skills.tempDir
       ),
       ...currentMessages.map((message) => ({
         role: message.role,
@@ -1766,7 +1591,7 @@ function App() {
       const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
       const projectForRequest = resolveConversationProject(conversationId, projectHint);
-      const projectPath = projectForRequest?.path || tempDir;
+      const projectPath = projectForRequest?.path || skills.tempDir;
       activeRunId = activeToolCall?.run_id || conversationRunIds[conversationId] || null;
       if (!activeRunId) {
         const run = await safeCreateAgentRun({
@@ -1810,7 +1635,7 @@ function App() {
         ...current,
         [messageId]: approvedToolCall
       }));
-      const isBashEnabled = skills.find((s) => s.id === "bash_tool")?.enabled === true;
+      const isBashEnabled = skills.skills.find((s) => s.id === "bash_tool")?.enabled === true;
       const execution = await safeExecuteAgentToolCall({
         tool_call_id: activeToolCall.id,
         project_path: projectPath,
@@ -2081,10 +1906,10 @@ function App() {
           enabledMemories,
           projectForRequest,
           projectFiles,
-          skills,
+          skills.skills,
           mcp.mcpServers,
           ragMatches,
-          tempDir
+          skills.tempDir
         ),
         ...currentMessages.map((message) => ({
           role: message.role,
@@ -3152,8 +2977,8 @@ function App() {
                             className="secondary" 
                             style={{ width: "100%", padding: "6px 8px", fontSize: "0.8rem", height: "auto" }} 
                             onClick={() => {
-                              setIsAddingSkill(true);
-                              setSelectedSkillId("");
+                              skills.setIsAddingSkill(true);
+                              skills.setSelectedSkillId("");
                             }}
                             type="button"
                           >
@@ -3161,13 +2986,13 @@ function App() {
                           </button>
                         </div>
                         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
-                          {skills.map((skill) => (
+                          {skills.skills.map((skill) => (
                             <button
                               key={skill.id}
-                              className={!isAddingSkill && skill.id === selectedSkillId ? "skills-config-row active" : "skills-config-row"}
+                              className={!skills.isAddingSkill && skill.id === skills.selectedSkillId ? "skills-config-row active" : "skills-config-row"}
                               onClick={() => {
-                                setIsAddingSkill(false);
-                                setSelectedSkillId(skill.id);
+                                skills.setIsAddingSkill(false);
+                                skills.setSelectedSkillId(skill.id);
                               }}
                               type="button"
                             >
@@ -3184,38 +3009,38 @@ function App() {
                       </aside>
 
                       <div className="skills-config-form" style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
-                        {isAddingSkill ? (
+                        {skills.isAddingSkill ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: "12px", height: "100%" }}>
                             <h4 style={{ margin: 0 }}>添加自定义技能</h4>
                             <div className="skills-param-field" style={{ margin: 0 }}>
                               <label style={{ fontSize: "0.8rem" }}>唯一标识符 (ID):</label>
                               <input
-                                value={newSkillDraft.id}
-                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, id: e.target.value.trim().toLowerCase() }))}
+                                value={skills.newSkillDraft.id}
+                                onChange={(e) => skills.setNewSkillDraft(prev => ({ ...prev, id: e.target.value.trim().toLowerCase() }))}
                                 placeholder="例如: custom_file_helper"
                               />
                             </div>
                             <div className="skills-param-field" style={{ margin: 0 }}>
                               <label style={{ fontSize: "0.8rem" }}>技能名称 (Name):</label>
                               <input
-                                value={newSkillDraft.name}
-                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, name: e.target.value }))}
+                                value={skills.newSkillDraft.name}
+                                onChange={(e) => skills.setNewSkillDraft(prev => ({ ...prev, name: e.target.value }))}
                                 placeholder="例如: 自定义文件助手"
                               />
                             </div>
                             <div className="skills-param-field" style={{ margin: 0 }}>
                               <label style={{ fontSize: "0.8rem" }}>文档/项目链接 (Doc URL):</label>
                               <input
-                                value={newSkillDraft.docUrl}
-                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, docUrl: e.target.value }))}
+                                value={skills.newSkillDraft.docUrl}
+                                onChange={(e) => skills.setNewSkillDraft(prev => ({ ...prev, docUrl: e.target.value }))}
                                 placeholder="https://..."
                               />
                             </div>
                             <div className="skills-param-field" style={{ margin: 0 }}>
                               <label style={{ fontSize: "0.8rem" }}>技能描述 (Description):</label>
                               <textarea
-                                value={newSkillDraft.description}
-                                onChange={(e) => setNewSkillDraft(prev => ({ ...prev, description: e.target.value }))}
+                                value={skills.newSkillDraft.description}
+                                onChange={(e) => skills.setNewSkillDraft(prev => ({ ...prev, description: e.target.value }))}
                                 placeholder="描述该技能的作用以及模型如何调用它..."
                                 rows={2}
                                 style={{ width: "100%", boxSizing: "border-box", borderRadius: "4px", border: "1px solid var(--border-color)", padding: "8px", backgroundColor: "var(--bg-main)", color: "var(--text-main)", resize: "vertical", fontSize: "0.85rem" }}
@@ -3223,20 +3048,20 @@ function App() {
                             </div>
                             <div style={{ marginTop: "auto", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
                               <button className="secondary" onClick={() => {
-                                setIsAddingSkill(false);
-                                if (skills.length > 0) {
-                                  setSelectedSkillId(skills[0].id);
+                                skills.setIsAddingSkill(false);
+                                if (skills.skills.length > 0) {
+                                  skills.setSelectedSkillId(skills.skills[0].id);
                                 }
                               }} type="button">
                                 取消
                               </button>
-                              <button className="primary" onClick={handleSaveNewSkill} type="button">
+                              <button className="primary" onClick={skills.handleSaveNewSkill} type="button">
                                 <Save size={15} /> 确认添加
                               </button>
                             </div>
                           </div>
                         ) : (() => {
-                          const skill = skills.find((s) => s.id === selectedSkillId);
+                          const skill = skills.skills.find((s) => s.id === skills.selectedSkillId);
                           if (!skill) return <div className="empty">选择一个 Skill 以查看详情</div>;
                           const isSystemSkill = isBuiltInSkill(skill.id);
 
@@ -3274,7 +3099,7 @@ function App() {
                               <div className="skills-form-actions">
                                 <button
                                   className={skill.enabled ? "danger" : "primary"}
-                                  onClick={() => handleToggleSkill(skill.id, !skill.enabled)}
+                                  onClick={() => skills.handleToggleSkill(skill.id, !skill.enabled)}
                                   type="button"
                                 >
                                   {skill.enabled ? "禁用技能" : "启用技能"}
@@ -3282,7 +3107,7 @@ function App() {
                                 {!isSystemSkill && (
                                   <button
                                     className="danger"
-                                    onClick={() => handleDeleteSkill(skill.id)}
+                                    onClick={() => skills.handleDeleteSkill(skill.id)}
                                     type="button"
                                   >
                                     删除技能
