@@ -3658,7 +3658,7 @@ function App() {
                   }}
                 >
                   <Cpu size={16} />
-                  <span>Embeding管理</span>
+                  <span>嵌入模型</span>
                 </button>
                 <button
                   className={activeSettingsTab === "archive" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3979,7 +3979,7 @@ function App() {
                 {activeSettingsTab === "embedding" && (
                   <div className="settings-tab-content model-tab-content">
                     <div className="model-header-row">
-                      <h3>Embeding管理</h3>
+                      <h3>嵌入模型</h3>
                     </div>
                     <p className="description" style={{ marginTop: "-4px" }}>配置全局唯一嵌入模型 API，用于轻量 RAG 的文档向量化与匹配。</p>
                     
@@ -4264,7 +4264,7 @@ function App() {
                               />
                               <div className="mcp-server-row-content">
                                 <strong>{server.config.name}</strong>
-                                <span>{formatMcpTransportLabel(server.config.transport)} · {server.config.command || server.config.url} · {server.tools.length} tools</span>
+                                <span title={server.config.command || server.config.url}>{formatMcpTransportLabel(server.config.transport)} · {server.config.command || server.config.url} · {server.tools.length} tools</span>
                               </div>
                               <button
                                 className={connected ? "mcp-connection-pill compact connected" : "mcp-connection-pill compact"}

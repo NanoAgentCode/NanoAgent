@@ -258,6 +258,10 @@ impl StdioSession {
         command.stdin(std::process::Stdio::piped());
         command.stdout(std::process::Stdio::piped());
         command.stderr(std::process::Stdio::piped());
+        #[cfg(windows)]
+        {
+            command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
 
         let mut child = command.spawn()?;
         if let Some(stderr) = child.stderr.take() {

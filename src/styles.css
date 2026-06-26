@@ -3369,10 +3369,25 @@ button.danger:active:not(:disabled) {
 }
 
 .mcp-connection-pill.compact {
-  min-width: 86px;
-  min-height: 28px;
-  padding: 0 10px;
-  gap: 6px;
+  min-width: 68px;
+  min-height: 22px;
+  padding: 0 8px;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.mcp-connection-pill.compact svg {
+  width: 12px;
+  height: 12px;
+}
+
+.mcp-connection-pill.compact .mcp-pill-indicator {
+  width: 5px;
+  height: 5px;
+}
+
+.mcp-connection-pill.compact.connected .mcp-pill-indicator {
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.12);
 }
 
 .mcp-connection-pill svg {
