@@ -2154,13 +2154,13 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
             Ok(extract_doc_binary_text(&data))
         }
         "pdf" => {
-            let doc = lopdf::Document::load(path)
+            let doc = pdf_oxide::PdfDocument::open(path)
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
             let mut text = String::new();
-            let pages = doc.get_pages();
-            let num_pages = pages.len() as u32;
-            for i in 1..=num_pages {
-                if let Ok(page_text) = doc.extract_text(&[i]) {
+            let num_pages = doc.page_count()
+                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
+            for i in 0..num_pages {
+                if let Ok(page_text) = doc.extract_text(i) {
                     text.push_str(&page_text);
                     text.push('\n');
                 }

@@ -25,7 +25,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 tokio = { version = "1", features = ["io-util", "process", "sync", "time"] }
 thiserror = "1"
 futures-util = "0.3"
-lopdf = "0.33"
+pdf_oxide = "0.3"
 zip = { version = "2.1", default-features = false, features = ["deflate"] }
 calamine = "0.26"
 
