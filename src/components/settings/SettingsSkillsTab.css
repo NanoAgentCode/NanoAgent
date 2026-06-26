@@ -3,7 +3,7 @@
   grid-template-columns: 260px minmax(0, 1fr);
   min-height: 0; border: 1px solid var(--border-color);
   border-radius: 12px; overflow: hidden;
-  background: var(--bg-card); margin-top: 10px;
+  background: var(--bg-card);
 }
 .skills-config-list {
   border-right: 1px solid var(--border-color);
@@ -95,7 +95,7 @@
 
 /* ===== Inline style cleanup classes ===== */
 .skills-tab-layout {
-  display: flex; flex-direction: column; height: 100%; overflow: hidden; gap: 16px;
+  height: 100%; overflow: hidden;
 }
 .skills-header-row {
   display: flex; justify-content: space-between; align-items: center;
