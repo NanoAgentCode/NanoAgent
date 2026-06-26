@@ -96,7 +96,7 @@
 .editor-actions .success-btn:hover:not(:disabled) { background: var(--control-success-bg-hover); box-shadow: var(--control-success-shadow); }
 .memory-toggle {
   display: inline-flex; align-items: center; gap: 10px;
-  font-size: 13.5px; color: var(--text-secondary); cursor: pointer;
+  font-size: var(--font-size-lg); color: var(--text-secondary); cursor: pointer;
 }
 .memory-toggle input { width: 17px; height: 17px; accent-color: var(--accent-emerald); cursor: pointer; }
 .title-input {

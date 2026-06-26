@@ -328,12 +328,12 @@ button.danger:active:not(:disabled) {
 }
 .settings-tab-content h3 {
   margin: 0 0 12px 0;
-  font-size: 18px;
+  font-size: var(--font-size-display);
   font-weight: 600;
   color: var(--text-primary);
 }
 .settings-tab-content .description {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
   margin: -6px 0 20px 0;
   line-height: 1.5;
@@ -378,7 +378,7 @@ button.danger:active:not(:disabled) {
   align-items: center;
   gap: 6px;
   margin-right: auto;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .status-text-panel--success {
   color: var(--accent-green);
@@ -429,7 +429,7 @@ button.danger:active:not(:disabled) {
   color: var(--text-secondary);
   border: 1px dashed var(--border-color);
   border-radius: 10px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   background: rgba(255, 255, 255, 0.01);
 }
 
@@ -494,7 +494,7 @@ button.danger:active:not(:disabled) {
   color: var(--text-primary);
   resize: vertical;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 .model-form-card textarea:focus {
@@ -533,7 +533,7 @@ button.danger:active:not(:disabled) {
   display: grid;
   gap: 7px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .model-config-row-info {
@@ -620,7 +620,7 @@ button.danger:active:not(:disabled) {
 .archive-config-row strong {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.3;
   color: var(--text-primary);
   overflow: hidden;
@@ -632,7 +632,7 @@ button.danger:active:not(:disabled) {
 .mcp-config-row span,
 .trace-config-row span,
 .archive-config-row span {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.3;
   color: var(--option-text-muted);
   overflow: hidden;
@@ -725,7 +725,7 @@ button.danger:active:not(:disabled) {
   display: grid;
   gap: 7px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .project-dialog input {
   width: 100%;
@@ -818,14 +818,14 @@ button.danger:active:not(:disabled) {
 }
 .env-setup-modal h3 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: var(--font-size-title);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .env-setup-modal p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -859,7 +859,7 @@ button.danger:active:not(:disabled) {
   min-height: 32px;
   padding: 0 10px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-primary);
   background: transparent;
   text-align: left;
@@ -915,11 +915,11 @@ button.danger:active:not(:disabled) {
   animation: bounce-icon 2s infinite ease-in-out;
 }
 .rag-drop-overlay-box strong {
-  font-size: 16px;
+  font-size: var(--font-size-title);
   font-weight: 600;
   color: var(--text-primary);
 }
 .rag-drop-overlay-box span {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-secondary);
 }

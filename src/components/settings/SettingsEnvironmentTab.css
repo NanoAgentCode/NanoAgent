@@ -35,8 +35,8 @@
 .env-actions-menu button:hover:not(:disabled) { background: var(--option-bg-hover); }
 .env-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .env-grid-tavily { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: end; }
-.env-install-progress { font-size: 0.8rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
-.env-input-compact { padding: 6px 10px; font-size: 0.85rem; }
-.env-section-label { font-size: 0.8rem; color: var(--text-secondary); }
+.env-install-progress { font-size: var(--font-size-sm); color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.env-input-compact { padding: 6px 10px; font-size: var(--font-size-md); }
+.env-section-label { font-size: var(--font-size-sm); color: var(--text-secondary); }
 .env-tab-content { display: flex; flex-direction: column; gap: 16px; }
 .env-field-no-margin { margin: 0; }

@@ -48,7 +48,7 @@
   border: 1px solid var(--border-color); border-radius: 8px;
   outline: none; background: var(--bg-pane); color: var(--text-primary);
   resize: vertical; font-family: var(--font-mono);
-  font-size: 12px; line-height: 1.5;
+  font-size: var(--font-size-sm); line-height: 1.5;
 }
 .mcp-form-card textarea:focus { border-color: var(--border-color-focus); box-shadow: var(--focus-ring); }
 .mcp-actions { width: 100%; padding-top: 0; border-top: 0; }
@@ -73,8 +73,8 @@
 }
 .mcp-tools-tooltip-list { display: grid; gap: 8px; max-height: 240px; overflow: auto; padding-right: 2px; }
 .mcp-tools-tooltip-item { display: grid; gap: 3px; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-pane); }
-.mcp-tools-tooltip-item strong { color: var(--text-primary); font-size: 12px; }
-.mcp-tools-tooltip-item span, .mcp-tools-tooltip-empty { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.mcp-tools-tooltip-item strong { color: var(--text-primary); font-size: var(--font-size-sm); }
+.mcp-tools-tooltip-item span, .mcp-tools-tooltip-empty { color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.45; }
 
 /* Small spinning loader for MCP connection buttons */
 .mcp-loader-small.svg-spin {
