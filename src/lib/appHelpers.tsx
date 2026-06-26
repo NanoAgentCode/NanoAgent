@@ -1,0 +1,49 @@
+import type { ItemKind, WebSearchStatus, WorkspaceView, ThemeMode } from "../types";
+import { parseToolResult } from "./messageHelpers";
+import MarkdownMessage from "../MarkdownMessage";
+import ToolResultMessage from "../components/ToolResultMessage";
+
+export const kindLabels: Record<ItemKind, string> = {
+  note: "笔记",
+  prompt: "提示词"
+};
+
+export const statusLabels: Record<string, string> = {
+  active: "活跃",
+  archived: "已归档"
+};
+
+export function getWebSearchEngineLabel(engine: string) {
+  if (engine === "tavily") return "Tavily";
+  if (engine === "duckduckgo") return "DuckDuckGo";
+  return engine || "未知引擎";
+}
+
+export function formatWebSearchBadge(status: WebSearchStatus, resultCount: number) {
+  const engineLabel = getWebSearchEngineLabel(status.engine);
+  if (status.used_fallback) {
+    return `网络检索: 已回退到 ${engineLabel} (${resultCount} 条结果)`;
+  }
+  return `网络检索: ${engineLabel} (${resultCount} 条结果)`;
+}
+
+export const workspaceLabels: Record<WorkspaceView, string> = {
+  all: "全部",
+  note: "笔记",
+  prompt: "提示词",
+  memory: "记忆系统"
+};
+
+export const themeLabels: Record<ThemeMode, string> = {
+  system: "跟随系统",
+  light: "白天主题",
+  dark: "夜晚主题"
+};
+
+export function renderMessageContent(content: string) {
+  const toolResult = parseToolResult(content);
+  if (toolResult) {
+    return <ToolResultMessage result={toolResult} />;
+  }
+  return <MarkdownMessage content={content} />;
+}

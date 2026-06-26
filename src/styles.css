@@ -2916,6 +2916,7 @@ button.danger:active:not(:disabled) {
   background: var(--bg-card);
   margin-top: 10px;
 }
+}
 
 .skills-config-list {
   border-right: 1px solid var(--border-color);
@@ -4955,3 +4956,246 @@ button.danger:hover:not(:disabled),
   color: var(--text-secondary);
 }
 
+/* ========================================
+   Settings Inline Style Cleanup
+   ======================================== */
+
+/* Model config row layout */
+.model-config-row-flex {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.model-config-row-info {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Status indicator dot (base only - color may be set inline dynamically) */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot--success {
+  background-color: var(--accent-green);
+}
+
+.status-dot--error {
+  background-color: var(--accent-red);
+}
+
+/* Status text panels */
+.status-text-panel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: 13px;
+}
+
+.status-text-panel--success {
+  color: var(--accent-green);
+}
+
+.status-text-panel--error {
+  color: var(--accent-red);
+}
+
+/* Status spacer */
+.status-spacer {
+  margin-right: auto;
+}
+
+/* Description margin helpers */
+.description--tight {
+  margin-top: -4px;
+}
+
+.description--no-margin {
+  margin: 0;
+}
+
+/* Icon-actions bar */
+.icon-actions-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* Skills tab layout */
+.skills-tab-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  gap: 16px;
+}
+
+.skills-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.skills-config-list-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.skills-config-list-scroll {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skills-config-form-scroll {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.skills-add-form-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.skills-add-form-actions {
+  margin-top: auto;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.skills-field-label {
+  font-size: 0.8rem;
+}
+
+/* Embedding config card */
+.embedding-config-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-card);
+  overflow: hidden;
+  max-height: none;
+  flex: 1;
+}
+
+.embedding-config-form {
+  max-width: 600px;
+}
+
+/* Env status grids */
+.env-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.env-grid-tavily {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.env-install-progress {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.env-input-compact {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.env-section-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.env-field-no-margin {
+  margin: 0;
+}
+
+/* Env tab content */
+.env-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Skills description text */
+.skills-desc-text {
+  font-size: 0.85rem;
+}
+
+/* Skills link text */
+.skills-link-text {
+  font-size: 0.8rem;
+}
+
+/* Skills add button */
+.skills-add-btn-full {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  height: auto;
+}
+
+/* Skills textarea*/
+.skills-textarea-custom {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  padding: 8px;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  resize: vertical;
+  font-size: 0.85rem;
+}
+
+/* Indent margin for skills form section */
+.skills-form-section-margin {
+  margin-top: 12px;
+}
+
+/* No margin for h4 in skills */
+.skills-h4-no-margin {
+  margin: 0;
+}
+
+/* Model config form narrow */
+.model-config-form-narrow {
+  max-width: 600px;
+}
+
+/* Tab content no overflow */
+.tab-content-no-overflow {
+  overflow: hidden !important;
+}
+
+/* SVG spin animation */
+.svg-spin {
+  animation: spin 1s linear infinite;
+}
+
+.mcp-loader-small.svg-spin {
+  width: 10px;
+  height: 10px;
+}
