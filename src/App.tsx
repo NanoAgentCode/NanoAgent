@@ -3648,7 +3648,7 @@ function App() {
                   onClick={() => setActiveSettingsTab("model")}
                 >
                   <Bot size={16} />
-                  <span>大模型管理</span>
+                  <span>LLM管理</span>
                 </button>
                 <button
                   className={activeSettingsTab === "embedding" ? "settings-nav-item active" : "settings-nav-item"}
@@ -3836,7 +3836,7 @@ function App() {
                   return (
                     <div className="settings-tab-content model-tab-content">
                       <div className="model-header-row">
-                        <h3>大模型管理</h3>
+                        <h3>LLM管理</h3>
                         <button className="icon-only-btn compact" onClick={handleNewModelConfig} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
                       </div>
                       <p className="description" style={{ marginTop: "-4px" }}>配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
@@ -3902,7 +3902,7 @@ function App() {
                                 onChange={(event) => handleProviderChange(event.target.value)}
                               >
                                 <option value="openai-compatible">OpenAI 兼容协议</option>
-                                <option value="anthropic">Anthropic Claude</option>
+                                <option value="anthropic">Anthropic 兼容协议</option>
                               </select>
                             </label>
                             <label>
