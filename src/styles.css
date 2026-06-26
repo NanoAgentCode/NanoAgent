@@ -2644,6 +2644,31 @@ button.danger:active:not(:disabled) {
   flex-shrink: 0;
 }
 
+.observability-trace-summary > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.observability-trace-summary > div:first-child strong,
+.observability-trace-summary > div:first-child span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.observability-trace-summary > div:first-child strong {
+  font-size: var(--font-size-md);
+}
+
+.observability-trace-summary > div:first-child span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
 .observability-timeline {
   flex: 1;
   min-height: 0;
