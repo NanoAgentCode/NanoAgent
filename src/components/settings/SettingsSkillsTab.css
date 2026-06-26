@@ -108,6 +108,7 @@
 }
 .skills-config-form-scroll {
   display: flex; flex-direction: column; overflow-y: auto;
+  padding: 20px; height: 100%; box-sizing: border-box;
 }
 .skills-add-form-inner {
   display: flex; flex-direction: column; gap: 12px; height: 100%;
