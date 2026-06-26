@@ -540,6 +540,11 @@ button.danger:active:not(:disabled) {
   max-width: 600px;
 }
 
+/* Model tab content needs overflow hidden */
+.model-tab-content {
+  overflow: hidden !important;
+}
+
 /* ========================================
    Shared: Config rows (skills, mcp, archive, trace)
    ======================================== */

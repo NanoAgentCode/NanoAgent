@@ -75,3 +75,8 @@
 .mcp-tools-tooltip-item { display: grid; gap: 3px; padding: 8px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-pane); }
 .mcp-tools-tooltip-item strong { color: var(--text-primary); font-size: 12px; }
 .mcp-tools-tooltip-item span, .mcp-tools-tooltip-empty { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+
+.mcp-loader-small.svg-spin {
+  width: 10px;
+  height: 10px;
+}

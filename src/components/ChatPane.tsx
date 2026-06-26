@@ -158,15 +158,7 @@ export default function ChatPane({
               {renderMessageContent(message.content)}
               
               {toolCall && (
-                <div className="tool-call-card" style={{
-                  marginTop: "12px",
-                  padding: "12px",
-                  border: "1px solid var(--border-color, #e0e0e0)",
-                  borderRadius: "8px",
-                  background: "rgba(0, 0, 0, 0.02)",
-                  fontSize: "0.85rem",
-                  textAlign: "left"
-                }}>
+                <div className="tool-call-card">
                   <div style={{ fontWeight: "bold", marginBottom: "6px", display: "flex", alignItems: "center", gap: "6px" }}>
                     🔧 工具调用请求: <code style={{ background: "rgba(0,0,0,0.06)", padding: "2px 4px", borderRadius: "4px" }}>{toolCall.name}</code>
                   </div>
