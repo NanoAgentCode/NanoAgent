@@ -27,6 +27,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  Upload,
   X
 } from "lucide-react";
 import {
@@ -3381,7 +3382,25 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main
+      className="app-shell"
+      onDragOver={(event) => {
+        event.preventDefault();
+        setIsRagDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setIsRagDragging(false);
+        }
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setIsRagDragging(false);
+        if (event.dataTransfer && event.dataTransfer.files) {
+          void handleRagFiles(event.dataTransfer.files);
+        }
+      }}
+    >
       <aside className="sidebar">
         <div className="brand">
           <Sparkles size={22} />
@@ -4694,23 +4713,7 @@ function App() {
           {messages.length === 0 && <div className="empty">在下方输入开始对话，记录将保存在本地</div>}
         </div>
 
-        <div
-          className={isRagDragging ? "chat-input rag-dragging" : "chat-input"}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setIsRagDragging(true);
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              setIsRagDragging(false);
-            }
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setIsRagDragging(false);
-            void handleRagFiles(event.dataTransfer.files);
-          }}
-        >
+        <div className="chat-input">
           {promptSuggestions.length > 0 && (
             <div className="prompt-suggestions-dropdown">
               {promptSuggestions.map((prompt, index) => (
@@ -4726,9 +4729,8 @@ function App() {
               ))}
             </div>
           )}
-          {(ragFiles.length > 0 || indexingRagFileName || isRagDragging) && (
+          {(ragFiles.length > 0 || indexingRagFileName) && (
             <div className="rag-file-strip">
-              {isRagDragging && <span className="rag-drop-hint">释放文件以索引到当前对话</span>}
               {indexingRagFileName && (
                 <span className="rag-file-chip indexing">
                   <FileText size={14} />
@@ -4768,21 +4770,7 @@ function App() {
               </select>
             </div>
             <div className="chat-input-actions">
-              <label className="chat-input-action ghost" aria-label="上传文件" title="上传文件到当前对话 RAG">
-                <FileText size={20} />
-                <span>文件</span>
-                <input
-                  multiple
-                  type="file"
-                  accept=".txt,.md,.markdown,.json,.csv,.tsv,.log,.js,.jsx,.ts,.tsx,.rs,.py,.java,.go,.yaml,.yml,.toml,.html,.css,.xml"
-                  onChange={(event) => {
-                    if (event.target.files) {
-                      void handleRagFiles(event.target.files);
-                    }
-                    event.target.value = "";
-                  }}
-                />
-              </label>
+
               <button className="chat-input-action ghost" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
                 <Plus size={20} />
                 <span>新建</span>
@@ -4980,6 +4968,15 @@ function App() {
               <span>移除项目入口</span>
             </button>
           )}
+        </div>
+      )}
+      {isRagDragging && (
+        <div className="rag-drop-overlay">
+          <div className="rag-drop-overlay-box">
+            <Upload size={36} />
+            <strong>释放文件以索引到当前对话</strong>
+            <span>支持文本、Markdown、JSON、代码等文件</span>
+          </div>
         </div>
       )}
     </main>

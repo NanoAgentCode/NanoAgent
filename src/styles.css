@@ -4883,3 +4883,73 @@ button.danger:hover:not(:disabled),
   border-color: rgba(88, 166, 255, 0.36);
   box-shadow: 0 16px 38px rgba(15, 23, 42, 0.2);
 }
+
+/* RAG drag-and-drop overlay style */
+.rag-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  pointer-events: none;
+}
+
+.rag-drop-overlay-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 2px dashed var(--accent-cyan);
+  border-radius: 16px;
+  background: var(--bg-card);
+  padding: 40px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  color: var(--text-primary);
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgba(0, 240, 255, 0.5);
+  }
+  50% {
+    border-color: rgba(0, 240, 255, 1);
+  }
+}
+
+.rag-drop-overlay-box svg {
+  color: var(--accent-cyan);
+  animation: bounce-icon 2s infinite ease-in-out;
+}
+
+@keyframes bounce-icon {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.rag-drop-overlay-box strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rag-drop-overlay-box span {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
