@@ -94,8 +94,8 @@ export interface UseModelReturn {
 
 export function useModel(
   setNotice: (message: string) => void,
-  activeConversationId: string,
-  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>
+  activeConversationId: string | (() => string),
+  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>> | ((updater: any) => void)
 ): UseModelReturn {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
@@ -360,11 +360,13 @@ export function useModel(
 
   async function handleActiveModelChange(modelId: string) {
     setActiveModelId(modelId);
-    if (activeConversationId) {
+    const resolvedActiveId = typeof activeConversationId === "function" ? activeConversationId() : activeConversationId;
+    if (resolvedActiveId) {
       try {
-        await updateConversationModel(activeConversationId, modelId || null);
-        setConversations((current) =>
-          current.map((c) => (c.id === activeConversationId ? { ...c, model_config_id: modelId || null } : c))
+        await updateConversationModel(resolvedActiveId, modelId || null);
+        const resolvedSetConversations = typeof setConversations === "function" ? setConversations : setConversations;
+        resolvedSetConversations((current: Conversation[]) =>
+          current.map((c) => (c.id === resolvedActiveId ? { ...c, model_config_id: modelId || null } : c))
         );
       } catch (error) {
         setNotice(`切换对话大模型失败: ${String(error)}`);

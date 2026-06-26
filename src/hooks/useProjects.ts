@@ -86,7 +86,7 @@ export interface UseProjectsReturn {
 
 export function useProjects(
   setNotice: (message: string) => void,
-  conversations: Conversation[]
+  conversations: Conversation[] | (() => Conversation[])
 ): UseProjectsReturn {
   const [projects, setProjects] = useState<ProjectEntry[]>(() => loadSavedProjects());
   const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem(activeProjectStorageKey) || "");
@@ -280,7 +280,8 @@ export function useProjects(
 
   function findConversationById(conversationId: string) {
     const allProjectConversations = Object.values(projectConversations).flat();
-    return [...conversations, ...allProjectConversations].find(
+    const resolvedConversations = typeof conversations === "function" ? conversations() : conversations;
+    return [...resolvedConversations, ...allProjectConversations].find(
       (conversation) => conversation.id === conversationId
     ) || null;
   }
