@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { setTheme } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { open } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
   Activity,
@@ -41,7 +40,6 @@ import {
   createConversation,
   createItem,
   createMemory,
-  createProjectDirectory,
   deleteConversation,
   deleteItem,
   deleteMessages,
@@ -84,6 +82,7 @@ import { useMemory } from "./hooks/useMemory";
 import { useModel, normalizeModelDraft } from "./hooks/useModel";
 import { useSkills } from "./hooks/useSkills";
 import { useObservability } from "./hooks/useObservability";
+import { useProjects } from "./hooks/useProjects";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -199,52 +198,7 @@ const themeLabels: Record<ThemeMode, string> = {
   dark: "夜晚主题"
 };
 
-const projectStorageKey = "nano-agent-projects";
-const activeProjectStorageKey = "nano-agent-active-project-id";
 
-function loadSavedProjects() {
-  const saved = localStorage.getItem(projectStorageKey);
-  if (!saved) return [];
-
-  try {
-    const parsed = JSON.parse(saved) as ProjectEntry[];
-    const uniqueProjects = new Map<string, ProjectEntry>();
-    for (const project of parsed) {
-      if (!project.id || !project.name || !project.path) {
-        continue;
-      }
-      const normalizedPath = project.path.trim().replace(/[\\/]+$/, "");
-      if (!normalizedPath) {
-        continue;
-      }
-      const normalizedProject = {
-        ...project,
-        id: normalizedPath,
-        name: project.name,
-        path: normalizedPath
-      };
-      uniqueProjects.set(normalizedPath.toLowerCase(), normalizedProject);
-    }
-    return Array.from(uniqueProjects.values());
-  } catch (error) {
-    console.error("Failed to parse projects from localStorage", error);
-    return [];
-  }
-}
-
-function projectNameFromPath(path: string) {
-  const normalized = path.replace(/[\\/]+$/, "");
-  return normalized.split(/[\\/]/).pop() || normalized || "未命名项目";
-}
-
-function saveProjects(projects: ProjectEntry[], activeProjectId: string) {
-  localStorage.setItem(projectStorageKey, JSON.stringify(projects));
-  if (activeProjectId) {
-    localStorage.setItem(activeProjectStorageKey, activeProjectId);
-  } else {
-    localStorage.removeItem(activeProjectStorageKey);
-  }
-}
 
 function renderMessageContent(content: string) {
   const toolResult = parseToolResult(content);
@@ -271,29 +225,8 @@ function App() {
   const [status, setStatus] = useState("active");
 
 
-  const [projects, setProjects] = useState<ProjectEntry[]>(() => loadSavedProjects());
-  const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem(activeProjectStorageKey) || "");
-  const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>(() => {
-    const activeId = localStorage.getItem(activeProjectStorageKey) || "";
-    return activeId ? [activeId] : [];
-  });
-  const [projectsSectionExpanded, setProjectsSectionExpanded] = useState(true);
-  const [chatsSectionExpanded, setChatsSectionExpanded] = useState(true);
-  const [projectConversations, setProjectConversations] = useState<Record<string, Conversation[]>>({});
-  const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
-  const [newProjectParent, setNewProjectParent] = useState("");
-  const [newProjectName, setNewProjectName] = useState("");
-  const [pendingProjectRemoval, setPendingProjectRemoval] = useState<ProjectEntry | null>(null);
-  const [projectApprovalText, setProjectApprovalText] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<Conversation[]>([]);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    visible: boolean;
-    conversation: Conversation | null;
-    project: ProjectEntry | null;
-  }>({ x: 0, y: 0, visible: false, conversation: null, project: null });
 
   const [previewArchivedId, setPreviewArchivedId] = useState("");
   const [previewMessages, setPreviewMessages] = useState<PersistedMessage[]>([]);
@@ -317,6 +250,7 @@ function App() {
   const model = useModel(setNotice, activeConversationId, setConversations);
   const skills = useSkills(setNotice);
   const obs = useObservability(setNotice, activeConversationId, showModelConfig, activeSettingsTab);
+  const projects = useProjects(setNotice, conversations);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -328,21 +262,17 @@ function App() {
     [items, selectedId]
   );
   const activeConversation = useMemo(() => {
-    const allProjectConversations = Object.values(projectConversations).flat();
+    const allProjectConversations = Object.values(projects.projectConversations).flat();
     return [...conversations, ...allProjectConversations].find(
       (conversation) => conversation.id === activeConversationId
     );
-  }, [activeConversationId, conversations, projectConversations]);
+  }, [activeConversationId, conversations, projects.projectConversations]);
   const activeConversationProject = useMemo(
     () =>
       activeConversation?.project_path
-        ? projects.find((project) => project.path === activeConversation.project_path) || null
+        ? projects.projects.find((project) => project.path === activeConversation.project_path) || null
         : null,
-    [activeConversation, projects]
-  );
-  const activeProject = useMemo(
-    () => projects.find((project) => project.id === activeProjectId) || null,
-    [activeProjectId, projects]
+    [activeConversation, projects.projects]
   );
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -363,33 +293,7 @@ function App() {
     };
   }, [obs.showChatRuntime]);
 
-  useEffect(() => {
-    if (projects.length === 0) {
-      if (activeProjectId) {
-        setActiveProjectId("");
-        localStorage.removeItem(activeProjectStorageKey);
-      }
-      return;
-    }
 
-    if (!projects.some((project) => project.id === activeProjectId)) {
-      const nextActiveProjectId = projects[0].id;
-      setActiveProjectId(nextActiveProjectId);
-      localStorage.setItem(activeProjectStorageKey, nextActiveProjectId);
-    }
-  }, [activeProjectId, projects]);
-
-  useEffect(() => {
-    if (activeProjectId) {
-      setExpandedProjectIds((current) =>
-        current.includes(activeProjectId) ? current : [...current, activeProjectId]
-      );
-    }
-  }, [activeProjectId]);
-
-  useEffect(() => {
-    void refreshProjectConversationMap(projects);
-  }, [projects]);
 
   useEffect(() => {
     if (!notice) {
@@ -782,53 +686,9 @@ function App() {
     }
   }
 
-
-
-  function toggleProjectExpanded(projectId: string) {
-    setExpandedProjectIds((current) =>
-      current.includes(projectId)
-        ? current.filter((id) => id !== projectId)
-        : [...current, projectId]
-    );
-  }
-
-  async function refreshProjectConversationMap(projectList = projects) {
-    if (projectList.length === 0) {
-      setProjectConversations({});
-      return;
-    }
-
-    const pairs = await Promise.all(
-      projectList.map(async (project) => {
-        const projectItems = await listConversations(project.path);
-        return [project.id, projectItems] as const;
-      })
-    );
-    setProjectConversations(Object.fromEntries(pairs));
-  }
-
-  function selectProject(project: ProjectEntry) {
-    setActiveProjectId(project.id);
-    saveProjects(projects, project.id);
-    setExpandedProjectIds((current) => (current.includes(project.id) ? current : [...current, project.id]));
-  }
-
-  function findConversationById(conversationId: string) {
-    const allProjectConversations = Object.values(projectConversations).flat();
-    return [...conversations, ...allProjectConversations].find(
-      (conversation) => conversation.id === conversationId
-    ) || null;
-  }
-
-  function findConversationProject(conversation: Conversation | null) {
-    return conversation?.project_path
-      ? projects.find((project) => project.path === conversation.project_path) || null
-      : null;
-  }
-
   function resolveConversationModelId(conversationId?: string | null) {
     const savedModelId =
-      (conversationId ? findConversationById(conversationId)?.model_config_id : activeConversation?.model_config_id) ||
+      (conversationId ? projects.findConversationById(conversationId)?.model_config_id : activeConversation?.model_config_id) ||
       "";
 
     if (savedModelId && model.models.some((m) => m.id === savedModelId)) {
@@ -836,111 +696,6 @@ function App() {
     }
 
     return model.activeModelId;
-  }
-
-  function upsertProject(path: string) {
-    const normalizedPath = path.trim().replace(/[\\/]+$/, "");
-    if (!normalizedPath) return;
-
-    const now = new Date().toISOString();
-    const existing = projects.find(
-      (project) => project.path.toLowerCase() === normalizedPath.toLowerCase()
-    );
-    const nextProject: ProjectEntry = existing
-      ? { ...existing, opened_at: now }
-      : {
-          id: normalizedPath,
-          name: projectNameFromPath(normalizedPath),
-          path: normalizedPath,
-          opened_at: now
-        };
-    const nextProjects = [
-      nextProject,
-      ...projects.filter((project) => project.id !== nextProject.id)
-    ];
-
-    setProjects(nextProjects);
-    setActiveProjectId(nextProject.id);
-    setExpandedProjectIds((current) => (current.includes(nextProject.id) ? current : [...current, nextProject.id]));
-    saveProjects(nextProjects, nextProject.id);
-    setNotice(`已打开项目：${nextProject.name}`);
-  }
-
-  async function handleOpenProject() {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "打开项目"
-      });
-
-      if (typeof selected === "string") {
-        upsertProject(selected);
-      }
-    } catch (error) {
-      setNotice(`打开项目失败：${String(error)}`);
-    }
-  }
-
-  async function handleSelectNewProjectParent() {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "选择新项目所在目录"
-      });
-
-      if (typeof selected === "string") {
-        setNewProjectParent(selected);
-      }
-    } catch (error) {
-      setNotice(`选择目录失败：${String(error)}`);
-    }
-  }
-
-  async function handleCreateProject() {
-    const name = newProjectName.trim();
-    if (!newProjectParent || !name) {
-      setNotice("请选择父目录并填写项目名称");
-      return;
-    }
-
-    try {
-      const projectPath = await createProjectDirectory(newProjectParent, name);
-      upsertProject(projectPath);
-      setShowNewProjectDialog(false);
-      setNewProjectParent("");
-      setNewProjectName("");
-    } catch (error) {
-      setNotice(`新建项目失败：${String(error)}`);
-    }
-  }
-
-  function handleRemoveProjectApproval(project: ProjectEntry) {
-    setPendingProjectRemoval(project);
-    setProjectApprovalText("");
-  }
-
-  function handleConfirmRemoveProject() {
-    if (!pendingProjectRemoval || projectApprovalText.trim() !== pendingProjectRemoval.name) {
-      return;
-    }
-
-    const nextProjects = projects.filter((project) => project.id !== pendingProjectRemoval.id);
-    const nextActiveProjectId =
-      activeProjectId === pendingProjectRemoval.id ? nextProjects[0]?.id || "" : activeProjectId;
-
-    setProjects(nextProjects);
-    setActiveProjectId(nextActiveProjectId);
-    setExpandedProjectIds((current) => current.filter((id) => id !== pendingProjectRemoval.id));
-    setProjectConversations((current) => {
-      const { [pendingProjectRemoval.id]: _, ...rest } = current;
-      return rest;
-    });
-    saveProjects(nextProjects, nextActiveProjectId);
-    setPendingProjectRemoval(null);
-    setProjectApprovalText("");
-    setNotice("项目入口已移除，磁盘文件未删除。");
   }
 
 
@@ -1086,22 +841,15 @@ function App() {
     });
 
     if (project) {
-      await refreshProjectConversationMap(projects);
+      await projects.refreshProjectConversationMap();
     } else {
       await refreshConversations(conversation.id);
     }
     return conversation;
   }
 
-  function resolveConversationProject(
-    conversationId: string,
-    projectHint: ProjectEntry | null = null
-  ) {
-    return findConversationProject(findConversationById(conversationId)) || projectHint;
-  }
-
   function getConversationProjectHint() {
-    return activeConversationId ? activeConversationProject : activeProject;
+    return activeConversationId ? activeConversationProject : projects.activeProject;
   }
 
   async function handleNewConversation() {
@@ -1111,7 +859,7 @@ function App() {
   }
 
   async function handleNewProjectConversation(project: ProjectEntry) {
-    selectProject(project);
+    projects.selectProject(project);
     const conversation = await createConversationForCurrentScope(project);
     setActiveConversationId(conversation.id);
     setMessages([]);
@@ -1125,7 +873,7 @@ function App() {
     const isProjectConversation = Boolean(activeConversation?.project_path);
     await deleteConversation(activeConversationId);
     if (isProjectConversation) {
-      await refreshProjectConversationMap(projects);
+      await projects.refreshProjectConversationMap();
       setActiveConversationId("");
     } else {
       const rest = conversations.filter((item) => item.id !== activeConversationId);
@@ -1142,7 +890,7 @@ function App() {
     const isProjectConversation = Boolean(activeConversation?.project_path);
     await archiveConversation(activeConversationId, true);
     if (isProjectConversation) {
-      await refreshProjectConversationMap(projects);
+      await projects.refreshProjectConversationMap();
       setActiveConversationId("");
     } else {
       const rest = conversations.filter((item) => item.id !== activeConversationId);
@@ -1174,7 +922,7 @@ function App() {
       await renameConversation(id, trimmed);
       await Promise.all([
         refreshConversations(),
-        refreshProjectConversationMap(projects)
+        projects.refreshProjectConversationMap()
       ]);
     } catch (e) {
       console.error(e);
@@ -1189,7 +937,7 @@ function App() {
       
       if (activeConversationId === conversation.id) {
         if (isProjectConversation) {
-          await refreshProjectConversationMap(projects);
+          await projects.refreshProjectConversationMap();
           setActiveConversationId("");
           setMessages([]);
         } else {
@@ -1203,7 +951,7 @@ function App() {
       } else {
         await Promise.all([
           refreshConversations(),
-          refreshProjectConversationMap(projects)
+          projects.refreshProjectConversationMap()
         ]);
       }
     } catch (e) {
@@ -1222,7 +970,7 @@ function App() {
       
       if (activeConversationId === conversation.id) {
         if (isProjectConversation) {
-          await refreshProjectConversationMap(projects);
+          await projects.refreshProjectConversationMap();
           setActiveConversationId("");
           setMessages([]);
         } else {
@@ -1236,7 +984,7 @@ function App() {
       } else {
         await Promise.all([
           refreshConversations(),
-          refreshProjectConversationMap(projects)
+          projects.refreshProjectConversationMap()
         ]);
       }
     } catch (e) {
@@ -1247,7 +995,7 @@ function App() {
 
   function handleContextMenu(e: React.MouseEvent, conversation: Conversation) {
     e.preventDefault();
-    setContextMenu({
+    projects.setContextMenu({
       x: e.clientX,
       y: e.clientY,
       visible: true,
@@ -1258,7 +1006,7 @@ function App() {
 
   function handleProjectContextMenu(e: React.MouseEvent, project: ProjectEntry) {
     e.preventDefault();
-    setContextMenu({
+    projects.setContextMenu({
       x: e.clientX,
       y: e.clientY,
       visible: true,
@@ -1274,15 +1022,15 @@ function App() {
 
   useEffect(() => {
     const handleCloseMenu = () => {
-      if (contextMenu.visible) {
-        setContextMenu((prev) => ({ ...prev, visible: false }));
+      if (projects.contextMenu.visible) {
+        projects.setContextMenu((prev) => ({ ...prev, visible: false }));
       }
     };
     window.addEventListener("click", handleCloseMenu);
     return () => {
       window.removeEventListener("click", handleCloseMenu);
     };
-  }, [contextMenu.visible]);
+  }, [projects.contextMenu.visible]);
 
   useEffect(() => {
     const handleGlobalContextMenu = (e: MouseEvent) => {
@@ -1339,7 +1087,7 @@ function App() {
     projectHint: ProjectEntry | null = null,
     runId?: string | null
   ) {
-    const projectForRequest = resolveConversationProject(conversationId, projectHint);
+    const projectForRequest = projects.resolveConversationProject(conversationId, projectHint);
     const modelConfigId = resolveConversationModelId(conversationId);
     const enabledMemories = await listEnabledMemories();
     let projectFiles: ProjectFileEntry[] = [];
@@ -1486,7 +1234,7 @@ function App() {
         });
       }
       if (projectForRequest) {
-        await refreshProjectConversationMap(projects);
+        await projects.refreshProjectConversationMap();
       } else {
         await refreshConversations(conversationId);
       }
@@ -1503,7 +1251,7 @@ function App() {
     try {
       const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
-      const projectForRequest = resolveConversationProject(conversationId, projectHint);
+      const projectForRequest = projects.resolveConversationProject(conversationId, projectHint);
       const projectPath = projectForRequest?.path || skills.tempDir;
       activeRunId = activeToolCall?.run_id || conversationRunIds[conversationId] || null;
       if (!activeRunId) {
@@ -1605,7 +1353,7 @@ function App() {
       try {
         const projectHint = getConversationProjectHint();
         const conversationId = await ensureConversation(projectHint);
-        const projectForRequest = resolveConversationProject(conversationId, projectHint);
+        const projectForRequest = projects.resolveConversationProject(conversationId, projectHint);
         await appendMessage({
           conversation_id: conversationId,
           role: "user",
@@ -1628,7 +1376,7 @@ function App() {
     try {
       const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
-      const projectForRequest = resolveConversationProject(conversationId, projectHint);
+      const projectForRequest = projects.resolveConversationProject(conversationId, projectHint);
       let activeRunId = messageToolCalls[messageId]?.run_id || conversationRunIds[conversationId] || null;
       let activeToolCall: AgentToolCall | null = messageToolCalls[messageId] || null;
       if (!activeRunId) {
@@ -1701,7 +1449,7 @@ function App() {
     try {
       const projectHint = getConversationProjectHint();
       const conversationId = await ensureConversation(projectHint);
-      const projectForRequest = resolveConversationProject(conversationId, projectHint);
+      const projectForRequest = projects.resolveConversationProject(conversationId, projectHint);
       const persistedMessages = await listMessages(conversationId);
       const userMessage = await appendMessage({
         conversation_id: conversationId,
@@ -1756,7 +1504,7 @@ function App() {
           void safeFinishAgentRun(agentRun.id, "completed");
         }
         if (projectForRequest) {
-          await refreshProjectConversationMap(projects);
+          await projects.refreshProjectConversationMap();
         } else {
           await refreshConversations(conversationId);
         }
@@ -1946,7 +1694,7 @@ function App() {
         });
       }
       if (projectForRequest) {
-        await refreshProjectConversationMap(projects);
+        await projects.refreshProjectConversationMap();
       } else {
         await refreshConversations(conversationId);
       }
@@ -2172,27 +1920,27 @@ function App() {
           <div className="sidebar-section-header">
             <div
               className="sidebar-section-toggle"
-              onClick={() => setProjectsSectionExpanded(!projectsSectionExpanded)}
+              onClick={() => projects.setProjectsSectionExpanded(!projects.projectsSectionExpanded)}
             >
-              {projectsSectionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              {projects.projectsSectionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               <Folder size={16} />
               <span>项目区</span>
             </div>
             <div className="sidebar-section-actions">
-              <button className="new-chat-btn" onClick={() => setShowNewProjectDialog(true)} title="新建项目" type="button">
+              <button className="new-chat-btn" onClick={() => projects.setShowNewProjectDialog(true)} title="新建项目" type="button">
                 <Plus size={16} />
               </button>
-              <button className="new-chat-btn" onClick={() => void handleOpenProject()} title="打开已有项目" type="button">
+              <button className="new-chat-btn" onClick={() => void projects.handleOpenProject()} title="打开已有项目" type="button">
                 <Folder size={16} />
               </button>
             </div>
           </div>
-          {projectsSectionExpanded && (
+          {projects.projectsSectionExpanded && (
             <div className="sidebar-project-list">
-              {projects.map((project) => {
-                const isActiveProject = project.id === activeProjectId;
-                const isExpanded = expandedProjectIds.includes(project.id);
-                const projectChats = projectConversations[project.id] || [];
+              {projects.projects.map((project) => {
+                const isActiveProject = project.id === projects.activeProjectId;
+                const isExpanded = projects.expandedProjectIds.includes(project.id);
+                const projectChats = projects.projectConversations[project.id] || [];
                 const hasNoChats = projectChats.length === 0;
                 const tooltipText = hasNoChats ? "暂无项目会话" : project.path;
 
@@ -2202,10 +1950,10 @@ function App() {
                       className={isActiveProject ? "sidebar-project-item active" : "sidebar-project-item"}
                       role="button"
                       tabIndex={0}
-                      onClick={() => selectProject(project)}
+                      onClick={() => projects.selectProject(project)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
-                          selectProject(project);
+                          projects.selectProject(project);
                         }
                       }}
                       onContextMenu={(e) => handleProjectContextMenu(e, project)}
@@ -2218,7 +1966,7 @@ function App() {
                         title={isExpanded ? "收起项目详情" : "展开项目详情"}
                         onClick={(event) => {
                           event.stopPropagation();
-                          toggleProjectExpanded(project.id);
+                          projects.toggleProjectExpanded(project.id);
                         }}
                         style={{ visibility: hasNoChats ? "hidden" : "visible" }}
                       >
@@ -2248,7 +1996,7 @@ function App() {
                               key={conversation.id}
                               className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
                               onClick={() => {
-                                selectProject(project);
+                                projects.selectProject(project);
                                 setActiveConversationId(conversation.id);
                               }}
                               onContextMenu={(e) => handleContextMenu(e, conversation)}
@@ -2264,7 +2012,7 @@ function App() {
                   </div>
                 );
               })}
-              {projects.length === 0 && (
+              {projects.projects.length === 0 && (
                 <div className="empty project-empty">打开或新建一个项目</div>
               )}
             </div>
@@ -2275,9 +2023,9 @@ function App() {
           <div className="sidebar-section-header">
             <div
               className="sidebar-section-toggle"
-              onClick={() => setChatsSectionExpanded(!chatsSectionExpanded)}
+              onClick={() => projects.setChatsSectionExpanded(!projects.chatsSectionExpanded)}
             >
-              {chatsSectionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              {projects.chatsSectionExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               <MessageSquare size={16} />
               <span>对话区</span>
             </div>
@@ -2285,7 +2033,7 @@ function App() {
               <Plus size={16} />
             </button>
           </div>
-          {chatsSectionExpanded && (
+          {projects.chatsSectionExpanded && (
             <div className="sidebar-chat-list">
               {conversations.map((conversation) => (
                 <button
@@ -2310,21 +2058,21 @@ function App() {
         </button>
       </aside>
 
-      {showNewProjectDialog && (
-        <div className="modal-backdrop" onClick={() => setShowNewProjectDialog(false)}>
+      {projects.showNewProjectDialog && (
+        <div className="modal-backdrop" onClick={() => projects.setShowNewProjectDialog(false)}>
           <section className="project-dialog" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <Folder size={18} />
                 <strong>新建项目</strong>
               </div>
-              <button className="modal-close-btn" onClick={() => setShowNewProjectDialog(false)} aria-label="关闭" title="关闭">&times;</button>
+              <button className="modal-close-btn" onClick={() => projects.setShowNewProjectDialog(false)} aria-label="关闭" title="关闭">&times;</button>
             </header>
             <label>
               <span>父目录</span>
               <div className="project-path-picker">
-                <input value={newProjectParent} readOnly placeholder="选择项目所在目录" />
-                <button type="button" onClick={() => void handleSelectNewProjectParent()}>
+                <input value={projects.newProjectParent} readOnly placeholder="选择项目所在目录" />
+                <button type="button" onClick={() => void projects.handleSelectNewProjectParent()}>
                   选择
                 </button>
               </div>
@@ -2332,17 +2080,17 @@ function App() {
             <label>
               <span>项目名称</span>
               <input
-                value={newProjectName}
-                onChange={(event) => setNewProjectName(event.target.value)}
+                value={projects.newProjectName}
+                onChange={(event) => projects.setNewProjectName(event.target.value)}
                 placeholder="my-project"
                 autoFocus
               />
             </label>
             <footer>
-              <button className="ghost" type="button" onClick={() => setShowNewProjectDialog(false)}>
+              <button className="ghost" type="button" onClick={() => projects.setShowNewProjectDialog(false)}>
                 取消
               </button>
-              <button className="primary" type="button" onClick={() => void handleCreateProject()}>
+              <button className="primary" type="button" onClick={() => void projects.handleCreateProject()}>
                 创建并打开
               </button>
             </footer>
@@ -2350,37 +2098,37 @@ function App() {
         </div>
       )}
 
-      {pendingProjectRemoval && (
-        <div className="modal-backdrop" onClick={() => setPendingProjectRemoval(null)}>
+      {projects.pendingProjectRemoval && (
+        <div className="modal-backdrop" onClick={() => projects.setPendingProjectRemoval(null)}>
           <section className="project-dialog danger-approval" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <Trash2 size={18} />
                 <strong>审批危险操作</strong>
               </div>
-              <button className="modal-close-btn" onClick={() => setPendingProjectRemoval(null)} aria-label="关闭" title="关闭">&times;</button>
+              <button className="modal-close-btn" onClick={() => projects.setPendingProjectRemoval(null)} aria-label="关闭" title="关闭">&times;</button>
             </header>
             <p>
-              将从项目区移除 <strong>{pendingProjectRemoval.name}</strong>。此操作不会删除磁盘文件。
+              将从项目区移除 <strong>{projects.pendingProjectRemoval.name}</strong>。此操作不会删除磁盘文件。
             </p>
             <label>
               <span>输入项目名称以确认</span>
               <input
-                value={projectApprovalText}
-                onChange={(event) => setProjectApprovalText(event.target.value)}
-                placeholder={pendingProjectRemoval.name}
+                value={projects.projectApprovalText}
+                onChange={(event) => projects.setProjectApprovalText(event.target.value)}
+                placeholder={projects.pendingProjectRemoval.name}
                 autoFocus
               />
             </label>
             <footer>
-              <button className="ghost" type="button" onClick={() => setPendingProjectRemoval(null)}>
+              <button className="ghost" type="button" onClick={() => projects.setPendingProjectRemoval(null)}>
                 取消
               </button>
               <button
                 className="danger"
                 type="button"
-                onClick={handleConfirmRemoveProject}
-                disabled={projectApprovalText.trim() !== pendingProjectRemoval.name}
+                onClick={projects.handleConfirmRemoveProject}
+                disabled={projects.projectApprovalText.trim() !== projects.pendingProjectRemoval.name}
               >
                 批准移除
               </button>
@@ -3708,27 +3456,27 @@ function App() {
         )}
       </aside>
 
-      {contextMenu.visible && (
+      {projects.contextMenu.visible && (
         <div
           className="custom-context-menu"
           style={{
-            top: `${contextMenu.y}px`,
-            left: `${contextMenu.x}px`
+            top: `${projects.contextMenu.y}px`,
+            left: `${projects.contextMenu.x}px`
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {contextMenu.conversation && (
+          {projects.contextMenu.conversation && (
             <>
               <button
                 className="custom-context-menu-item"
                 onClick={() => {
-                  if (contextMenu.conversation) {
+                  if (projects.contextMenu.conversation) {
                     void handleRenameConversation(
-                      contextMenu.conversation.id,
-                      contextMenu.conversation.title
+                      projects.contextMenu.conversation.id,
+                      projects.contextMenu.conversation.title
                     );
                   }
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                  projects.setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
                 type="button"
               >
@@ -3738,10 +3486,10 @@ function App() {
               <button
                 className="custom-context-menu-item"
                 onClick={() => {
-                  if (contextMenu.conversation) {
-                    void handleContextArchiveConversation(contextMenu.conversation);
+                  if (projects.contextMenu.conversation) {
+                    void handleContextArchiveConversation(projects.contextMenu.conversation);
                   }
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                  projects.setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
                 type="button"
               >
@@ -3751,10 +3499,10 @@ function App() {
               <button
                 className="custom-context-menu-item danger-action"
                 onClick={() => {
-                  if (contextMenu.conversation) {
-                    void handleContextDeleteConversation(contextMenu.conversation);
+                  if (projects.contextMenu.conversation) {
+                    void handleContextDeleteConversation(projects.contextMenu.conversation);
                   }
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                  projects.setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
                 type="button"
               >
@@ -3764,14 +3512,14 @@ function App() {
             </>
           )}
 
-          {contextMenu.project && (
+          {projects.contextMenu.project && (
             <button
               className="custom-context-menu-item danger-action"
               onClick={() => {
-                if (contextMenu.project) {
-                  handleRemoveProjectApproval(contextMenu.project);
+                if (projects.contextMenu.project) {
+                  projects.handleRemoveProjectApproval(projects.contextMenu.project);
                 }
-                setContextMenu((prev) => ({ ...prev, visible: false }));
+                projects.setContextMenu((prev) => ({ ...prev, visible: false }));
               }}
               type="button"
             >
