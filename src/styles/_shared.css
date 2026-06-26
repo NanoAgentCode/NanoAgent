@@ -336,11 +336,11 @@ button.danger:active:not(:disabled) {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 24px;
+  padding: 16px 24px 24px 24px;
   overflow-y: auto;
 }
 .settings-tab-content h3 {
-  margin: 0 0 12px 0;
+  margin: 0 0 10px 0;
   font-size: var(--font-size-display);
   font-weight: 600;
   color: var(--text-primary);
@@ -348,7 +348,7 @@ button.danger:active:not(:disabled) {
 .settings-tab-content .description {
   font-size: var(--font-size-md);
   color: var(--text-secondary);
-  margin: -6px 0 20px 0;
+  margin: -4px 0 16px 0;
   line-height: 1.5;
 }
 
