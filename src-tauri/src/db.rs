@@ -7,7 +7,8 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::models::{
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
-    Message, MessageDraft, MessageMetadata, ModelConfig, ModelConfigDraft, RagChunkMatch, RagFile,
+    McpServerConfig, McpServerDraft, Message, MessageDraft, MessageMetadata, ModelConfig,
+    ModelConfigDraft, RagChunkMatch, RagFile,
 };
 
 pub struct Database {
@@ -57,6 +58,21 @@ impl Database {
                 embedding_base_url TEXT NOT NULL DEFAULT '',
                 embedding_model TEXT NOT NULL DEFAULT '',
                 embedding_api_key TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS mcp_servers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                transport TEXT NOT NULL DEFAULT 'stdio',
+                command TEXT NOT NULL,
+                args_json TEXT NOT NULL DEFAULT '[]',
+                env_json TEXT NOT NULL DEFAULT '{}',
+                url TEXT NOT NULL DEFAULT '',
+                headers_json TEXT NOT NULL DEFAULT '{}',
+                working_dir TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -181,6 +197,13 @@ impl Database {
             "embedding_api_key",
             "TEXT NOT NULL DEFAULT ''",
         )?;
+        self.ensure_column("mcp_servers", "transport", "TEXT NOT NULL DEFAULT 'stdio'")?;
+        self.ensure_column("mcp_servers", "args_json", "TEXT NOT NULL DEFAULT '[]'")?;
+        self.ensure_column("mcp_servers", "env_json", "TEXT NOT NULL DEFAULT '{}'")?;
+        self.ensure_column("mcp_servers", "url", "TEXT NOT NULL DEFAULT ''")?;
+        self.ensure_column("mcp_servers", "headers_json", "TEXT NOT NULL DEFAULT '{}'")?;
+        self.ensure_column("mcp_servers", "working_dir", "TEXT NOT NULL DEFAULT ''")?;
+        self.ensure_column("mcp_servers", "enabled", "INTEGER NOT NULL DEFAULT 1")?;
         Ok(())
     }
 
@@ -407,6 +430,124 @@ impl Database {
             .conn
             .execute("DELETE FROM model_configs WHERE id = ?1", params![id])?;
         ensure_affected(affected, "model config not found")?;
+        Ok(())
+    }
+
+    pub fn list_mcp_servers(&self) -> AppResult<Vec<McpServerConfig>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, name, transport, command, args_json, env_json, url, headers_json,
+                   working_dir, enabled, created_at, updated_at
+            FROM mcp_servers
+            ORDER BY updated_at DESC
+            ",
+        )?;
+
+        let rows = stmt
+            .query_map([], Self::row_to_mcp_server)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+
+        Ok(rows)
+    }
+
+    pub fn get_mcp_server(&self, id: &str) -> AppResult<McpServerConfig> {
+        self.conn
+            .query_row(
+                "
+                SELECT id, name, transport, command, args_json, env_json, url, headers_json,
+                       working_dir, enabled, created_at, updated_at
+                FROM mcp_servers WHERE id = ?1
+                ",
+                params![id],
+                Self::row_to_mcp_server,
+            )
+            .optional()?
+            .ok_or_else(|| AppError::Message("mcp server not found".to_string()))
+    }
+
+    pub fn save_mcp_server(&self, draft: McpServerDraft) -> AppResult<McpServerConfig> {
+        let now = Utc::now();
+        let id = draft.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        let created_at = self
+            .conn
+            .query_row(
+                "SELECT created_at FROM mcp_servers WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|value| parse_time(&value))
+            .transpose()?
+            .unwrap_or(now);
+
+        validate_json_array_or_empty(&draft.args_json, "args_json")?;
+        validate_json_object_or_empty(&draft.env_json, "env_json")?;
+        validate_json_object_or_empty(&draft.headers_json, "headers_json")?;
+
+        let server = McpServerConfig {
+            id,
+            name: clean_or_default(draft.name, "MCP Server"),
+            transport: clean_mcp_transport(draft.transport)?,
+            command: clean_optional_string(draft.command),
+            args_json: clean_or_default(draft.args_json, "[]"),
+            env_json: clean_or_default(draft.env_json, "{}"),
+            url: clean_optional_string(draft.url),
+            headers_json: clean_or_default(draft.headers_json, "{}"),
+            working_dir: clean_optional_string(draft.working_dir),
+            enabled: draft.enabled,
+            created_at,
+            updated_at: now,
+        };
+        if server.transport == "stdio" && server.command.is_empty() {
+            return Err(AppError::Message("mcp server command is required".to_string()));
+        }
+        if server.transport != "stdio" && server.url.is_empty() {
+            return Err(AppError::Message("mcp server url is required".to_string()));
+        }
+
+        self.conn.execute(
+            "
+            INSERT INTO mcp_servers
+                (id, name, transport, command, args_json, env_json, url, headers_json,
+                 working_dir, enabled, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                transport = excluded.transport,
+                command = excluded.command,
+                args_json = excluded.args_json,
+                env_json = excluded.env_json,
+                url = excluded.url,
+                headers_json = excluded.headers_json,
+                working_dir = excluded.working_dir,
+                enabled = excluded.enabled,
+                updated_at = excluded.updated_at
+            ",
+            params![
+                server.id,
+                server.name,
+                server.transport,
+                server.command,
+                server.args_json,
+                server.env_json,
+                server.url,
+                server.headers_json,
+                server.working_dir,
+                if server.enabled { 1 } else { 0 },
+                server.created_at.to_rfc3339(),
+                server.updated_at.to_rfc3339()
+            ],
+        )?;
+
+        Ok(server)
+    }
+
+    pub fn delete_mcp_server(&self, id: &str) -> AppResult<()> {
+        let affected = self
+            .conn
+            .execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "mcp server not found")?;
         Ok(())
     }
 
@@ -1108,6 +1249,27 @@ impl Database {
         })
     }
 
+    fn row_to_mcp_server(row: &rusqlite::Row<'_>) -> rusqlite::Result<McpServerConfig> {
+        let enabled: i64 = row.get(9)?;
+        let created_at: String = row.get(10)?;
+        let updated_at: String = row.get(11)?;
+
+        Ok(McpServerConfig {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            transport: row.get(2)?,
+            command: row.get(3)?,
+            args_json: row.get(4)?,
+            env_json: row.get(5)?,
+            url: row.get(6)?,
+            headers_json: row.get(7)?,
+            working_dir: row.get(8)?,
+            enabled: enabled == 1,
+            created_at: parse_time_for_row(&created_at)?,
+            updated_at: parse_time_for_row(&updated_at)?,
+        })
+    }
+
     fn row_to_conversation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversation> {
         let archived: i64 = row.get(4)?;
         let archived_at: Option<String> = row.get(5)?;
@@ -1183,6 +1345,42 @@ fn clean_or_default(value: String, default: &str) -> String {
 
 fn clean_optional_string(value: String) -> String {
     value.trim().to_string()
+}
+
+fn validate_json_array_or_empty(value: &str, name: &str) -> AppResult<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(trimmed)?;
+    if parsed.is_array() {
+        Ok(())
+    } else {
+        Err(AppError::Message(format!("{name} must be a JSON array")))
+    }
+}
+
+fn validate_json_object_or_empty(value: &str, name: &str) -> AppResult<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(trimmed)?;
+    if parsed.is_object() {
+        Ok(())
+    } else {
+        Err(AppError::Message(format!("{name} must be a JSON object")))
+    }
+}
+
+fn clean_mcp_transport(value: String) -> AppResult<String> {
+    let transport = clean_or_default(value, "stdio");
+    match transport.as_str() {
+        "stdio" | "sse" | "streamable_http" => Ok(transport),
+        _ => Err(AppError::Message(
+            "mcp transport must be stdio, sse, or streamable_http".to_string(),
+        )),
+    }
 }
 
 fn row_to_rag_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<RagFile> {

@@ -89,7 +89,7 @@ pub fn tool_definitions() -> Vec<AgentToolDefinition> {
 }
 
 pub fn is_known_tool(name: &str) -> bool {
-    tool_definitions().iter().any(|tool| tool.name == name)
+    tool_definitions().iter().any(|tool| tool.name == name) || name.starts_with("mcp__")
 }
 
 pub fn parse_tool_call(content: &str) -> AppResult<Option<ParsedToolCall>> {
@@ -150,6 +150,7 @@ pub fn validate_tool_args(name: &str, args: &BTreeMap<String, String>) -> AppRes
             Ok(())
         }
         "execute_command" => require_arg(args, "command").map(|_| ()),
+        name if name.starts_with("mcp__") => Ok(()),
         _ => Err(AppError::Message(format!("unknown tool: {name}"))),
     }
 }

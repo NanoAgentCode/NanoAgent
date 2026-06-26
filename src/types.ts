@@ -56,6 +56,67 @@ export interface ModelConfigDraft {
   embedding_api_key: string;
 }
 
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  transport: string;
+  command: string;
+  args_json: string;
+  env_json: string;
+  url: string;
+  headers_json: string;
+  working_dir: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface McpServerDraft {
+  id?: string;
+  name: string;
+  transport: string;
+  command: string;
+  args_json: string;
+  env_json: string;
+  url: string;
+  headers_json: string;
+  working_dir: string;
+  enabled: boolean;
+}
+
+export interface McpToolInfo {
+  server_id: string;
+  name: string;
+  description: string;
+  input_schema_json: string;
+}
+
+export interface McpServerStatus {
+  server_id: string;
+  connected: boolean;
+  tool_count: number;
+  error?: string | null;
+}
+
+export interface McpServerView {
+  config: McpServerConfig;
+  status: McpServerStatus;
+  tools: McpToolInfo[];
+}
+
+export interface McpToolCallRequest {
+  server_id: string;
+  tool_name: string;
+  arguments_json: string;
+}
+
+export interface McpToolCallResult {
+  server_id: string;
+  tool_name: string;
+  content_json: string;
+  is_error: boolean;
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;

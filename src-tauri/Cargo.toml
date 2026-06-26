@@ -22,6 +22,6 @@ rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
-tokio = { version = "1", features = ["process", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "process", "sync", "time"] }
 thiserror = "1"
 futures-util = "0.3"

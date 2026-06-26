@@ -2,6 +2,7 @@ mod agent_runner;
 mod db;
 mod error;
 mod llm;
+mod mcp;
 mod models;
 mod observability;
 mod runtime;
@@ -13,11 +14,13 @@ use agent_runner::{
 use db::Database;
 use error::AppResult;
 use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
+use mcp::{McpClientManager, McpServerView, McpToolCallRequest, McpToolCallResult, McpToolInfo};
 use models::{
     ChatMessage, ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft,
     Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft,
-    ModelConfig, ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
-    ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft,
+    McpServerConfig, McpServerDraft, ModelConfig, ModelConfigDraft, ProjectFileContent,
+    ProjectFileEntry, ProjectFileMoveRequest, ProjectFileWriteRequest, RagChunkMatch, RagFile,
+    RagFileDraft,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -36,6 +39,7 @@ struct AppState {
     db: Mutex<Database>,
     observability: Mutex<ObservabilityPipeline>,
     runtime: Mutex<RuntimeStore>,
+    mcp: Mutex<McpClientManager>,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -54,7 +58,7 @@ async fn start_observation(
     metadata: serde_json::Value,
     trace_id: Option<String>,
 ) -> Option<SpanContext> {
-    if category != "llm" {
+    if category != "llm" && category != "mcp" {
         return None;
     }
 
@@ -208,6 +212,188 @@ async fn save_model_config(
 #[tauri::command]
 async fn delete_model_config(state: State<'_, AppState>, id: String) -> AppResult<()> {
     state.db.lock().await.delete_model_config(&id)
+}
+
+#[tauri::command]
+async fn list_mcp_servers(state: State<'_, AppState>) -> AppResult<Vec<McpServerView>> {
+    let span = start_observation(
+        &state,
+        "mcp.servers.list",
+        "mcp",
+        Some("mcp_server"),
+        None,
+        None,
+        serde_json::json!({}),
+        None,
+    )
+    .await;
+    let result = async {
+        let configs = state.db.lock().await.list_mcp_servers()?;
+        Ok(state.mcp.lock().await.list_views(configs))
+    }
+    .await;
+    let output = result.as_ref().ok().map(|servers: &Vec<McpServerView>| {
+        format!(
+            "servers={} connected={}",
+            servers.len(),
+            servers.iter().filter(|server| server.status.connected).count()
+        )
+    });
+    finish_observation(&state, span, &result, output).await;
+    result
+}
+
+#[tauri::command]
+async fn save_mcp_server(
+    state: State<'_, AppState>,
+    draft: McpServerDraft,
+) -> AppResult<McpServerConfig> {
+    let entity_id = draft.id.clone();
+    let span = start_observation(
+        &state,
+        "mcp.server.save",
+        "mcp",
+        Some("mcp_server"),
+        entity_id.clone(),
+        Some(format!("name={} command={}", draft.name, draft.command)),
+        serde_json::json!({
+            "has_id": entity_id.is_some(),
+            "enabled": draft.enabled,
+            "args_chars": draft.args_json.chars().count(),
+            "env_chars": draft.env_json.chars().count(),
+            "working_dir": draft.working_dir,
+        }),
+        entity_id,
+    )
+    .await;
+    let result = state.db.lock().await.save_mcp_server(draft);
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|server| format!("server_id={} enabled={}", server.id, server.enabled));
+    finish_observation(&state, span, &result, output).await;
+    result
+}
+
+#[tauri::command]
+async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    let span = start_observation(
+        &state,
+        "mcp.server.delete",
+        "mcp",
+        Some("mcp_server"),
+        Some(id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(id.clone()),
+    )
+    .await;
+    let result = async {
+        state.mcp.lock().await.disconnect(&id).await?;
+        state.db.lock().await.delete_mcp_server(&id)
+    }
+    .await;
+    finish_observation(&state, span, &result, Some("deleted=true".to_string())).await;
+    result
+}
+
+#[tauri::command]
+async fn connect_mcp_server(state: State<'_, AppState>, id: String) -> AppResult<McpServerView> {
+    let span = start_observation(
+        &state,
+        "mcp.server.connect",
+        "mcp",
+        Some("mcp_server"),
+        Some(id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(id.clone()),
+    )
+    .await;
+    let result = async {
+        let config = state.db.lock().await.get_mcp_server(&id)?;
+        if !config.enabled {
+            return Err(crate::error::AppError::Message(
+                "mcp server is disabled".to_string(),
+            ));
+        }
+        state.mcp.lock().await.connect(config).await
+    }
+    .await;
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|view| format!("connected=true tools={}", view.tools.len()));
+    finish_observation(&state, span, &result, output).await;
+    result
+}
+
+#[tauri::command]
+async fn disconnect_mcp_server(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    let span = start_observation(
+        &state,
+        "mcp.server.disconnect",
+        "mcp",
+        Some("mcp_server"),
+        Some(id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(id.clone()),
+    )
+    .await;
+    let result = state.mcp.lock().await.disconnect(&id).await;
+    finish_observation(&state, span, &result, Some("connected=false".to_string())).await;
+    result
+}
+
+#[tauri::command]
+async fn refresh_mcp_tools(state: State<'_, AppState>, id: String) -> AppResult<Vec<McpToolInfo>> {
+    let span = start_observation(
+        &state,
+        "mcp.tools.list",
+        "mcp",
+        Some("mcp_server"),
+        Some(id.clone()),
+        None,
+        serde_json::json!({}),
+        Some(id.clone()),
+    )
+    .await;
+    let result = state.mcp.lock().await.refresh_tools(&id).await;
+    let output = result.as_ref().ok().map(|tools| count_summary(tools));
+    finish_observation(&state, span, &result, output).await;
+    result
+}
+
+#[tauri::command]
+async fn call_mcp_tool(
+    state: State<'_, AppState>,
+    request: McpToolCallRequest,
+) -> AppResult<McpToolCallResult> {
+    let span = start_observation(
+        &state,
+        "mcp.tool.call",
+        "mcp",
+        Some("mcp_tool"),
+        Some(format!("{}:{}", request.server_id, request.tool_name)),
+        Some(format!("tool={} args_chars={}", request.tool_name, request.arguments_json.chars().count())),
+        serde_json::json!({
+            "server_id": request.server_id.clone(),
+            "tool_name": request.tool_name.clone(),
+        }),
+        Some(request.server_id.clone()),
+    )
+    .await;
+    let result = state.mcp.lock().await.call_tool(request).await;
+    let output = result.as_ref().ok().map(|result| {
+        format!(
+            "is_error={} content_chars={}",
+            result.is_error,
+            result.content_json.chars().count()
+        )
+    });
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
@@ -823,11 +1009,13 @@ async fn execute_agent_tool_call(
 
     let tavily_api_key = load_tavily_api_key(&app)?;
     let result = execute_registered_tool(
+        &state,
         &running_tool_call,
         &request.project_path,
         request.allow_command,
         tavily_api_key.as_deref(),
-    );
+    )
+    .await;
 
     match result {
         Ok(result_text) => {
@@ -876,7 +1064,8 @@ async fn execute_agent_tool_call(
     }
 }
 
-fn execute_registered_tool(
+async fn execute_registered_tool(
+    state: &State<'_, AppState>,
     tool_call: &AgentToolCall,
     project_path: &str,
     allow_command: bool,
@@ -914,11 +1103,77 @@ fn execute_registered_tool(
                 "命令执行成功，输出结果如下：\n\n```\n{output}\n```"
             ))
         }
+        name if name.starts_with("mcp__") => {
+            let (server_id, tool_name) = parse_mcp_tool_name(name)?;
+            let arguments_json = args
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()));
+            let span = start_observation(
+                state,
+                "mcp.agent.tool.call",
+                "mcp",
+                Some("mcp_tool"),
+                Some(format!("{server_id}:{tool_name}")),
+                Some(format!(
+                    "tool={} args_chars={}",
+                    tool_name,
+                    arguments_json.chars().count()
+                )),
+                serde_json::json!({
+                    "server_id": server_id.clone(),
+                    "tool_name": tool_name.clone(),
+                    "agent_tool_call_id": tool_call.id.clone(),
+                    "agent_run_id": tool_call.run_id.clone(),
+                    "message_id": tool_call.message_id.clone(),
+                }),
+                Some(tool_call.run_id.clone()),
+            )
+            .await;
+            let result = state
+                .mcp
+                .lock()
+                .await
+                .call_tool(McpToolCallRequest {
+                    server_id,
+                    tool_name,
+                    arguments_json,
+                })
+                .await;
+            let output = result.as_ref().ok().map(|result| {
+                format!(
+                    "is_error={} content_chars={}",
+                    result.is_error,
+                    result.content_json.chars().count()
+                )
+            });
+            finish_observation(state, span, &result, output).await;
+            let result = result?;
+            Ok(format!(
+                "MCP 工具调用完成，结果如下：\n\n```json\n{}\n```",
+                result.content_json
+            ))
+        }
         _ => Err(crate::error::AppError::Message(format!(
             "unknown tool: {}",
             tool_call.name
         ))),
     }
+}
+
+fn parse_mcp_tool_name(name: &str) -> AppResult<(String, String)> {
+    let rest = name.strip_prefix("mcp__").ok_or_else(|| {
+        crate::error::AppError::Message("invalid mcp tool name".to_string())
+    })?;
+    let (server_id, tool_name) = rest.split_once("__").ok_or_else(|| {
+        crate::error::AppError::Message("mcp tool name must be mcp__server_id__tool_name".to_string())
+    })?;
+    if server_id.trim().is_empty() || tool_name.trim().is_empty() {
+        return Err(crate::error::AppError::Message(
+            "mcp tool name must include server id and tool name".to_string(),
+        ));
+    }
+    Ok((server_id.to_string(), tool_name.to_string()))
 }
 
 fn required_tool_arg<'a>(
@@ -1855,6 +2110,7 @@ pub fn run() {
                 db: Mutex::new(db),
                 observability: Mutex::new(observability),
                 runtime: Mutex::new(runtime),
+                mcp: Mutex::new(McpClientManager::default()),
             });
             Ok(())
         })
@@ -1867,6 +2123,13 @@ pub fn run() {
             list_model_configs,
             save_model_config,
             delete_model_config,
+            list_mcp_servers,
+            save_mcp_server,
+            delete_mcp_server,
+            connect_mcp_server,
+            disconnect_mcp_server,
+            refresh_mcp_tools,
+            call_mcp_tool,
             test_llm_connectivity,
             test_embedding_connectivity,
             list_conversations,

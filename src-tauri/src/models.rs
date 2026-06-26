@@ -67,6 +67,43 @@ pub struct ModelConfigDraft {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub id: String,
+    pub name: String,
+    pub transport: String,
+    pub command: String,
+    pub args_json: String,
+    pub env_json: String,
+    pub url: String,
+    pub headers_json: String,
+    pub working_dir: String,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerDraft {
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default = "default_mcp_transport")]
+    pub transport: String,
+    pub command: String,
+    #[serde(default)]
+    pub args_json: String,
+    #[serde(default)]
+    pub env_json: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub headers_json: String,
+    #[serde(default)]
+    pub working_dir: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -244,4 +281,12 @@ pub struct ProjectFileMoveRequest {
     pub from_relative_path: String,
     pub to_relative_path: String,
     pub approval_text: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_mcp_transport() -> String {
+    "stdio".to_string()
 }

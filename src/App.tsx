@@ -13,6 +13,7 @@ import {
   Edit,
   FileText,
   Folder,
+  Info,
   MessageSquare,
   Monitor,
   Moon,
@@ -44,9 +45,13 @@ import {
   deleteMemory,
   deleteMessages,
   deleteModelConfig,
+  deleteMcpServer,
   testLlmConnectivity,
   testEmbeddingConnectivity,
   deleteRagFile,
+  connectMcpServer,
+  disconnectMcpServer,
+  refreshMcpTools,
   indexRagFile,
   listEnabledMemories,
   listArchivedConversations,
@@ -55,9 +60,11 @@ import {
   listMemories,
   listMessages,
   listModelConfigs,
+  listMcpServers,
   listProjectFiles,
   listRagFiles,
   saveModelConfig,
+  saveMcpServer,
   searchRagContext,
   searchItems,
   searchMemories,
@@ -98,6 +105,8 @@ import type {
   ItemKind,
   MessageMetadata,
   Memory,
+  McpServerDraft,
+  McpServerView,
   ModelConfig,
   ModelConfigDraft,
   ObservabilitySpan,
@@ -193,6 +202,18 @@ const emptyEmbeddingDraft: ModelConfigDraft = {
   embedding_base_url: "https://api.openai.com/v1",
   embedding_model: "text-embedding-3-small",
   embedding_api_key: ""
+};
+
+const emptyMcpDraft: McpServerDraft = {
+  name: "filesystem-server",
+  transport: "stdio",
+  command: "npx",
+  args_json: "[\"-y\", \"@modelcontextprotocol/server-filesystem\", \"C:\\\\Users\\\\13439\\\\Desktop\"]",
+  env_json: "{}",
+  url: "",
+  headers_json: "{}",
+  working_dir: "",
+  enabled: true
 };
 
 const providerDefaults: Record<string, Pick<ModelConfigDraft, "base_url" | "model">> = {
@@ -527,6 +548,11 @@ function App() {
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
   const [activeModelId, setActiveModelId] = useState("");
   const [embeddingDraft, setEmbeddingDraft] = useState<ModelConfigDraft>(emptyEmbeddingDraft);
+  const [mcpServers, setMcpServers] = useState<McpServerView[]>([]);
+  const [mcpDraft, setMcpDraft] = useState<McpServerDraft>(emptyMcpDraft);
+  const [stdioCommandLine, setStdioCommandLine] = useState(formatStdioCommandLine(emptyMcpDraft));
+  const [selectedMcpServerId, setSelectedMcpServerId] = useState("");
+  const [mcpBusyId, setMcpBusyId] = useState("");
 
   const [llmTestStatus, setLlmTestStatus] = useState<{
     status: "idle" | "testing" | "success" | "error";
@@ -719,6 +745,10 @@ function App() {
     () => projects.find((project) => project.id === activeProjectId) || null,
     [activeProjectId, projects]
   );
+  const selectedMcpServer = useMemo(
+    () => mcpServers.find((server) => server.config.id === selectedMcpServerId) || null,
+    [mcpServers, selectedMcpServerId]
+  );
   const traceGroups = useMemo(() => {
     const groups = new Map<string, ObservabilitySpan[]>();
     for (const span of observabilitySpans) {
@@ -906,6 +936,29 @@ function App() {
   }, [selectedMemory]);
 
   useEffect(() => {
+    if (!selectedMcpServer) {
+      setMcpDraft(emptyMcpDraft);
+      setStdioCommandLine(formatStdioCommandLine(emptyMcpDraft));
+      return;
+    }
+
+    const nextDraft = {
+      id: selectedMcpServer.config.id,
+      name: selectedMcpServer.config.name,
+      transport: selectedMcpServer.config.transport || "stdio",
+      command: selectedMcpServer.config.command,
+      args_json: selectedMcpServer.config.args_json,
+      env_json: selectedMcpServer.config.env_json,
+      url: selectedMcpServer.config.url,
+      headers_json: selectedMcpServer.config.headers_json,
+      working_dir: selectedMcpServer.config.working_dir,
+      enabled: selectedMcpServer.config.enabled
+    };
+    setMcpDraft(nextDraft);
+    setStdioCommandLine(formatStdioCommandLine(nextDraft));
+  }, [selectedMcpServer]);
+
+  useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
     setMessageReasoning({});
     if (!activeConversationId) {
@@ -976,22 +1029,25 @@ function App() {
 
   async function loadAll() {
     try {
-      const [nextItems, nextModels, nextConversations, nextArchivedConversations, nextMemories] = await Promise.all([
+      const [nextItems, nextModels, nextConversations, nextArchivedConversations, nextMemories, nextMcpServers] = await Promise.all([
         listItems(),
         listModelConfigs(),
         listConversations(),
         listArchivedConversations(),
-        loadVisibleMemories("")
+        loadVisibleMemories(""),
+        listMcpServers()
       ]);
       setItems(nextItems);
       setModels(nextModels);
       setConversations(nextConversations);
       setArchivedConversations(nextArchivedConversations);
       setMemoryItems(nextMemories);
+      setMcpServers(nextMcpServers);
       setSelectedId((current) => current || nextItems[0]?.id || "");
       setActiveModelId((current) => current || nextModels.find((m) => m.id !== "embedding-config")?.id || "");
       setActiveConversationId((current) => current || nextConversations[0]?.id || "");
       setSelectedMemoryId((current) => current || nextMemories[0]?.id || "");
+      setSelectedMcpServerId((current) => current || nextMcpServers[0]?.config.id || "");
     } catch (error) {
       setNotice(String(error));
     }
@@ -1017,6 +1073,135 @@ function App() {
     } catch (error) {
       console.error("Failed to list RAG files:", error);
       setRagFiles([]);
+    }
+  }
+
+  async function refreshMcpServers(selectId?: string) {
+    try {
+      const servers = await listMcpServers();
+      setMcpServers(servers);
+      setSelectedMcpServerId((current) => {
+        if (selectId && servers.some((server) => server.config.id === selectId)) {
+          return selectId;
+        }
+        if (current && servers.some((server) => server.config.id === current)) {
+          return current;
+        }
+        return servers[0]?.config.id || "";
+      });
+    } catch (error) {
+      setNotice(`加载 MCP 配置失败：${String(error)}`);
+    }
+  }
+
+  function updateMcpServerView(view: McpServerView) {
+    setMcpServers((current) => {
+      const exists = current.some((server) => server.config.id === view.config.id);
+      if (!exists) return [view, ...current];
+      return current.map((server) => (server.config.id === view.config.id ? view : server));
+    });
+  }
+
+  function handleNewMcpServer() {
+    setSelectedMcpServerId("");
+    setMcpDraft(emptyMcpDraft);
+    setStdioCommandLine(formatStdioCommandLine(emptyMcpDraft));
+  }
+
+  async function handleSaveMcpServer() {
+    try {
+      const isStdio = mcpDraft.transport === "stdio";
+      const stdioCommand = isStdio ? parseStdioCommandLine(stdioCommandLine) : null;
+      const saved = await saveMcpServer({
+        ...mcpDraft,
+        command: stdioCommand ? stdioCommand.command : "",
+        args_json: stdioCommand ? JSON.stringify(stdioCommand.args) : "[]",
+        env_json: isStdio ? mcpDraft.env_json : "{}",
+        url: isStdio ? "" : mcpDraft.url,
+        headers_json: isStdio ? "{}" : mcpDraft.headers_json,
+        working_dir: isStdio ? mcpDraft.working_dir : "",
+        enabled: true
+      });
+      await refreshMcpServers(saved.id);
+      setNotice("MCP 服务器配置已保存。");
+    } catch (error) {
+      setNotice(`保存 MCP 服务器失败：${String(error)}`);
+    }
+  }
+
+  async function handleDeleteMcpServer() {
+    if (!mcpDraft.id) {
+      handleNewMcpServer();
+      return;
+    }
+    if (!confirm("确定要删除该 MCP 服务器配置吗？")) {
+      return;
+    }
+    setMcpBusyId(mcpDraft.id);
+    try {
+      await deleteMcpServer(mcpDraft.id);
+      await refreshMcpServers();
+      setNotice("MCP 服务器已删除。");
+    } catch (error) {
+      setNotice(`删除 MCP 服务器失败：${String(error)}`);
+    } finally {
+      setMcpBusyId("");
+    }
+  }
+
+  async function handleConnectMcpServer(id: string) {
+    setMcpBusyId(id);
+    try {
+      const view = await connectMcpServer(id);
+      updateMcpServerView(view);
+      setSelectedMcpServerId(id);
+      setNotice(`MCP 服务器 ${view.config.name} 已连接，发现 ${view.tools.length} 个工具。`);
+    } catch (error) {
+      await refreshMcpServers(id);
+      setNotice(`连接 MCP 服务器失败：${String(error)}`);
+    } finally {
+      setMcpBusyId("");
+    }
+  }
+
+  async function handleDisconnectMcpServer(id: string) {
+    setMcpBusyId(id);
+    try {
+      await disconnectMcpServer(id);
+      await refreshMcpServers(id);
+      setNotice("MCP 服务器已断开。");
+    } catch (error) {
+      setNotice(`断开 MCP 服务器失败：${String(error)}`);
+    } finally {
+      setMcpBusyId("");
+    }
+  }
+
+  async function handleRefreshMcpTools(id: string) {
+    setMcpBusyId(id);
+    try {
+      const tools = await refreshMcpTools(id);
+      setMcpServers((current) =>
+        current.map((server) =>
+          server.config.id === id
+            ? {
+                ...server,
+                tools,
+                status: {
+                  ...server.status,
+                  connected: true,
+                  tool_count: tools.length,
+                  error: null
+                }
+              }
+            : server
+        )
+      );
+      setNotice(`工具列表已刷新，共 ${tools.length} 个工具。`);
+    } catch (error) {
+      setNotice(`刷新 MCP 工具失败：${String(error)}`);
+    } finally {
+      setMcpBusyId("");
     }
   }
 
@@ -2232,6 +2417,7 @@ function App() {
         projectForRequest,
         projectFiles,
         skills,
+        mcpServers,
         ragMatches,
         tempDir
       ),
@@ -2691,6 +2877,7 @@ function App() {
           projectForRequest,
           projectFiles,
           skills,
+          mcpServers,
           ragMatches,
           tempDir
         ),
@@ -4045,43 +4232,190 @@ function App() {
                                 {activeSettingsTab === "observability" && renderObservabilityPanel()}
 
 {activeSettingsTab === "mcp" && (
-                  <div className="settings-tab-content placeholder-tab-content">
-                    <h3>MCP 配置 (Model Context Protocol)</h3>
-                    <p className="description">连接符合 Model Context Protocol 规范的外部工具服务器，为大模型注入实时上下文。</p>
-                    
-                    <div className="mcp-servers-list">
-                      <div className="mcp-server-card">
-                        <div className="mcp-server-header">
-                          <div className="mcp-server-title">
-                            <strong>filesystem-server</strong>
-                            <span className="mcp-status-dot active"></span>
-                            <span className="mcp-status-text">已连接</span>
-                          </div>
-                          <button className="ghost mcp-btn-danger">断开</button>
-                        </div>
-                        <div className="mcp-server-details">
-                          <code>command: npx -y @modelcontextprotocol/server-filesystem C:\Users\13439\Desktop</code>
-                        </div>
-                      </div>
+                  <div className="settings-tab-content model-tab-content">
+                    <div className="model-header-row">
+                      <h3>MCP 配置</h3>
+                      <button className="icon-only-btn compact" onClick={handleNewMcpServer} title="添加 MCP 服务器" aria-label="添加 MCP 服务器" type="button"><Plus /></button>
+                    </div>
+                    <p className="description" style={{ marginTop: "-4px" }}>连接符合 Model Context Protocol 规范的工具服务器，支持 stdio、SSE 和 Streamable HTTP。</p>
 
-                      <div className="mcp-server-card">
-                        <div className="mcp-server-header">
-                          <div className="mcp-server-title">
-                            <strong>sqlite-server</strong>
-                            <span className="mcp-status-dot active"></span>
-                            <span className="mcp-status-text">已连接</span>
-                          </div>
-                          <button className="ghost mcp-btn-danger">断开</button>
+                    <div className="model-config-grid mcp-config-grid">
+                      <aside className="model-config-list">
+                        {mcpServers.map((server) => {
+                          const connected = server.status.connected;
+                          const busy = mcpBusyId === server.config.id;
+                          return (
+                            <div
+                              key={server.config.id}
+                              className={server.config.id === selectedMcpServerId ? "model-config-row mcp-config-row active" : "model-config-row mcp-config-row"}
+                              onClick={() => setSelectedMcpServerId(server.config.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  setSelectedMcpServerId(server.config.id);
+                                }
+                              }}
+                              role="button"
+                              tabIndex={0}
+                            >
+                              <span
+                                className={connected ? "mcp-status-dot active" : "mcp-status-dot"}
+                                title={connected ? "已连接" : "未连接"}
+                              />
+                              <div className="mcp-server-row-content">
+                                <strong>{server.config.name}</strong>
+                                <span>{formatMcpTransportLabel(server.config.transport)} · {server.config.command || server.config.url} · {server.tools.length} tools</span>
+                              </div>
+                              <button
+                                className={connected ? "mcp-connection-pill compact connected" : "mcp-connection-pill compact"}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (connected) {
+                                    void handleDisconnectMcpServer(server.config.id);
+                                  } else {
+                                    void handleConnectMcpServer(server.config.id);
+                                  }
+                                }}
+                                disabled={busy}
+                                title={connected ? "断开 MCP 服务器" : "连接 MCP 服务器"}
+                                type="button"
+                              >
+                                {busy ? <Loader2 style={{ animation: "spin 1s linear infinite" }} /> : <span className="mcp-pill-indicator" />}
+                                <span>{connected ? "已连接" : "未连接"}</span>
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {mcpServers.length === 0 && <div className="empty">暂无 MCP 服务器配置</div>}
+                      </aside>
+
+                      <div className="model-config-form">
+                        <div className="model-form-card mcp-form-card">
+                          <label>
+                            <span>服务名称</span>
+                            <input
+                              value={mcpDraft.name}
+                              onChange={(event) => setMcpDraft({ ...mcpDraft, name: event.target.value })}
+                              placeholder="amap-maps"
+                            />
+                          </label>
+                          <label>
+                            <span>协议</span>
+                            <select
+                              value={mcpDraft.transport}
+                              onChange={(event) => setMcpDraft({ ...mcpDraft, transport: event.target.value })}
+                            >
+                              <option value="stdio">stdio 本地进程</option>
+                              <option value="sse">SSE</option>
+                              <option value="streamable_http">Streamable HTTP</option>
+                            </select>
+                          </label>
+                          {mcpDraft.transport === "stdio" ? (
+                            <>
+                              <label>
+                                <span>命令</span>
+                                <textarea
+                                  value={stdioCommandLine}
+                                  onChange={(event) => setStdioCommandLine(event.target.value)}
+                                  rows={3}
+                                  placeholder={"npx -y @modelcontextprotocol/server-filesystem C:\\Users\\13439\\Desktop"}
+                                  spellCheck={false}
+                                />
+                              </label>
+                              <label>
+                                <span>环境变量 JSON</span>
+                                <textarea
+                                  value={mcpDraft.env_json}
+                                  onChange={(event) => setMcpDraft({ ...mcpDraft, env_json: event.target.value })}
+                                  rows={3}
+                                  placeholder={"{\"API_KEY\": \"...\"}"}
+                                />
+                              </label>
+                              <label>
+                                <span>工作目录</span>
+                                <input
+                                  value={mcpDraft.working_dir}
+                                  onChange={(event) => setMcpDraft({ ...mcpDraft, working_dir: event.target.value })}
+                                  placeholder="可选"
+                                />
+                              </label>
+                            </>
+                          ) : (
+                            <>
+                              <label>
+                                <span>地址</span>
+                                <input
+                                  value={mcpDraft.url}
+                                  onChange={(event) => setMcpDraft({ ...mcpDraft, url: event.target.value })}
+                                  placeholder={mcpDraft.transport === "sse" ? "https://example.com/sse" : "https://example.com/mcp"}
+                                />
+                              </label>
+                              <label>
+                                <span>请求头 JSON</span>
+                                <textarea
+                                  value={mcpDraft.headers_json}
+                                  onChange={(event) => setMcpDraft({ ...mcpDraft, headers_json: event.target.value })}
+                                  rows={3}
+                                  placeholder={"{\"Authorization\": \"Bearer ...\"}"}
+                                />
+                              </label>
+                            </>
+                          )}
                         </div>
-                        <div className="mcp-server-details">
-                          <code>command: npx -y @modelcontextprotocol/server-sqlite --db nano-agent.sqlite3</code>
+
+                        <div className="modal-actions icon-actions mcp-actions">
+                          <div className="mcp-action-status">
+                            {selectedMcpServer?.status.error && (
+                              <span className="mcp-status-text error" title={selectedMcpServer.status.error}>连接错误</span>
+                            )}
+                            {selectedMcpServer && (
+                              <div className="mcp-tools-tooltip-wrap">
+                                <button className="icon-only-btn compact" type="button" aria-label="查看工具详情" title="查看工具详情">
+                                  <Info />
+                                </button>
+                                <div className="mcp-tools-tooltip" role="tooltip">
+                                  <div className="mcp-tools-tooltip-header">
+                                    <strong>工具详情{selectedMcpServer.status.connected ? ` · ${selectedMcpServer.tools.length}` : ""}</strong>
+                                    {selectedMcpServer.status.connected && (
+                                      <button
+                                        className="icon-only-btn compact"
+                                        onClick={() => void handleRefreshMcpTools(selectedMcpServer.config.id)}
+                                        disabled={mcpBusyId === selectedMcpServer.config.id}
+                                        type="button"
+                                        title="刷新工具列表"
+                                        aria-label="刷新工具列表"
+                                      >
+                                        {mcpBusyId === selectedMcpServer.config.id ? <Loader2 style={{ animation: "spin 1s linear infinite" }} /> : <RotateCcw />}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {!selectedMcpServer.status.connected && <div className="mcp-tools-tooltip-empty">连接后可查看工具</div>}
+                                  {selectedMcpServer.status.connected && selectedMcpServer.tools.length === 0 && <div className="mcp-tools-tooltip-empty">该服务器暂未暴露工具</div>}
+                                  {selectedMcpServer.status.connected && selectedMcpServer.tools.length > 0 && (
+                                    <div className="mcp-tools-tooltip-list">
+                                      {selectedMcpServer.tools.map((tool) => (
+                                        <div key={`${tool.server_id}:${tool.name}`} className="mcp-tools-tooltip-item">
+                                          <strong>{tool.name}</strong>
+                                          {tool.description && <span>{tool.description}</span>}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <button className="icon-text-btn success-btn" onClick={handleSaveMcpServer} title="保存配置" type="button">
+                            <Save />
+                            <span>保存</span>
+                          </button>
+                          <button className="icon-text-btn danger-btn" title="删除 MCP 服务器" onClick={handleDeleteMcpServer} disabled={mcpBusyId === mcpDraft.id} type="button">
+                            <Trash2 />
+                            <span>删除</span>
+                          </button>
                         </div>
                       </div>
                     </div>
-
-                    <button className="mcp-add-btn">
-                      <Plus size={14} /> 添加 MCP 服务器
-                    </button>
                   </div>
                 )}
 
@@ -4702,6 +5036,7 @@ function buildSystemMessage(
   activeProject: ProjectEntry | null = null,
   projectFiles: ProjectFileEntry[] = [],
   skills: Skill[] = [],
+  mcpServers: McpServerView[] = [],
   ragMatches: RagChunkMatch[] = [],
   tempDir?: string
 ): ChatMessage {
@@ -4733,6 +5068,23 @@ function buildSystemMessage(
     : "";
 
   const enabledSkills = skills.filter((s) => s.enabled);
+  const mcpTools = mcpServers.flatMap((server) =>
+    server.status.connected
+      ? server.tools.map((tool) => ({
+          callName: `mcp__${tool.server_id}__${tool.name}`,
+          serverName: server.config.name,
+          tool
+        }))
+      : []
+  );
+  const mcpContext = mcpTools.length > 0
+    ? [
+        "当前已连接的 MCP 工具：",
+        ...mcpTools.map(({ callName, serverName, tool }) =>
+          `- ${callName}\n  服务器：${serverName}\n  描述：${tool.description || "无"}\n  参数 schema：${tool.input_schema_json}`
+        )
+      ].join("\n")
+    : "";
   const skillsContext = enabledSkills.length > 0
     ? [
         "当前已启用的本地/系统技能（Skills）：",
@@ -4786,12 +5138,18 @@ function buildSystemMessage(
   <command>具体的终端命令行</command>
 </tool_call>
 
+4. 调用 MCP 工具（仅限上方列出的已连接 MCP 工具）：
+<tool_call name="mcp__server_id__tool_name">
+  <arguments>{"key":"value"}</arguments>
+</tool_call>
+
 注意：请一次仅发出一个 <tool_call>，等待用户确认执行并向你回传结果后，你再根据执行结果继续后续思考或操作。`;
 
   const sections = [
     runtimeContext,
     projectContext,
-    skillsContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext}\n\n${toolsSystemInstruction}` : "",
+    mcpContext,
+    skillsContext || mcpContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext || "无已启用本地技能"}\n\n${toolsSystemInstruction}` : "",
     memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
     ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
   ].filter(Boolean);
@@ -4818,6 +5176,93 @@ function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatJson(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+function formatStdioCommandLine(draft: McpServerDraft) {
+  const args = parseJsonStringArray(draft.args_json);
+  return [draft.command, ...args].filter(Boolean).map(quoteCommandPart).join(" ");
+}
+
+function parseStdioCommandLine(value: string) {
+  const parts = splitCommandLine(value.trim());
+  if (parts.length === 0 || !parts[0]) {
+    throw new Error("stdio 命令不能为空。");
+  }
+  return {
+    command: parts[0],
+    args: parts.slice(1)
+  };
+}
+
+function parseJsonStringArray(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function quoteCommandPart(value: string) {
+  if (!value) return "";
+  if (!/[\s"]/u.test(value)) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function splitCommandLine(value: string) {
+  const parts: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const next = value[index + 1];
+    if (quote) {
+      if (quote === '"' && char === "\\" && (next === '"' || next === "\\")) {
+        current += next;
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (/\s/u.test(char)) {
+      if (current) {
+        parts.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += char;
+  }
+
+  if (quote) {
+    throw new Error("stdio 命令中的引号未闭合。");
+  }
+  if (current) parts.push(current);
+  return parts;
+}
+
+function formatMcpTransportLabel(transport: string) {
+  if (transport === "streamable_http") return "Streamable HTTP";
+  if (transport === "sse") return "SSE";
+  return "stdio";
 }
 
 function isSupportedRagFile(name: string) {

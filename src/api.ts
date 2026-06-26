@@ -10,6 +10,12 @@ import type {
   MemoryDraft,
   MemoryPatch,
   MessageDraft,
+  McpServerConfig,
+  McpServerDraft,
+  McpServerView,
+  McpToolCallRequest,
+  McpToolCallResult,
+  McpToolInfo,
   ModelConfig,
   ModelConfigDraft,
   PersistedMessage,
@@ -73,6 +79,34 @@ export function testLlmConnectivity(draft: ModelConfigDraft) {
 
 export function testEmbeddingConnectivity(draft: ModelConfigDraft) {
   return invoke<void>("test_embedding_connectivity", { draft });
+}
+
+export function listMcpServers() {
+  return invoke<McpServerView[]>("list_mcp_servers");
+}
+
+export function saveMcpServer(draft: McpServerDraft) {
+  return invoke<McpServerConfig>("save_mcp_server", { draft });
+}
+
+export function deleteMcpServer(id: string) {
+  return invoke<void>("delete_mcp_server", { id });
+}
+
+export function connectMcpServer(id: string) {
+  return invoke<McpServerView>("connect_mcp_server", { id });
+}
+
+export function disconnectMcpServer(id: string) {
+  return invoke<void>("disconnect_mcp_server", { id });
+}
+
+export function refreshMcpTools(id: string) {
+  return invoke<McpToolInfo[]>("refresh_mcp_tools", { id });
+}
+
+export function callMcpTool(request: McpToolCallRequest) {
+  return invoke<McpToolCallResult>("call_mcp_tool", { request });
 }
 
 export function listConversations(projectPath?: string | null) {
