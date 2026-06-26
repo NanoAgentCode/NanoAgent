@@ -1,4 +1,4 @@
-import { Save } from "lucide-react";
+import { Save, Power, Trash2 } from "lucide-react";
 import { isBuiltInSkill } from "../../lib/skills";
 import type { UseSkillsReturn } from "../../hooks/useSkills";
 
@@ -85,11 +85,13 @@ export default function SettingsSkillsTab({ skills }: SettingsSkillsTabProps) {
                   </div>
                 </div>
                 <div className="skills-form-actions">
-                  <button className={skill.enabled ? "danger" : "primary"} onClick={() => skills.handleToggleSkill(skill.id, !skill.enabled)} type="button">
-                    {skill.enabled ? "禁用技能" : "启用技能"}
+                  <button className={skill.enabled ? "icon-text-btn danger-btn" : "icon-text-btn"} onClick={() => skills.handleToggleSkill(skill.id, !skill.enabled)} type="button" title={skill.enabled ? "禁用技能" : "启用技能"}>
+                    <Power size={18} />
                   </button>
                   {!isSystemSkill && (
-                    <button className="danger" onClick={() => skills.handleDeleteSkill(skill.id)} type="button">删除技能</button>
+                    <button className="icon-text-btn danger-btn" onClick={() => skills.handleDeleteSkill(skill.id)} type="button" title="删除技能">
+                      <Trash2 size={18} />
+                    </button>
                   )}
                 </div>
               </>

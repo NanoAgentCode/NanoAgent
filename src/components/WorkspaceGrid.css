@@ -91,9 +91,83 @@
 }
 .editor-header select { max-width: 140px; background-color: var(--bg-pane); }
 .editor-actions { display: flex; align-items: center; gap: var(--control-gap); }
-.editor-actions button { min-height: 30px; }
-.editor-actions .success-btn { background: var(--control-success-bg); color: var(--control-success-text); }
-.editor-actions .success-btn:hover:not(:disabled) { background: var(--control-success-bg-hover); box-shadow: var(--control-success-shadow); }
+.editor-actions .icon-text-btn {
+  width: 34px; height: 34px; min-width: 34px; min-height: 34px;
+  padding: 0; border-radius: var(--control-radius-sm);
+}
+.editor-actions .icon-text-btn svg { width: 18px; height: 18px; }
+/* 保存：绿色实心方块 */
+.editor-actions .success-btn {
+  background: var(--control-success-bg);
+  color: var(--control-success-text);
+  border: 1px solid transparent;
+}
+.editor-actions .success-btn:hover:not(:disabled) {
+  background: var(--control-success-bg-hover);
+  box-shadow: var(--control-success-shadow);
+}
+.editor-actions .success-btn:focus-visible {
+  border-color: var(--accent-emerald);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+/* 删除：红色实心方块 */
+.editor-actions .danger-btn {
+  background: var(--control-danger-bg);
+  color: #ffffff;
+  border: 1px solid transparent;
+}
+.editor-actions .danger-btn:hover:not(:disabled) {
+  background: var(--accent-danger);
+  box-shadow: var(--control-danger-shadow);
+}
+.editor-actions .danger-btn:focus-visible {
+  border-color: var(--accent-danger);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.22);
+}
+/* 记忆系统保存和删除按钮特定样式：失去焦点是空心，获取焦点（及悬浮）时是实心 */
+.editor-actions.memory-actions .success-btn {
+  background: transparent;
+  color: var(--accent-emerald);
+  border: 1px solid var(--accent-emerald);
+}
+.editor-actions.memory-actions .success-btn:hover:not(:disabled),
+.editor-actions.memory-actions .success-btn:focus:not(:disabled),
+.editor-actions.memory-actions .success-btn:focus-visible:not(:disabled) {
+  background: var(--control-success-bg);
+  color: var(--control-success-text);
+  border-color: transparent;
+  box-shadow: var(--control-success-shadow);
+}
+.editor-actions.memory-actions .success-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+
+.editor-actions.memory-actions .danger-btn {
+  background: transparent;
+  color: var(--accent-danger);
+  border: 1px solid var(--accent-danger);
+}
+.editor-actions.memory-actions .danger-btn:hover:not(:disabled),
+.editor-actions.memory-actions .danger-btn:focus:not(:disabled),
+.editor-actions.memory-actions .danger-btn:focus-visible:not(:disabled) {
+  background: var(--accent-danger);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: var(--control-danger-shadow);
+}
+.editor-actions.memory-actions .danger-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.22);
+}
+
+/* 禁用状态 */
+.editor-actions.memory-actions .success-btn:disabled,
+.editor-actions.memory-actions .danger-btn:disabled {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .memory-toggle {
   display: inline-flex; align-items: center; gap: 10px;
   font-size: var(--font-size-lg); color: var(--text-secondary); cursor: pointer;

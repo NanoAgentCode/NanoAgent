@@ -46,10 +46,9 @@ export default function SettingsEmbeddingTab({ model }: SettingsEmbeddingTabProp
             {(model.embeddingTestStatus.status === "idle" || model.embeddingTestStatus.status === "testing") && <div className="status-spacer" />}
             <button className="icon-text-btn" onClick={model.handleTestEmbedding} disabled={model.embeddingTestStatus.status === "testing"} title="测试连接" type="button">
               {model.embeddingTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
-              <span>{model.embeddingTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
             </button>
             <button className="icon-text-btn success-btn" onClick={model.handleSaveEmbeddingModel} title="保存并使用" type="button">
-              <Save /><span>保存并使用</span>
+              <Save />
             </button>
           </div>
         </div>

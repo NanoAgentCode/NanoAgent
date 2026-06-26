@@ -177,16 +177,29 @@ button.danger:active:not(:disabled) {
   min-height: var(--control-height-sm);
   padding: 0 12px;
   border-radius: var(--control-radius-md);
-  border: 1px solid var(--control-border);
+  border: 1px solid var(--border-color-active);
   background: var(--control-bg);
   color: var(--control-text);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
-  transition: var(--control-transition);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.icon-text-btn svg { stroke: currentColor; stroke-width: 2.2; }
+.icon-text-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.18);
 }
 .icon-text-btn:hover:not(:disabled) {
   background: var(--control-bg-hover);
-  border-color: var(--control-border-hover);
+  border-color: var(--accent-cyan);
+}
+.icon-text-btn:disabled {
+  background: var(--control-bg-subtle);
+  color: var(--text-muted);
+  border-color: var(--border-color-active);
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 .icon-text-btn.success-btn {
   background: var(--control-success-soft-bg);
@@ -245,7 +258,7 @@ button.danger:active:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 18px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--border-color);
 }
 .modal-header > div {
@@ -395,6 +408,137 @@ button.danger:active:not(:disabled) {
   width: 100%;
 }
 
+.icon-actions-bar .icon-text-btn,
+.archive-preview-actions .icon-text-btn,
+.skills-form-actions .icon-text-btn,
+.observability-actions .icon-text-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: var(--control-radius-sm);
+}
+
+.icon-actions-bar .icon-text-btn svg,
+.archive-preview-actions .icon-text-btn svg,
+.skills-form-actions .icon-text-btn svg,
+.observability-actions .icon-text-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* 连接测试/恢复/启用等按钮特定样式 (蓝色) */
+.icon-actions-bar .icon-text-btn:not(.success-btn):not(.danger-btn),
+.archive-preview-actions .icon-text-btn:not(.danger-btn),
+.skills-form-actions .icon-text-btn:not(.danger-btn),
+.observability-actions .icon-text-btn:not(.danger-btn) {
+  background: transparent;
+  color: var(--border-color-active);
+  border: 1px solid var(--border-color-active);
+}
+.icon-actions-bar .icon-text-btn:not(.success-btn):not(.danger-btn):hover:not(:disabled),
+.icon-actions-bar .icon-text-btn:not(.success-btn):not(.danger-btn):focus:not(:disabled),
+.icon-actions-bar .icon-text-btn:not(.success-btn):not(.danger-btn):focus-visible:not(:disabled),
+.archive-preview-actions .icon-text-btn:not(.danger-btn):hover:not(:disabled),
+.archive-preview-actions .icon-text-btn:not(.danger-btn):focus:not(:disabled),
+.archive-preview-actions .icon-text-btn:not(.danger-btn):focus-visible:not(:disabled),
+.skills-form-actions .icon-text-btn:not(.danger-btn):hover:not(:disabled),
+.skills-form-actions .icon-text-btn:not(.danger-btn):focus:not(:disabled),
+.skills-form-actions .icon-text-btn:not(.danger-btn):focus-visible:not(:disabled),
+.observability-actions .icon-text-btn:not(.danger-btn):hover:not(:disabled),
+.observability-actions .icon-text-btn:not(.danger-btn):focus:not(:disabled),
+.observability-actions .icon-text-btn:not(.danger-btn):focus-visible:not(:disabled) {
+  background: var(--border-color-active);
+  color: #0d1117;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
+}
+.icon-actions-bar .icon-text-btn:not(.success-btn):not(.danger-btn):focus-visible,
+.archive-preview-actions .icon-text-btn:not(.danger-btn):focus-visible,
+.skills-form-actions .icon-text-btn:not(.danger-btn):focus-visible,
+.observability-actions .icon-text-btn:not(.danger-btn):focus-visible {
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.22);
+}
+
+/* 保存按钮特定样式 (绿色) */
+.icon-actions-bar .success-btn,
+.archive-preview-actions .success-btn,
+.skills-form-actions .success-btn,
+.observability-actions .success-btn {
+  background: transparent;
+  color: var(--accent-emerald);
+  border: 1px solid var(--accent-emerald);
+}
+.icon-actions-bar .success-btn:hover:not(:disabled),
+.icon-actions-bar .success-btn:focus:not(:disabled),
+.icon-actions-bar .success-btn:focus-visible:not(:disabled),
+.archive-preview-actions .success-btn:hover:not(:disabled),
+.archive-preview-actions .success-btn:focus:not(:disabled),
+.archive-preview-actions .success-btn:focus-visible:not(:disabled),
+.skills-form-actions .success-btn:hover:not(:disabled),
+.skills-form-actions .success-btn:focus:not(:disabled),
+.skills-form-actions .success-btn:focus-visible:not(:disabled),
+.observability-actions .success-btn:hover:not(:disabled),
+.observability-actions .success-btn:focus:not(:disabled),
+.observability-actions .success-btn:focus-visible:not(:disabled) {
+  background: var(--control-success-bg);
+  color: var(--control-success-text);
+  border-color: transparent;
+  box-shadow: var(--control-success-shadow);
+}
+.icon-actions-bar .success-btn:focus-visible,
+.archive-preview-actions .success-btn:focus-visible,
+.skills-form-actions .success-btn:focus-visible,
+.observability-actions .success-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.22);
+}
+
+/* 删除/禁用/清空按钮特定样式 (红色) */
+.icon-actions-bar .danger-btn,
+.archive-preview-actions .danger-btn,
+.skills-form-actions .danger-btn,
+.observability-actions .danger-btn {
+  background: transparent;
+  color: var(--accent-danger);
+  border: 1px solid var(--accent-danger);
+}
+.icon-actions-bar .danger-btn:hover:not(:disabled),
+.icon-actions-bar .danger-btn:focus:not(:disabled),
+.icon-actions-bar .danger-btn:focus-visible:not(:disabled),
+.archive-preview-actions .danger-btn:hover:not(:disabled),
+.archive-preview-actions .danger-btn:focus:not(:disabled),
+.archive-preview-actions .danger-btn:focus-visible:not(:disabled),
+.skills-form-actions .danger-btn:hover:not(:disabled),
+.skills-form-actions .danger-btn:focus:not(:disabled),
+.skills-form-actions .danger-btn:focus-visible:not(:disabled),
+.observability-actions .danger-btn:hover:not(:disabled),
+.observability-actions .danger-btn:focus:not(:disabled),
+.observability-actions .danger-btn:focus-visible:not(:disabled) {
+  background: var(--control-danger-bg);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: var(--control-danger-shadow);
+}
+.icon-actions-bar .danger-btn:focus-visible,
+.archive-preview-actions .danger-btn:focus-visible,
+.skills-form-actions .danger-btn:focus-visible,
+.observability-actions .danger-btn:focus-visible {
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.22);
+}
+
+/* 禁用状态 */
+.icon-actions-bar .icon-text-btn:disabled,
+.archive-preview-actions .icon-text-btn:disabled,
+.skills-form-actions .icon-text-btn:disabled,
+.observability-actions .icon-text-btn:disabled {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ========================================
    Shared: Spinner
    ======================================== */
@@ -477,6 +621,9 @@ button.danger:active:not(:disabled) {
 }
 .model-config-form {
   overflow-y: auto;
+}
+.model-config-form .modal-actions {
+  padding: 0 20px 20px;
 }
 .model-form-card {
   display: grid;

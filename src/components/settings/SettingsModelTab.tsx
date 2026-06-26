@@ -89,13 +89,12 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
             {(model.llmTestStatus.status === "idle" || model.llmTestStatus.status === "testing") && <div className="status-spacer" />}
             <button className="icon-text-btn" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} title="测试连接" type="button">
               {model.llmTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
-              <span>{model.llmTestStatus.status === "testing" ? "测试中..." : "测试连接"}</span>
             </button>
             <button className="icon-text-btn success-btn" onClick={model.handleSaveModel} title="保存并使用" type="button">
-              <Save /><span>保存并使用</span>
+              <Save />
             </button>
             <button className="icon-text-btn danger-btn" title="删除模型" onClick={model.handleDeleteModel} disabled={!model.modelDraft.id || model.modelDraft.id === "embedding-config"} type="button">
-              <Trash2 /><span>删除</span>
+              <Trash2 />
             </button>
           </div>
         </div>

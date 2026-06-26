@@ -59,7 +59,7 @@
   align-items: center; gap: var(--control-gap);
   margin-top: auto; padding-top: 12px;
 }
-.skills-form-actions button {
+.skills-form-actions button:not(.icon-text-btn) {
   min-height: 36px; padding: 0 14px;
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);

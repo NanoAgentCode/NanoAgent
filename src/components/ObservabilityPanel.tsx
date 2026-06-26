@@ -1,4 +1,4 @@
-import { Activity, ChevronDown, ChevronRight, RotateCcw, Trash2 } from "lucide-react";
+import { Activity, ChevronDown, ChevronRight, RotateCcw, Trash2, Loader2 } from "lucide-react";
 import type { ObservabilitySpan } from "../types";
 import ObservabilityDetailPanel from "./ObservabilityDetailPanel";
 import {
@@ -28,7 +28,7 @@ interface ObservabilityPanelProps {
   onClear: () => void;
   onSelectTrace: (traceId: string) => void;
   onToggleTimeline: () => void;
-  onToggleRow: (rowId: string) => void;
+  onToggleRow: (spanId: string) => void;
 }
 
 export default function ObservabilityPanel({
@@ -53,13 +53,11 @@ export default function ObservabilityPanel({
           <p className="description">查看最近的本地调用链路、耗时和错误状态。</p>
         </div>
         <div className="observability-actions">
-          <button className="secondary compact-btn" onClick={onRefresh} disabled={isLoading} type="button">
-            <RotateCcw size={14} />
-            <span>{isLoading ? "刷新中" : "刷新"}</span>
+          <button className="icon-text-btn" onClick={onRefresh} disabled={isLoading} title="刷新" type="button">
+            {isLoading ? <Loader2 size={18} className="svg-spin" /> : <RotateCcw size={18} />}
           </button>
-          <button className="danger compact-btn" onClick={onClear} disabled={spanCount === 0} type="button">
-            <Trash2 size={14} />
-            <span>清空</span>
+          <button className="icon-text-btn danger-btn" onClick={onClear} disabled={spanCount === 0} title="清空" type="button">
+            <Trash2 size={18} />
           </button>
         </div>
       </div>

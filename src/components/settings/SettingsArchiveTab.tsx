@@ -57,26 +57,26 @@ export default function SettingsArchiveTab({
                 </div>
                 <div className="archive-preview-actions">
                   <button
-                    className="primary compact-btn"
+                    className="icon-text-btn"
                     onClick={() => {
                       const conversation = archivedConversations.find((c) => c.id === previewArchivedId);
                       if (conversation) void handleRestoreConversation(conversation);
                     }}
                     type="button"
+                    title="恢复"
                   >
-                    <RotateCcw size={14} />
-                    <span>恢复</span>
+                    <RotateCcw size={18} />
                   </button>
                   <button
-                    className="danger compact-btn"
+                    className="icon-text-btn danger-btn"
                     onClick={() => {
                       const conversation = archivedConversations.find((c) => c.id === previewArchivedId);
                       if (conversation) void handleDeleteArchivedConversation(conversation);
                     }}
                     type="button"
+                    title="删除"
                   >
-                    <Trash2 size={14} />
-                    <span>删除</span>
+                    <Trash2 size={18} />
                   </button>
                 </div>
               </div>

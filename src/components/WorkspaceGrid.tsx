@@ -15,7 +15,7 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
     <section className="settings-workspace-grid" ref={workspaceRef}>
       <section className="list-pane" style={{ flexBasis: "320px" }}>
         <header className="list-header">
-          <strong>{workspaceLabels[workspace.activeKind]}</strong>
+          <strong>{workspace.activeKind === "memory" ? "" : workspaceLabels[workspace.activeKind]}</strong>
           <span>{workspace.activeKind === "memory" ? memory.memoryItems.length : workspace.items.length} 条</span>
         </header>
         <div className="search-bar">
@@ -97,14 +97,12 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
                 />
                 在对话中启用
               </label>
-              <div className="editor-actions">
-                <button className="icon-text-btn success-btn" onClick={() => void memory.handleSaveMemory(workspace.query)} disabled={!memory.selectedMemory} type="button">
-                  <Save />
-                  <span>保存</span>
+              <div className="editor-actions memory-actions">
+                <button className="icon-text-btn success-btn" onClick={() => void memory.handleSaveMemory(workspace.query)} disabled={!memory.selectedMemory} type="button" aria-label="保存" title="保存">
+                  <Save size={18} />
                 </button>
-                <button className="icon-text-btn danger-btn" onClick={() => void memory.handleDeleteMemory(workspace.query)} disabled={!memory.selectedMemory} type="button">
-                  <Trash2 />
-                  <span>删除</span>
+                <button className="icon-text-btn danger-btn" onClick={() => void memory.handleDeleteMemory(workspace.query)} disabled={!memory.selectedMemory} type="button" aria-label="删除" title="删除">
+                  <Trash2 size={18} />
                 </button>
               </div>
             </div>
@@ -141,13 +139,11 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
                 <option value="archived">已归档</option>
               </select>
               <div className="editor-actions">
-                <button className="icon-text-btn success-btn" onClick={workspace.handleSaveItem} disabled={!workspace.selectedItem} type="button">
-                  <Save />
-                  <span>保存</span>
+                <button className="icon-text-btn success-btn" onClick={workspace.handleSaveItem} disabled={!workspace.selectedItem} type="button" aria-label="保存" title="保存">
+                  <Save size={18} />
                 </button>
-                <button className="icon-text-btn danger-btn" onClick={workspace.handleDeleteItem} disabled={!workspace.selectedItem} type="button">
-                  <Trash2 />
-                  <span>删除</span>
+                <button className="icon-text-btn danger-btn" onClick={workspace.handleDeleteItem} disabled={!workspace.selectedItem} type="button" aria-label="删除" title="删除">
+                  <Trash2 size={18} />
                 </button>
               </div>
             </div>

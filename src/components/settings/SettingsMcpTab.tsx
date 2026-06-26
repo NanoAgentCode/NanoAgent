@@ -74,7 +74,7 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
               </>
             )}
           </div>
-          <div className="modal-actions icon-actions mcp-actions">
+          <div className="modal-actions icon-actions mcp-actions icon-actions-bar">
             <div className="mcp-action-status">
               {mcp.selectedMcpServer?.status.error && (
                 <span className="mcp-status-text error" title={mcp.selectedMcpServer.status.error}>连接错误</span>
@@ -108,8 +108,8 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
                 </div>
               )}
             </div>
-            <button className="icon-text-btn success-btn" onClick={mcp.handleSaveMcpServer} title="保存配置" type="button"><Save /><span>保存</span></button>
-            <button className="icon-text-btn danger-btn" title="删除 MCP 服务器" onClick={mcp.handleDeleteMcpServer} disabled={mcp.mcpBusyId === mcp.mcpDraft.id} type="button"><Trash2 /><span>删除</span></button>
+            <button className="icon-text-btn success-btn" onClick={mcp.handleSaveMcpServer} title="保存配置" type="button"><Save /></button>
+            <button className="icon-text-btn danger-btn" title="删除 MCP 服务器" onClick={mcp.handleDeleteMcpServer} disabled={mcp.mcpBusyId === mcp.mcpDraft.id} type="button"><Trash2 /></button>
           </div>
         </div>
       </div>
