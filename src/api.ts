@@ -387,3 +387,13 @@ export function resolveAgentModelOutput(
 export function executeAgentToolCall(request: AgentToolExecutionRequest) {
   return invoke<AgentToolExecution>("execute_agent_tool_call", { request });
 }
+
+export interface AbsoluteFileContent {
+  name: string;
+  size: number;
+  content: string;
+}
+
+export function readAbsoluteFile(path: string) {
+  return invoke<AbsoluteFileContent>("read_absolute_file", { path });
+}

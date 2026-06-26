@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { setTheme } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Archive,
@@ -87,7 +88,8 @@ import {
   approveAgentToolCall,
   rejectAgentToolCall,
   resolveAgentModelOutput,
-  executeAgentToolCall
+  executeAgentToolCall,
+  readAbsoluteFile
 } from "./api";
 import MarkdownMessage from "./MarkdownMessage";
 import type {
@@ -991,6 +993,38 @@ function App() {
     }
   }, [showModelConfig, activeSettingsTab, activeConversationId]);
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isMounted = true;
+    
+    void getCurrentWebviewWindow().onDragDropEvent((event) => {
+      const { type, paths } = event.payload as any;
+      if (type === "enter" || type === "over") {
+        setIsRagDragging(true);
+      } else if (type === "leave") {
+        setIsRagDragging(false);
+      } else if (type === "drop") {
+        setIsRagDragging(false);
+        if (paths && paths.length > 0) {
+          void handleDroppedFilePaths(paths);
+        }
+      }
+    }).then((fn) => {
+      if (isMounted) {
+        unlisten = fn;
+      } else {
+        fn();
+      }
+    });
+    
+    return () => {
+      isMounted = false;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [activeConversationId, activeModelId]);
+
   async function refreshObservability() {
     setIsLoadingObservability(true);
     try {
@@ -1238,6 +1272,49 @@ function App() {
       setNotice(`已索引 ${selectedFiles.length} 个文件到当前对话。`);
     } catch (error) {
       console.error("Failed to index RAG file:", error);
+      setNotice(`文件索引失败：${String(error)}`);
+    } finally {
+      setIndexingRagFileName("");
+      setIsRagDragging(false);
+    }
+  }
+
+  async function handleDroppedFilePaths(paths: string[]) {
+    const supportedPaths = paths.filter((p) => isSupportedRagFile(p));
+    if (supportedPaths.length === 0) {
+      setNotice("仅支持文本类文件：txt、md、json、csv、log、代码文件等。");
+      return;
+    }
+
+    const modelConfigId = resolveConversationModelId(activeConversationId);
+    if (!modelConfigId) {
+      setNotice("请先保存并选择一个模型配置。");
+      return;
+    }
+
+    const projectHint = getConversationProjectHint();
+    const conversationId = await ensureConversation(projectHint);
+    
+    try {
+      for (const filePath of supportedPaths) {
+        const fileName = filePath.split(/[/\\]/).pop() || "unknown";
+        setIndexingRagFileName(fileName);
+        
+        const fileData = await readAbsoluteFile(filePath);
+        
+        await indexRagFile({
+          conversation_id: conversationId,
+          name: fileData.name || fileName,
+          mime: "text/plain",
+          size: fileData.size || 0,
+          content: fileData.content,
+          model_config_id: modelConfigId
+        });
+      }
+      await refreshRagFiles(conversationId);
+      setNotice(`已索引 ${supportedPaths.length} 个文件到当前对话。`);
+    } catch (error) {
+      console.error("Failed to index dropped files:", error);
       setNotice(`文件索引失败：${String(error)}`);
     } finally {
       setIndexingRagFileName("");

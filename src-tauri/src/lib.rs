@@ -2066,6 +2066,64 @@ async fn read_local_file(
     result
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AbsoluteFileContent {
+    name: String,
+    size: u64,
+    content: String,
+}
+
+#[tauri::command]
+async fn read_absolute_file(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<AbsoluteFileContent> {
+    let span = start_observation(
+        &state,
+        "read_absolute_file",
+        "tool",
+        Some("file"),
+        Some(path.clone()),
+        None,
+        serde_json::json!({}),
+        None,
+    )
+    .await;
+    let result = (|| -> AppResult<AbsoluteFileContent> {
+        const MAX_TEXT_FILE_BYTES: u64 = 10 * 1024 * 1024; // 10MB limit
+
+        let target_path = std::path::Path::new(&path);
+        let metadata = std::fs::metadata(&target_path)?;
+        if !metadata.is_file() {
+            return Err(crate::error::AppError::Message(
+                "只能读取普通文件".to_string(),
+            ));
+        }
+        if metadata.len() > MAX_TEXT_FILE_BYTES {
+            return Err(crate::error::AppError::Message(
+                "文件超过 10MB 限制".to_string(),
+            ));
+        }
+
+        let name = target_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let size = metadata.len();
+        let content = std::fs::read_to_string(target_path)?;
+
+        Ok(AbsoluteFileContent { name, size, content })
+    })();
+    let summary = result
+        .as_ref()
+        .ok()
+        .map(|res| format!("content_chars={}", res.content.chars().count()));
+    finish_observation(&state, span, &result, summary).await;
+    result
+}
+
+
 #[tauri::command]
 async fn list_observability_spans(
     state: State<'_, AppState>,
@@ -2182,6 +2240,7 @@ pub fn run() {
             execute_bash_command,
             write_local_file,
             read_local_file,
+            read_absolute_file,
             list_observability_spans,
             clear_observability_spans
         ])
