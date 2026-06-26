@@ -533,6 +533,8 @@ function App() {
   const messageLoadRequestRef = useRef(0);
   const activeConversationIdRef = useRef("");
   const workspaceRef = useRef<HTMLElement | null>(null);
+  const runtimePanelRef = useRef<HTMLElement | null>(null);
+  const runtimeToggleBtnRef = useRef<HTMLButtonElement | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [activeKind, setActiveKind] = useState<WorkspaceView>("note");
@@ -794,6 +796,25 @@ function App() {
     setExpandedObservabilityRows([]);
     setTraceTimelineCollapsed(false);
   }, [selectedTrace?.traceId]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!showChatRuntime) return;
+      const target = event.target as Node;
+      if (
+        runtimePanelRef.current &&
+        !runtimePanelRef.current.contains(target) &&
+        runtimeToggleBtnRef.current &&
+        !runtimeToggleBtnRef.current.contains(target)
+      ) {
+        setShowChatRuntime(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showChatRuntime]);
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -4626,6 +4647,7 @@ function App() {
           {activeConversationId && (
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <button
+                ref={runtimeToggleBtnRef}
                 className="compact-btn"
                 aria-label="Agent Runtime 运行详情"
                 title="Agent Runtime 运行详情"
@@ -4663,7 +4685,7 @@ function App() {
         </header>
 
         {showChatRuntime && (
-          <section className="agent-runtime-panel" style={{
+          <section ref={runtimePanelRef} className="agent-runtime-panel" style={{
             position: "absolute",
             top: "56px",
             right: "20px",
