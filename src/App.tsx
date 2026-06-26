@@ -44,7 +44,6 @@ import {
   createProjectDirectory,
   deleteConversation,
   deleteItem,
-  deleteMemory,
   deleteMessages,
   deleteModelConfig,
   testLlmConnectivity,
@@ -55,7 +54,6 @@ import {
   listArchivedConversations,
   listConversations,
   listItems,
-  listMemories,
   listMessages,
   listModelConfigs,
   listProjectFiles,
@@ -63,12 +61,10 @@ import {
   saveModelConfig,
   searchRagContext,
   searchItems,
-  searchMemories,
   listLocalSkills,
   getTavilyApiKey,
   saveTavilyApiKey,
   updateItem,
-  updateMemory,
   checkEnv,
   installEnv,
   listObservabilitySpans,
@@ -91,6 +87,7 @@ import ObservabilityPanel, { type ObservabilityTraceGroup } from "./components/O
 import ToolResultMessage from "./components/ToolResultMessage";
 import { useEnv } from "./hooks/useEnv";
 import { useMcp } from "./hooks/useMcp";
+import { useMemory } from "./hooks/useMemory";
 import {
   safeCreateAgentRun,
   safeFinishAgentRun,
@@ -329,12 +326,7 @@ function App() {
   const [body, setBody] = useState("");
   const [tagsText, setTagsText] = useState("");
   const [status, setStatus] = useState("active");
-  const [memoryItems, setMemoryItems] = useState<Memory[]>([]);
-  const [selectedMemoryId, setSelectedMemoryId] = useState("");
-  const [memoryTitle, setMemoryTitle] = useState("");
-  const [memoryContent, setMemoryContent] = useState("");
-  const [memoryTagsText, setMemoryTagsText] = useState("");
-  const [memoryEnabled, setMemoryEnabled] = useState(true);
+
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
   const [activeModelId, setActiveModelId] = useState("");
@@ -493,6 +485,7 @@ function App() {
   });
   const env = useEnv(setNotice);
   const mcp = useMcp(setNotice);
+  const memory = useMemory(setNotice);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
@@ -502,10 +495,6 @@ function App() {
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId),
     [items, selectedId]
-  );
-  const selectedMemory = useMemo(
-    () => memoryItems.find((memory) => memory.id === selectedMemoryId),
-    [memoryItems, selectedMemoryId]
   );
   const activeConversation = useMemo(() => {
     const allProjectConversations = Object.values(projectConversations).flat();
@@ -685,20 +674,7 @@ function App() {
     setStatus(selectedItem.status);
   }, [selectedItem]);
 
-  useEffect(() => {
-    if (!selectedMemory) {
-      setMemoryTitle("");
-      setMemoryContent("");
-      setMemoryTagsText("");
-      setMemoryEnabled(true);
-      return;
-    }
 
-    setMemoryTitle(selectedMemory.title);
-    setMemoryContent(selectedMemory.content);
-    setMemoryTagsText(selectedMemory.tags.join(", "));
-    setMemoryEnabled(selectedMemory.enabled);
-  }, [selectedMemory]);
 
 
 
@@ -805,22 +781,20 @@ function App() {
 
   async function loadAll() {
     try {
-      const [nextItems, nextModels, nextConversations, nextArchivedConversations, nextMemories] = await Promise.all([
+      const [nextItems, nextModels, nextConversations, nextArchivedConversations] = await Promise.all([
         listItems(),
         listModelConfigs(),
         listConversations(),
-        listArchivedConversations(),
-        loadVisibleMemories("")
+        listArchivedConversations()
       ]);
       setItems(nextItems);
       setModels(nextModels);
       setConversations(nextConversations);
       setArchivedConversations(nextArchivedConversations);
-      setMemoryItems(nextMemories);
       setSelectedId((current) => current || nextItems[0]?.id || "");
       setActiveModelId((current) => current || nextModels.find((m) => m.id !== "embedding-config")?.id || "");
       setActiveConversationId((current) => current || nextConversations[0]?.id || "");
-      setSelectedMemoryId((current) => current || nextMemories[0]?.id || "");
+      void memory.refreshMemories("");
     } catch (error) {
       setNotice(String(error));
     }
@@ -1382,16 +1356,7 @@ function App() {
 
     try {
       if (kind === "memory") {
-        const nextMemories = await loadVisibleMemories(nextQuery);
-        if (requestId !== listRequestRef.current) {
-          return;
-        }
-        setMemoryItems(nextMemories);
-        setSelectedMemoryId((current) =>
-          nextMemories.some((memory) => memory.id === current)
-            ? current
-            : nextMemories[0]?.id || ""
-        );
+        await memory.refreshMemories(nextQuery);
         return;
       }
 
@@ -1412,24 +1377,13 @@ function App() {
     }
   }
 
-  async function loadVisibleMemories(nextQuery: string) {
-    if (nextQuery.trim()) {
-      return searchMemories(nextQuery);
-    }
 
-    const allMemories = await listMemories();
-    if (allMemories.length > 0) {
-      return allMemories;
-    }
-
-    return listEnabledMemories();
-  }
 
   function handleKindChange(kind: WorkspaceView) {
     setActiveKind(kind);
     setQuery("");
     if (kind === "memory") {
-      setSelectedMemoryId("");
+      memory.setSelectedMemoryId("");
     } else {
       setSelectedId("");
     }
@@ -1502,22 +1456,7 @@ function App() {
     setNotice("已保存");
   }
 
-  async function handleSaveMemory() {
-    if (!selectedMemory) {
-      return;
-    }
 
-    await updateMemory({
-      id: selectedMemory.id,
-      title: memoryTitle,
-      content: memoryContent,
-      tags: parseTags(memoryTagsText),
-      enabled: memoryEnabled
-    });
-
-    await refreshItems(query, "memory");
-    setNotice("记忆已保存");
-  }
 
   async function handleDeleteItem() {
     if (!selectedItem) {
@@ -1529,15 +1468,7 @@ function App() {
     await refreshItems(query, activeKind);
   }
 
-  async function handleDeleteMemory() {
-    if (!selectedMemory) {
-      return;
-    }
 
-    await deleteMemory(selectedMemory.id);
-    setSelectedMemoryId("");
-    await refreshItems(query, "memory");
-  }
 
   async function handleSaveModel() {
     const saved = await saveModelConfig(modelDraft);
@@ -2353,7 +2284,7 @@ function App() {
         const savedMemory = await createMemory(memoryDraft);
         await refreshItems(query, "memory");
         if (activeKind === "memory") {
-          setSelectedMemoryId(savedMemory.id);
+          memory.setSelectedMemoryId(savedMemory.id);
         }
 
         const assistantMessage = await appendMessage({
@@ -2591,7 +2522,7 @@ function App() {
         <section className="list-pane" style={{ flexBasis: "320px" }}>
           <header className="list-header">
             <strong>{workspaceLabels[activeKind]}</strong>
-            <span>{activeKind === "memory" ? memoryItems.length : items.length} 条</span>
+            <span>{activeKind === "memory" ? memory.memoryItems.length : items.length} 条</span>
           </header>
           <div className="search-bar">
             <Search size={18} />
@@ -2605,21 +2536,21 @@ function App() {
           <div className="item-list">
             {activeKind === "memory" ? (
               <>
-                {memoryItems.map((memory) => (
+                {memory.memoryItems.map((item) => (
                   <button
-                    key={memory.id}
-                    className={memory.id === selectedMemoryId ? "item-row selected" : "item-row"}
-                    onClick={() => setSelectedMemoryId(memory.id)}
+                    key={item.id}
+                    className={item.id === memory.selectedMemoryId ? "item-row selected" : "item-row"}
+                    onClick={() => memory.setSelectedMemoryId(item.id)}
                   >
                     <div className="item-row-header">
                       <span className="badge-memory">记忆</span>
-                      <span className="status-indicator">{memory.enabled ? "已启用" : "已禁用"}</span>
+                      <span className="status-indicator">{item.enabled ? "已启用" : "已禁用"}</span>
                     </div>
-                    <strong>{memory.title}</strong>
-                    <small>{memory.content || "暂无内容"}</small>
+                    <strong>{item.title}</strong>
+                    <small>{item.content || "暂无内容"}</small>
                   </button>
                 ))}
-                {memoryItems.length === 0 && (
+                {memory.memoryItems.length === 0 && (
                   <div className="empty">{query.trim() ? "没有匹配的记忆" : "暂无记忆"}</div>
                 )}
               </>
@@ -2666,18 +2597,18 @@ function App() {
                 <label className="memory-toggle">
                   <input
                     type="checkbox"
-                    checked={memoryEnabled}
-                    onChange={(event) => setMemoryEnabled(event.target.checked)}
-                    disabled={!selectedMemory}
+                    checked={memory.memoryEnabled}
+                    onChange={(event) => memory.setMemoryEnabled(event.target.checked)}
+                    disabled={!memory.selectedMemory}
                   />
                   在对话中启用
                 </label>
                 <div className="editor-actions">
-                  <button className="icon-text-btn success-btn" onClick={handleSaveMemory} disabled={!selectedMemory} type="button">
+                  <button className="icon-text-btn success-btn" onClick={() => void memory.handleSaveMemory(query)} disabled={!memory.selectedMemory} type="button">
                     <Save />
                     <span>保存</span>
                   </button>
-                  <button className="icon-text-btn danger-btn" onClick={handleDeleteMemory} disabled={!selectedMemory} type="button">
+                  <button className="icon-text-btn danger-btn" onClick={() => void memory.handleDeleteMemory(query)} disabled={!memory.selectedMemory} type="button">
                     <Trash2 />
                     <span>删除</span>
                   </button>
@@ -2686,24 +2617,24 @@ function App() {
 
               <input
                 className="title-input"
-                value={memoryTitle}
-                onChange={(event) => setMemoryTitle(event.target.value)}
+                value={memory.memoryTitle}
+                onChange={(event) => memory.setMemoryTitle(event.target.value)}
                 placeholder="记忆标题"
-                disabled={!selectedMemory}
+                disabled={!memory.selectedMemory}
               />
               <textarea
                 className="body-input"
-                value={memoryContent}
-                onChange={(event) => setMemoryContent(event.target.value)}
+                value={memory.memoryContent}
+                onChange={(event) => memory.setMemoryContent(event.target.value)}
                 placeholder="稳定记录用户偏好、事实背景、工作流规则或项目上下文..."
-                disabled={!selectedMemory}
+                disabled={!memory.selectedMemory}
               />
               <input
                 className="tag-input"
-                value={memoryTagsText}
-                onChange={(event) => setMemoryTagsText(event.target.value)}
+                value={memory.memoryTagsText}
+                onChange={(event) => memory.setMemoryTagsText(event.target.value)}
                 placeholder="标签，以英文逗号分隔"
-                disabled={!selectedMemory}
+                disabled={!memory.selectedMemory}
               />
             </>
           ) : (
