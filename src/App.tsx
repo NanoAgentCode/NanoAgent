@@ -3323,75 +3323,6 @@ function App() {
           </aside>
 
           <section className="observability-span-list">
-            <section className="agent-runtime-panel">
-              <div
-                className="observability-trace-summary clickable"
-                onClick={() => setAgentRuntimeCollapsed(!agentRuntimeCollapsed)}
-              >
-                <div>
-                  <strong>Agent Runtime</strong>
-                  <span>{activeConversation?.title || "当前会话"}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span>
-                    {activeRunTimeline
-                      ? `${agentRunTimelines.length} runs · ${activeRunTimeline.run.status}`
-                      : activeConversationId
-                        ? "暂无运行记录"
-                        : "未选择会话"}
-                  </span>
-                  {activeRunTimeline && (agentRuntimeCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />)}
-                </div>
-              </div>
-              {activeRunTimeline && !agentRuntimeCollapsed ? (
-                <div className="agent-run-timeline">
-                  <div className={`agent-run-header ${activeRunTimeline.run.status}`}>
-                    <div>
-                      <strong>{formatAgentRunTitle(activeRunTimeline.run)}</strong>
-                      <span>{activeRunTimeline.run.id}</span>
-                    </div>
-                    <small>{new Date(activeRunTimeline.run.created_at).toLocaleString()}</small>
-                  </div>
-                  {activeRunTimelineEvents.map((event) => (
-                    <div key={event.id} className={`agent-timeline-row ${event.status}`}>
-                      <button
-                        className="timeline-row-toggle"
-                        onClick={() => toggleTimelineRow(`runtime-${event.id}`)}
-                        type="button"
-                      >
-                        <span className="observability-status-dot" />
-                        <span className="timeline-row-copy">
-                          <strong>{event.title}</strong>
-                          <small>{event.subtitle}</small>
-                        </span>
-                        <span className="agent-timeline-meta">
-                          <span>{formatRuntimeStatus(event.status)}</span>
-                          <span>{formatShortTime(event.time)}</span>
-                        </span>
-                        {expandedObservabilityRows.includes(`runtime-${event.id}`) ? (
-                          <ChevronDown size={16} />
-                        ) : (
-                          <ChevronRight size={16} />
-                        )}
-                      </button>
-                      {expandedObservabilityRows.includes(`runtime-${event.id}`) && event.detail && (
-                        <div className="timeline-row-detail">
-                          <ObservabilityDetailPanel detail={event.detail} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {activeRunTimelineEvents.length === 0 && (
-                    <div className="empty">该 run 暂无步骤</div>
-                  )}
-                </div>
-              ) : activeRunTimeline ? null : (
-                <div className="empty">
-                  {activeConversationId ? "当前会话还没有 Agent Runtime 记录" : "选择一个会话后查看 Agent Runtime"}
-                </div>
-              )}
-            </section>
-
             {selectedTrace ? (
               <>
                 <div
@@ -4733,9 +4664,18 @@ function App() {
 
         {showChatRuntime && (
           <section className="agent-runtime-panel" style={{
-            borderBottom: "1px solid var(--border-color)",
-            maxHeight: "360px",
+            position: "absolute",
+            top: "56px",
+            right: "20px",
+            width: "480px",
+            maxWidth: "calc(100% - 40px)",
+            maxHeight: "calc(100% - 100px)",
             overflowY: "auto",
+            zIndex: 100,
+            background: "var(--bg-card)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "8px",
+            boxShadow: "0 10px 30px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.1)",
             flexShrink: 0
           }}>
             <div
