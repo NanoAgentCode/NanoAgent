@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { CheckCircle2, Pencil, PlugZap, Plus, Save, Server, Terminal, Trash2, X } from "lucide-react";
 import {
@@ -40,15 +40,96 @@ function applyTerminalBackspaces(value: string) {
   return output.join("");
 }
 
-function cleanTerminalOutput(value: string) {
+function normalizeTerminalOutput(value: string) {
   return applyTerminalBackspaces(value)
     .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
     .replace(/\x1b[P\]^_][\s\S]*?\x1b\\/g, "")
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\x1b[@-_]/g, "")
+    .replace(/\x1b\[(?![0-9;]*m)[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\x1b(?!\[)[@-_]/g, "")
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f]/g, "");
+}
+
+function terminalAnsiClasses(codes: number[], currentClasses: string[]) {
+  const nextClasses = new Set(currentClasses);
+  const normalizedCodes = codes.length > 0 ? codes : [0];
+
+  for (let index = 0; index < normalizedCodes.length; index += 1) {
+    const code = normalizedCodes[index];
+    if (code === 0) {
+      nextClasses.clear();
+    } else if (code === 1) {
+      nextClasses.add("ansi-bold");
+    } else if (code === 2) {
+      nextClasses.add("ansi-dim");
+    } else if (code === 3) {
+      nextClasses.add("ansi-italic");
+    } else if (code === 4) {
+      nextClasses.add("ansi-underline");
+    } else if (code === 22) {
+      nextClasses.delete("ansi-bold");
+      nextClasses.delete("ansi-dim");
+    } else if (code === 23) {
+      nextClasses.delete("ansi-italic");
+    } else if (code === 24) {
+      nextClasses.delete("ansi-underline");
+    } else if (code === 39) {
+      Array.from(nextClasses).forEach((className) => {
+        if (className.startsWith("ansi-fg-")) nextClasses.delete(className);
+      });
+    } else if ((code >= 30 && code <= 37) || (code >= 90 && code <= 97)) {
+      Array.from(nextClasses).forEach((className) => {
+        if (className.startsWith("ansi-fg-")) nextClasses.delete(className);
+      });
+      nextClasses.add(`ansi-fg-${code}`);
+    } else if (code === 38 && normalizedCodes[index + 1] === 5 && typeof normalizedCodes[index + 2] === "number") {
+      Array.from(nextClasses).forEach((className) => {
+        if (className.startsWith("ansi-fg-")) nextClasses.delete(className);
+      });
+      nextClasses.add(`ansi-fg-256-${normalizedCodes[index + 2]}`);
+      index += 2;
+    }
+  }
+
+  return Array.from(nextClasses);
+}
+
+function renderTerminalOutput(value: string): ReactNode[] {
+  const output = normalizeTerminalOutput(value);
+  const segments: ReactNode[] = [];
+  let currentClasses: string[] = [];
+  let cursor = 0;
+  const ansiPattern = /\x1b\[([0-9;]*)m/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = ansiPattern.exec(output)) !== null) {
+    if (match.index > cursor) {
+      const text = output.slice(cursor, match.index);
+      segments.push(
+        currentClasses.length > 0
+          ? <span className={currentClasses.join(" ")} key={segments.length}>{text}</span>
+          : text
+      );
+    }
+
+    currentClasses = terminalAnsiClasses(
+      match[1].split(";").filter(Boolean).map((part) => Number(part)),
+      currentClasses
+    );
+    cursor = match.index + match[0].length;
+  }
+
+  if (cursor < output.length) {
+    const text = output.slice(cursor);
+    segments.push(
+      currentClasses.length > 0
+        ? <span className={currentClasses.join(" ")} key={segments.length}>{text}</span>
+        : text
+    );
+  }
+
+  return segments;
 }
 
 function serverToDraft(server: OpsServer): OpsServerDraft {
@@ -80,7 +161,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
     () => servers.find((server) => server.id === selectedServerId) || null,
     [servers, selectedServerId]
   );
-  const renderedSshOutput = useMemo(() => cleanTerminalOutput(sshOutput), [sshOutput]);
+  const renderedSshOutput = useMemo(() => renderTerminalOutput(sshOutput), [sshOutput]);
 
   useEffect(() => {
     void refreshServers();
@@ -368,7 +449,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
               onKeyDown={handleTerminalKeyDown}
               onClick={() => terminalRef.current?.focus()}
             >
-              {renderedSshOutput || "选择服务器后点击连接，在这里直接输入 SSH 交互命令。"}
+              {sshOutput ? renderedSshOutput : "选择服务器后点击连接，在这里直接输入 SSH 交互命令。"}
             </pre>
           </section>
         </div>
@@ -432,23 +513,41 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
               </label>
             </div>
 
-            <footer className="ops-config-dialog-footer">
+            <footer className="ops-config-dialog-footer icon-actions-bar ops-dialog-actions">
               {draft.id && selectedServer && (
-                <button className="icon-text-btn danger-btn" type="button" onClick={handleDeleteServer} disabled={busyAction === "delete"}>
+                <button
+                  className="icon-text-btn danger-btn"
+                  type="button"
+                  onClick={handleDeleteServer}
+                  disabled={busyAction === "delete"}
+                  aria-label="删除"
+                  title="删除"
+                >
                   <Trash2 size={16} />
-                  <span>删除</span>
                 </button>
               )}
-              <button className="icon-text-btn" type="button" onClick={handleTestConnection} disabled={busyAction === "ssh" || busyAction === "save"}>
+              <button
+                className="icon-text-btn"
+                type="button"
+                onClick={handleTestConnection}
+                disabled={busyAction === "ssh" || busyAction === "save"}
+                aria-label={busyAction === "ssh" ? "连接中" : "测试连接"}
+                title={busyAction === "ssh" ? "连接中" : "测试连接"}
+              >
                 <CheckCircle2 size={16} />
-                <span>{busyAction === "ssh" ? "连接中..." : "测试连接"}</span>
               </button>
-              <button className="secondary" type="button" onClick={() => setShowConfigDialog(false)}>
-                取消
+              <button className="icon-text-btn" type="button" onClick={() => setShowConfigDialog(false)} aria-label="取消" title="取消">
+                <X size={16} />
               </button>
-              <button className="primary" type="button" onClick={handleSaveServer} disabled={busyAction === "save"}>
+              <button
+                className="icon-text-btn success-btn"
+                type="button"
+                onClick={handleSaveServer}
+                disabled={busyAction === "save"}
+                aria-label={busyAction === "save" ? "保存中" : "保存"}
+                title={busyAction === "save" ? "保存中" : "保存"}
+              >
                 <Save size={16} />
-                <span>{busyAction === "save" ? "保存中..." : "保存"}</span>
               </button>
             </footer>
           </section>

@@ -299,6 +299,68 @@
   color: #ffffff;
 }
 
+.ops-terminal-output .ansi-bold {
+  font-weight: 700;
+}
+
+.ops-terminal-output .ansi-dim {
+  opacity: 0.72;
+}
+
+.ops-terminal-output .ansi-italic {
+  font-style: italic;
+}
+
+.ops-terminal-output .ansi-underline {
+  text-decoration: underline;
+}
+
+.ops-terminal-output .ansi-fg-30 { color: #000000; }
+.ops-terminal-output .ansi-fg-31 { color: #cd3131; }
+.ops-terminal-output .ansi-fg-32 { color: #0dbc79; }
+.ops-terminal-output .ansi-fg-33 { color: #e5e510; }
+.ops-terminal-output .ansi-fg-34 { color: #2472c8; }
+.ops-terminal-output .ansi-fg-35 { color: #bc3fbc; }
+.ops-terminal-output .ansi-fg-36 { color: #11a8cd; }
+.ops-terminal-output .ansi-fg-37 { color: #e5e5e5; }
+.ops-terminal-output .ansi-fg-90 { color: #666666; }
+.ops-terminal-output .ansi-fg-91 { color: #f14c4c; }
+.ops-terminal-output .ansi-fg-92 { color: #23d18b; }
+.ops-terminal-output .ansi-fg-93 { color: #f5f543; }
+.ops-terminal-output .ansi-fg-94 { color: #3b8eea; }
+.ops-terminal-output .ansi-fg-95 { color: #d670d6; }
+.ops-terminal-output .ansi-fg-96 { color: #29b8db; }
+.ops-terminal-output .ansi-fg-97 { color: #e5e5e5; }
+
+.ops-terminal-output .ansi-fg-256-33,
+.ops-terminal-output .ansi-fg-256-39,
+.ops-terminal-output .ansi-fg-256-45,
+.ops-terminal-output .ansi-fg-256-81,
+.ops-terminal-output .ansi-fg-256-111 {
+  color: #3b8eea;
+}
+
+.ops-terminal-output .ansi-fg-256-34,
+.ops-terminal-output .ansi-fg-256-40,
+.ops-terminal-output .ansi-fg-256-46,
+.ops-terminal-output .ansi-fg-256-82,
+.ops-terminal-output .ansi-fg-256-118 {
+  color: #23d18b;
+}
+
+.ops-terminal-output .ansi-fg-256-160,
+.ops-terminal-output .ansi-fg-256-196,
+.ops-terminal-output .ansi-fg-256-203 {
+  color: #f14c4c;
+}
+
+.ops-terminal-output .ansi-fg-256-178,
+.ops-terminal-output .ansi-fg-256-184,
+.ops-terminal-output .ansi-fg-256-220,
+.ops-terminal-output .ansi-fg-256-226 {
+  color: #f5f543;
+}
+
 .ops-terminal-output::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -362,7 +424,7 @@
   border-bottom: 0;
 }
 
-.ops-config-dialog-footer .danger-btn {
+.ops-dialog-actions .danger-btn {
   margin-right: auto;
 }
 
