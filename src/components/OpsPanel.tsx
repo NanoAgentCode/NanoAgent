@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { CheckCircle2, Pencil, PlugZap, Plus, Save, Server, Terminal, Trash2, X } from "lucide-react";
+import { CheckCircle2, Maximize2, Minimize2, Pencil, PlugZap, Plus, Save, Server, Terminal, Trash2, X } from "lucide-react";
 import {
   deleteOpsServer,
   listOpsServers,
@@ -154,6 +154,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
   const [sshSessionId, setSshSessionId] = useState("");
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [busyAction, setBusyAction] = useState("");
+  const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const sshSessionIdRef = useRef("");
   const terminalRef = useRef<HTMLPreElement | null>(null);
 
@@ -329,6 +330,54 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
     await stopOpsSshSession(sessionId);
   }
 
+  function getTerminalSelection() {
+    const selection = window.getSelection();
+    const terminal = terminalRef.current;
+    if (!selection || !terminal || selection.rangeCount === 0) {
+      return "";
+    }
+
+    const range = selection.getRangeAt(0);
+    if (!terminal.contains(range.commonAncestorContainer)) {
+      return "";
+    }
+
+    return selection.toString();
+  }
+
+  async function copyTerminalSelection() {
+    const selectedText = getTerminalSelection();
+    if (!selectedText) {
+      return false;
+    }
+
+    try {
+      await navigator.clipboard.writeText(selectedText);
+      return true;
+    } catch (error) {
+      setNotice(`复制失败：${String(error)}`);
+      return false;
+    }
+  }
+
+  async function pasteIntoTerminal(text?: string) {
+    if (!sshSessionIdRef.current) {
+      setNotice("请先连接 SSH 会话。");
+      return;
+    }
+
+    try {
+      const clipboardText = text ?? await navigator.clipboard.readText();
+      if (!clipboardText) {
+        return;
+      }
+      await sendOpsSshInput(sshSessionIdRef.current, clipboardText);
+      window.setTimeout(() => terminalRef.current?.focus(), 0);
+    } catch (error) {
+      setNotice(`粘贴失败：${String(error)}`);
+    }
+  }
+
   function mapTerminalKey(event: React.KeyboardEvent<HTMLElement>) {
     if (event.ctrlKey && event.key.toLowerCase() === "c") return "\u0003";
     if (event.ctrlKey && event.key.toLowerCase() === "d") return "\u0004";
@@ -346,6 +395,16 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
   }
 
   function handleTerminalKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      void copyTerminalSelection();
+      return;
+    }
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      void pasteIntoTerminal();
+      return;
+    }
     if (!sshSessionIdRef.current) {
       return;
     }
@@ -357,8 +416,27 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
     void sendOpsSshInput(sshSessionIdRef.current, input);
   }
 
+  function handleTerminalPaste(event: React.ClipboardEvent<HTMLElement>) {
+    event.preventDefault();
+    void pasteIntoTerminal(event.clipboardData.getData("text"));
+  }
+
+  function handleTerminalContextMenu(event: React.MouseEvent<HTMLElement>) {
+    event.preventDefault();
+    if (getTerminalSelection()) {
+      void copyTerminalSelection();
+      return;
+    }
+    void pasteIntoTerminal();
+  }
+
+  function toggleTerminalFullscreen() {
+    setTerminalFullscreen((current) => !current);
+    window.setTimeout(() => terminalRef.current?.focus(), 0);
+  }
+
   return (
-    <section className="ops-panel">
+    <section className={terminalFullscreen ? "ops-panel terminal-fullscreen" : "ops-panel"}>
       <header className="ops-header">
         <div>
           <Server size={20} />
@@ -369,7 +447,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
         </div>
       </header>
 
-      <div className="ops-layout">
+      <div className={terminalFullscreen ? "ops-layout terminal-fullscreen" : "ops-layout"}>
         <aside className="ops-server-list">
           <div className="ops-section-title">
             <div>
@@ -428,6 +506,15 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
                 <strong>SSH 交互</strong>
               </div>
               <div className="ops-actions">
+                <button
+                  className="icon-text-btn compact"
+                  type="button"
+                  onClick={toggleTerminalFullscreen}
+                  aria-label={terminalFullscreen ? "退出全屏" : "全屏"}
+                  title={terminalFullscreen ? "退出全屏" : "全屏"}
+                >
+                  {terminalFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
                 {sshSessionId ? (
                   <button className="icon-text-btn danger-btn" type="button" onClick={() => void handleStopSshSession()}>
                     <X size={16} />
@@ -447,6 +534,8 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
               className="ops-output ops-terminal-output"
               tabIndex={0}
               onKeyDown={handleTerminalKeyDown}
+              onPaste={handleTerminalPaste}
+              onContextMenu={handleTerminalContextMenu}
               onClick={() => terminalRef.current?.focus()}
             >
               {sshOutput ? renderedSshOutput : "选择服务器后点击连接，在这里直接输入 SSH 交互命令。"}

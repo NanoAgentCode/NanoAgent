@@ -57,6 +57,14 @@
   flex: 1;
 }
 
+.ops-layout.terminal-fullscreen {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ops-layout.terminal-fullscreen .ops-server-list {
+  display: none;
+}
+
 .ops-server-list,
 .ops-card,
 .ops-ai-card {
@@ -196,6 +204,10 @@
   overflow: hidden;
 }
 
+.ops-layout.terminal-fullscreen .ops-workspace {
+  min-width: 0;
+}
+
 .ops-card {
   overflow: hidden;
 }
@@ -210,6 +222,20 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.ops-actions .icon-text-btn.compact {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: var(--control-radius-sm);
+}
+
+.ops-actions .icon-text-btn.compact svg {
+  width: 16px;
+  height: 16px;
 }
 
 .ops-form-grid {
