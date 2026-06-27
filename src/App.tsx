@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { setTheme } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
   Edit,
@@ -9,7 +10,10 @@ import {
 } from "lucide-react";
 import {
   archiveConversation,
-  deleteConversation
+  deleteConversation,
+  minimizeToTray,
+  quitApp,
+  showAppWindow
 } from "./api";
 import { useEnv } from "./hooks/useEnv";
 import { useMcp } from "./hooks/useMcp";
@@ -29,6 +33,11 @@ import type {
   ThemeMode,
   SettingsTab
 } from "./types";
+
+type CloseAction = "tray" | "quit";
+
+const CLOSE_ACTION_KEY = "nano-agent-close-action";
+const CLOSE_SKIP_PROMPT_KEY = "nano-agent-close-skip-prompt";
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -106,6 +115,30 @@ function App() {
     const saved = localStorage.getItem("nano-agent-theme");
     return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
   });
+  const [closePromptOpen, setClosePromptOpen] = useState(false);
+  const [closeAction, setCloseAction] = useState<CloseAction>(() => {
+    return localStorage.getItem(CLOSE_ACTION_KEY) === "quit" ? "quit" : "tray";
+  });
+  const [closeDontAsk, setCloseDontAsk] = useState(() => {
+    return localStorage.getItem(CLOSE_SKIP_PROMPT_KEY) === "true";
+  });
+  const closePromptOpenRef = useRef(false);
+
+  const performCloseAction = useCallback(async (action: CloseAction) => {
+    try {
+      if (action === "tray") {
+        await minimizeToTray();
+        return;
+      }
+      await quitApp();
+    } catch (error) {
+      setNotice(String(error));
+    }
+  }, []);
+
+  useEffect(() => {
+    closePromptOpenRef.current = closePromptOpen;
+  }, [closePromptOpen]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -157,6 +190,43 @@ function App() {
     media.addEventListener("change", applyTheme);
     return () => media.removeEventListener("change", applyTheme);
   }, [themeMode]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let unlistenClose: (() => void) | undefined;
+    let unlistenTrayShow: (() => void) | undefined;
+
+    void appWindow.onCloseRequested((event) => {
+      event.preventDefault();
+      if (closePromptOpenRef.current) {
+        return;
+      }
+
+      const savedAction = localStorage.getItem(CLOSE_ACTION_KEY) === "quit" ? "quit" : "tray";
+      const skipPrompt = localStorage.getItem(CLOSE_SKIP_PROMPT_KEY) === "true";
+      if (skipPrompt) {
+        void performCloseAction(savedAction);
+        return;
+      }
+
+      setCloseAction(savedAction);
+      setCloseDontAsk(false);
+      setClosePromptOpen(true);
+    }).then((unlisten) => {
+      unlistenClose = unlisten;
+    });
+
+    void appWindow.listen("nano-agent-show-window", () => {
+      void showAppWindow();
+    }).then((unlisten) => {
+      unlistenTrayShow = unlisten;
+    });
+
+    return () => {
+      unlistenClose?.();
+      unlistenTrayShow?.();
+    };
+  }, [performCloseAction]);
 
   useEffect(() => {
     const conversationModelId = activeConversation?.model_config_id || "";
@@ -289,6 +359,21 @@ function App() {
     await chat.loadMessages(conversation.id);
   }
 
+  function handleCancelClosePrompt() {
+    setClosePromptOpen(false);
+  }
+
+  function handleConfirmClosePrompt() {
+    localStorage.setItem(CLOSE_ACTION_KEY, closeAction);
+    if (closeDontAsk) {
+      localStorage.setItem(CLOSE_SKIP_PROMPT_KEY, "true");
+    } else {
+      localStorage.removeItem(CLOSE_SKIP_PROMPT_KEY);
+    }
+    setClosePromptOpen(false);
+    void performCloseAction(closeAction);
+  }
+
 
 
   return (
@@ -396,6 +481,65 @@ function App() {
                 disabled={projects.projectApprovalText.trim() !== projects.pendingProjectRemoval.name}
               >
                 批准移除
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {closePromptOpen && (
+        <div className="modal-backdrop close-choice-backdrop" onClick={handleCancelClosePrompt}>
+          <section
+            className="close-choice-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="close-choice-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="close-choice-x"
+              type="button"
+              aria-label="关闭"
+              title="关闭"
+              onClick={handleCancelClosePrompt}
+            >
+              &times;
+            </button>
+            <h3 id="close-choice-title">点击关闭按钮以后：</h3>
+            <div className="close-choice-options" role="radiogroup" aria-label="关闭按钮行为">
+              <label className="close-choice-option">
+                <input
+                  type="radio"
+                  name="close-action"
+                  checked={closeAction === "tray"}
+                  onChange={() => setCloseAction("tray")}
+                />
+                <span>最小化到系统托盘</span>
+              </label>
+              <label className="close-choice-option">
+                <input
+                  type="radio"
+                  name="close-action"
+                  checked={closeAction === "quit"}
+                  onChange={() => setCloseAction("quit")}
+                />
+                <span>退出应用</span>
+              </label>
+            </div>
+            <label className="close-choice-checkbox">
+              <input
+                type="checkbox"
+                checked={closeDontAsk}
+                onChange={(event) => setCloseDontAsk(event.target.checked)}
+              />
+              <span>不再提示</span>
+            </label>
+            <footer>
+              <button className="secondary" type="button" onClick={handleCancelClosePrompt}>
+                取消
+              </button>
+              <button className="primary" type="button" onClick={handleConfirmClosePrompt}>
+                确定
               </button>
             </footer>
           </section>

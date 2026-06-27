@@ -311,6 +311,18 @@ export function clearObservabilitySpans() {
   return invoke<void>("clear_observability_spans");
 }
 
+export function showAppWindow() {
+  return invoke<void>("show_app_window");
+}
+
+export function minimizeToTray() {
+  return invoke<void>("minimize_to_tray");
+}
+
+export function quitApp() {
+  return invoke<void>("quit_app");
+}
+
 export function createAgentRun(draft: AgentRunDraft) {
   return invoke<AgentRun>("create_agent_run", { draft });
 }

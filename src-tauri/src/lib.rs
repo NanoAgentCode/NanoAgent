@@ -32,7 +32,11 @@ use runtime::{
 use skills::{
     sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill,
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Manager, State,
+};
 use tokio::sync::Mutex;
 
 struct AppState {
@@ -2357,11 +2361,83 @@ async fn clear_observability_spans(state: State<'_, AppState>) -> AppResult<()> 
     state.observability.lock().await.clear()
 }
 
+fn show_main_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    window.show().map_err(|err| err.to_string())?;
+    window.unminimize().map_err(|err| err.to_string())?;
+    window.set_focus().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn show_app_window(app: AppHandle) -> Result<(), String> {
+    show_main_window(&app)
+}
+
+#[tauri::command]
+fn minimize_to_tray(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "main window not found".to_string())?;
+    window.hide().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+fn setup_system_tray(app: &mut tauri::App) -> Result<(), String> {
+    let show_item = MenuItem::with_id(app, "tray_show", "显示 NanoAgent", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+    let separator = PredefinedMenuItem::separator(app).map_err(|err| err.to_string())?;
+    let quit_item = MenuItem::with_id(app, "tray_quit", "退出应用", true, None::<&str>)
+        .map_err(|err| err.to_string())?;
+    let menu = Menu::with_items(app, &[&show_item, &separator, &quit_item])
+        .map_err(|err| err.to_string())?;
+
+    let mut tray = TrayIconBuilder::with_id("nano-agent-tray")
+        .menu(&menu)
+        .tooltip("NanoAgent")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray_show" => {
+                if let Err(err) = show_main_window(app) {
+                    eprintln!("failed to show main window from tray: {err}");
+                }
+            }
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                if let Err(err) = show_main_window(tray.app_handle()) {
+                    eprintln!("failed to show main window from tray click: {err}");
+                }
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray = tray.icon(icon);
+    }
+
+    tray.build(app).map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            setup_system_tray(app)?;
+
             let data_dir = app
                 .path()
                 .app_data_dir()
@@ -2462,7 +2538,10 @@ pub fn run() {
             read_local_file,
             read_absolute_file,
             list_observability_spans,
-            clear_observability_spans
+            clear_observability_spans,
+            show_app_window,
+            minimize_to_tray,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running NanoAgent");
