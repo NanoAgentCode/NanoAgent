@@ -90,6 +90,7 @@ function App() {
     selectedPromptIndex,
     busy,
     executingToolMessageId,
+    messageToolCalls,
     activeConversation,
     handleNewConversation,
     handleNewProjectConversation,
@@ -581,6 +582,7 @@ function App() {
         selectedPromptIndex={selectedPromptIndex}
         busy={busy}
         executingToolMessageId={executingToolMessageId}
+        messageToolCalls={messageToolCalls}
         notice={notice}
         obs={obs}
         model={model}

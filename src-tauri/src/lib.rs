@@ -923,7 +923,6 @@ async fn reject_agent_tool_call(
         output_summary: reason.or_else(|| Some("user_rejected".to_string())),
         metadata_json: Some(serde_json::json!({ "tool_call_id": tool_call.id }).to_string()),
     })?;
-    runtime.finish_run(&tool_call.run_id, "rejected", None)?;
     Ok(tool_call)
 }
 

@@ -5,7 +5,7 @@ import AgentRuntimePanel from "./AgentRuntimePanel";
 import { formatWebSearchBadge, renderMessageContent } from "../lib/appHelpers";
 import { parseToolCall, parseToolResult } from "../lib/messageHelpers";
 import type { ParsedToolCall } from "../lib/messageHelpers";
-import type { PersistedMessage, RagFile, Item, Conversation } from "../types";
+import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation } from "../types";
 import type { UseObservabilityReturn } from "../hooks/useObservability";
 import type { UseModelReturn } from "../hooks/useModel";
 
@@ -21,6 +21,7 @@ interface ChatPaneProps {
   selectedPromptIndex: number;
   busy: boolean;
   executingToolMessageId: string | null;
+  messageToolCalls: Record<string, AgentToolCall>;
   notice: string;
   obs: UseObservabilityReturn;
   model: UseModelReturn;
@@ -48,6 +49,7 @@ export default function ChatPane({
   selectedPromptIndex,
   busy,
   executingToolMessageId,
+  messageToolCalls,
   notice,
   obs,
   model,
@@ -68,6 +70,7 @@ export default function ChatPane({
   // AgentRuntime 打开时，点击面板和切换按钮之外的任意位置收起
   useEffect(() => {
     if (!obs.showChatRuntime) return;
+    void obs.refreshObservability();
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (
@@ -80,7 +83,48 @@ export default function ChatPane({
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [obs.showChatRuntime, obs]);
+  }, [obs.showChatRuntime, activeConversationId]);
+
+  function handleToggleRuntime() {
+    const nextVisible = !obs.showChatRuntime;
+    obs.setShowChatRuntime(nextVisible);
+  }
+
+  function getToolDisplayState(messageId: string, toolCall: ParsedToolCall) {
+    const runtimeToolCall = messageToolCalls[messageId];
+    if (runtimeToolCall) {
+      return runtimeToolCall.status;
+    }
+
+    const messageIndex = messages.findIndex((item) => item.id === messageId);
+    const resultMessage = messageIndex >= 0
+      ? messages.slice(messageIndex + 1).find((item) =>
+          item.role === "user" &&
+          item.content.startsWith(`[工具执行结果: ${toolCall.name}]`)
+        )
+      : null;
+
+    if (!resultMessage) return "pending_approval";
+    if (resultMessage.content.includes("用户拒绝")) return "rejected";
+    if (resultMessage.content.includes("执行失败")) return "failed";
+    return "completed";
+  }
+
+  function renderToolStatus(status: string, isExecuting: boolean) {
+    if (isExecuting || status === "approved" || status === "running") {
+      return <span style={{ color: "var(--text-secondary)" }}>正在执行...</span>;
+    }
+    if (status === "completed") {
+      return <span style={{ color: "var(--accent-emerald)", fontWeight: "bold" }}>已执行完成</span>;
+    }
+    if (status === "failed") {
+      return <span style={{ color: "var(--accent-danger)", fontWeight: "bold" }}>执行失败</span>;
+    }
+    if (status === "rejected") {
+      return <span style={{ color: "var(--text-secondary)", fontWeight: "bold" }}>已拒绝</span>;
+    }
+    return null;
+  }
 
   return (
     <aside className="chat-pane">
@@ -96,7 +140,7 @@ export default function ChatPane({
               className={`chat-header-square ${obs.showChatRuntime ? "active" : ""}`}
               aria-label="Agent Runtime 运行详情"
               title="Agent Runtime 运行详情"
-              onClick={() => obs.setShowChatRuntime(!obs.showChatRuntime)}
+              onClick={handleToggleRuntime}
               type="button"
             >
               <Activity size={16} />
@@ -136,6 +180,9 @@ export default function ChatPane({
             m.role === "user" && m.content.startsWith(`[工具执行结果: ${toolCall.name}]`)
           ) : false;
 
+          const toolStatus = toolCall ? getToolDisplayState(message.id, toolCall) : "";
+          const toolStatusLabel = toolCall ? renderToolStatus(toolStatus, executingToolMessageId === message.id) : null;
+
           return (
             <div
               key={message.id}
@@ -173,7 +220,9 @@ export default function ChatPane({
                   ))}
                   
                   <div style={{ marginTop: "12px", display: "flex", gap: "8px", alignItems: "center" }}>
-                    {isExecuted ? (
+                    {toolStatusLabel ? (
+                      toolStatusLabel
+                    ) : isExecuted ? (
                       <span style={{ color: "#2e7d32", fontWeight: "bold", display: "flex", alignItems: "center", gap: "4px" }}>
                         ✓ 已执行完成
                       </span>

@@ -540,7 +540,7 @@ export function useChat({
       });
       const updatedMessages = await listMessages(conversationId);
       setMessages(updatedMessages);
-      void triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
+      await triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
     } catch (error) {
       console.error("Tool execution failed:", error);
       setNotice(`工具执行失败: ${String(error)}`);
@@ -565,7 +565,7 @@ export function useChat({
         });
         const updatedMessages = await listMessages(conversationId);
         setMessages(updatedMessages);
-        void triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
+        await triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
       } catch (e) { console.error("Failed to append tool error message:", e); }
     } finally {
       setExecutingToolMessageId(null);
@@ -608,7 +608,7 @@ export function useChat({
       });
       const updatedMessages = await listMessages(conversationId);
       setMessages(updatedMessages);
-      void triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
+      await triggerLlmContinue(conversationId, updatedMessages, projectForRequest, activeRunId);
     } catch (error) {
       console.error("Reject tool failed:", error);
     } finally {
