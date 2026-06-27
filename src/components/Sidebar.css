@@ -245,54 +245,56 @@
   background: rgba(255, 255, 255, 0.06);
   color: var(--accent-cyan);
 }
-.settings-entry {
+.sidebar-bottom-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.sidebar-bottom-item {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 10px;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 9px;
   width: 100%;
-  min-height: 46px;
-  margin-top: auto;
-  padding: 6px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--control-radius-md);
-  background: color-mix(in srgb, var(--bg-card) 58%, transparent);
-  color: var(--text-primary);
-  font-size: var(--font-size-md);
+  min-height: var(--control-height-md);
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--option-radius);
+  background: transparent;
+  color: var(--option-text-muted);
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+  text-align: left;
+  transition: var(--option-transition);
 }
-.settings-entry span {
+
+.sidebar-bottom-item span {
   min-width: 0;
   overflow: hidden;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.settings-entry:hover {
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent-indigo) 45%, var(--border-color));
-  background: var(--option-bg-active);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  transform: translateY(-1px);
-}
-.settings-entry svg {
+
+.sidebar-bottom-item svg {
   justify-self: center;
   color: currentColor;
   opacity: 0.86;
 }
-.settings-entry::after {
-  content: "";
-  justify-self: end;
-  width: 6px;
-  height: 6px;
-  border-top: 1.5px solid currentColor;
-  border-right: 1.5px solid currentColor;
-  opacity: 0.42;
-  transform: rotate(45deg);
-  transition: opacity 0.16s ease, transform 0.16s ease;
+
+.sidebar-bottom-item:hover {
+  background: var(--control-bg-subtle);
+  color: var(--option-text);
 }
-.settings-entry:hover::after {
-  opacity: 0.72;
-  transform: translateX(2px) rotate(45deg);
+
+.sidebar-bottom-item.active {
+  background: var(--option-bg-active);
+  border-color: var(--option-border-active);
+  color: var(--accent-cyan);
+}
+
+.settings-entry {
+  font-weight: var(--font-weight-semibold);
 }

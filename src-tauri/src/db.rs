@@ -8,7 +8,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
     McpServerConfig, McpServerDraft, Message, MessageDraft, MessageMetadata, ModelConfig,
-    ModelConfigDraft, RagChunkMatch, RagFile,
+    ModelConfigDraft, OpsServer, OpsServerDraft, RagChunkMatch, RagFile,
 };
 
 pub struct Database {
@@ -73,6 +73,20 @@ impl Database {
                 headers_json TEXT NOT NULL DEFAULT '{}',
                 working_dir TEXT NOT NULL DEFAULT '',
                 enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ops_servers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                host TEXT NOT NULL,
+                port INTEGER NOT NULL DEFAULT 22,
+                username TEXT NOT NULL,
+                auth_method TEXT NOT NULL DEFAULT 'key',
+                key_path TEXT NOT NULL DEFAULT '',
+                password TEXT NOT NULL DEFAULT '',
+                remote_dir TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -204,6 +218,10 @@ impl Database {
         self.ensure_column("mcp_servers", "headers_json", "TEXT NOT NULL DEFAULT '{}'")?;
         self.ensure_column("mcp_servers", "working_dir", "TEXT NOT NULL DEFAULT ''")?;
         self.ensure_column("mcp_servers", "enabled", "INTEGER NOT NULL DEFAULT 1")?;
+        self.ensure_column("ops_servers", "auth_method", "TEXT NOT NULL DEFAULT 'key'")?;
+        self.ensure_column("ops_servers", "key_path", "TEXT NOT NULL DEFAULT ''")?;
+        self.ensure_column("ops_servers", "password", "TEXT NOT NULL DEFAULT ''")?;
+        self.ensure_column("ops_servers", "remote_dir", "TEXT NOT NULL DEFAULT ''")?;
         Ok(())
     }
 
@@ -548,6 +566,119 @@ impl Database {
             .conn
             .execute("DELETE FROM mcp_servers WHERE id = ?1", params![id])?;
         ensure_affected(affected, "mcp server not found")?;
+        Ok(())
+    }
+
+    pub fn list_ops_servers(&self) -> AppResult<Vec<OpsServer>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, name, host, port, username, auth_method, key_path, password,
+                   remote_dir, created_at, updated_at
+            FROM ops_servers
+            ORDER BY updated_at DESC
+            ",
+        )?;
+
+        let rows = stmt
+            .query_map([], Self::row_to_ops_server)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+
+        Ok(rows)
+    }
+
+    pub fn get_ops_server(&self, id: &str) -> AppResult<OpsServer> {
+        self.conn
+            .query_row(
+                "
+                SELECT id, name, host, port, username, auth_method, key_path, password,
+                       remote_dir, created_at, updated_at
+                FROM ops_servers WHERE id = ?1
+                ",
+                params![id],
+                Self::row_to_ops_server,
+            )
+            .optional()?
+            .ok_or_else(|| AppError::Message("server not found".to_string()))
+    }
+
+    pub fn save_ops_server(&self, draft: OpsServerDraft) -> AppResult<OpsServer> {
+        let now = Utc::now();
+        let id = draft.id.unwrap_or_else(|| Uuid::new_v4().to_string());
+        let created_at = self
+            .conn
+            .query_row(
+                "SELECT created_at FROM ops_servers WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|value| parse_time(&value))
+            .transpose()?
+            .unwrap_or(now);
+
+        let port = draft.port.unwrap_or(22).clamp(1, 65535);
+        let server = OpsServer {
+            id,
+            name: clean_or_default(draft.name, "未命名服务器"),
+            host: clean_optional_string(draft.host),
+            port,
+            username: clean_optional_string(draft.username),
+            auth_method: clean_ops_auth_method(draft.auth_method)?,
+            key_path: clean_optional_string(draft.key_path),
+            password: draft.password,
+            remote_dir: clean_optional_string(draft.remote_dir),
+            created_at,
+            updated_at: now,
+        };
+
+        if server.host.is_empty() {
+            return Err(AppError::Message("服务器地址不能为空".to_string()));
+        }
+        if server.username.is_empty() {
+            return Err(AppError::Message("用户名不能为空".to_string()));
+        }
+
+        self.conn.execute(
+            "
+            INSERT INTO ops_servers
+                (id, name, host, port, username, auth_method, key_path, password,
+                 remote_dir, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                host = excluded.host,
+                port = excluded.port,
+                username = excluded.username,
+                auth_method = excluded.auth_method,
+                key_path = excluded.key_path,
+                password = excluded.password,
+                remote_dir = excluded.remote_dir,
+                updated_at = excluded.updated_at
+            ",
+            params![
+                server.id,
+                server.name,
+                server.host,
+                server.port,
+                server.username,
+                server.auth_method,
+                server.key_path,
+                server.password,
+                server.remote_dir,
+                server.created_at.to_rfc3339(),
+                server.updated_at.to_rfc3339()
+            ],
+        )?;
+
+        Ok(server)
+    }
+
+    pub fn delete_ops_server(&self, id: &str) -> AppResult<()> {
+        let affected = self
+            .conn
+            .execute("DELETE FROM ops_servers WHERE id = ?1", params![id])?;
+        ensure_affected(affected, "server not found")?;
         Ok(())
     }
 
@@ -1270,6 +1401,25 @@ impl Database {
         })
     }
 
+    fn row_to_ops_server(row: &rusqlite::Row<'_>) -> rusqlite::Result<OpsServer> {
+        let created_at: String = row.get(9)?;
+        let updated_at: String = row.get(10)?;
+
+        Ok(OpsServer {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            host: row.get(2)?,
+            port: row.get(3)?,
+            username: row.get(4)?,
+            auth_method: row.get(5)?,
+            key_path: row.get(6)?,
+            password: row.get(7)?,
+            remote_dir: row.get(8)?,
+            created_at: parse_time_for_row(&created_at)?,
+            updated_at: parse_time_for_row(&updated_at)?,
+        })
+    }
+
     fn row_to_conversation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversation> {
         let archived: i64 = row.get(4)?;
         let archived_at: Option<String> = row.get(5)?;
@@ -1379,6 +1529,16 @@ fn clean_mcp_transport(value: String) -> AppResult<String> {
         "stdio" | "sse" | "streamable_http" => Ok(transport),
         _ => Err(AppError::Message(
             "mcp transport must be stdio, sse, or streamable_http".to_string(),
+        )),
+    }
+}
+
+fn clean_ops_auth_method(value: String) -> AppResult<String> {
+    let auth_method = clean_or_default(value, "key");
+    match auth_method.as_str() {
+        "key" | "agent" | "password" => Ok(auth_method),
+        _ => Err(AppError::Message(
+            "auth_method must be key, agent, or password".to_string(),
         )),
     }
 }

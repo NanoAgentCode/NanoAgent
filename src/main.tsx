@@ -8,6 +8,7 @@ import "./styles/main.css";
 // Component styles
 import "./components/Sidebar.css";
 import "./components/ChatPane.css";
+import "./components/OpsPanel.css";
 import "./components/WorkspaceGrid.css";
 import "./components/AgentRuntimePanel.css";
 import "./components/ObservabilityPanel.css";

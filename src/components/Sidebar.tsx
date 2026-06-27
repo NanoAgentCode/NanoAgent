@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, MessageSquare, Plus, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, MessageSquare, Plus, Server, Settings } from "lucide-react";
 import type { Conversation, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "../hooks/useProjects";
 
@@ -12,6 +12,8 @@ interface SidebarProps {
   handleContextMenu: (e: React.MouseEvent, conversation: Conversation) => void;
   handleProjectContextMenu: (e: React.MouseEvent, project: ProjectEntry) => void;
   onOpenSettings: () => void;
+  activeMainView: "chat" | "ops";
+  onMainViewChange: (view: "chat" | "ops") => void;
 }
 
 export default function Sidebar({
@@ -23,7 +25,9 @@ export default function Sidebar({
   handleNewProjectConversation,
   handleContextMenu,
   handleProjectContextMenu,
-  onOpenSettings
+  onOpenSettings,
+  activeMainView,
+  onMainViewChange
 }: SidebarProps) {
   return (
     <aside className="sidebar">
@@ -95,6 +99,7 @@ export default function Sidebar({
                       onClick={(event) => {
                         event.stopPropagation();
                         void handleNewProjectConversation(project);
+                        onMainViewChange("chat");
                       }}
                     >
                       <Plus size={16} />
@@ -107,8 +112,9 @@ export default function Sidebar({
                         {projectChats.map((conversation) => (
                           <button
                             key={conversation.id}
-                            className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
+                            className={activeMainView === "chat" && conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
                             onClick={() => {
+                              onMainViewChange("chat");
                               projects.selectProject(project);
                               setActiveConversationId(conversation.id);
                             }}
@@ -142,7 +148,10 @@ export default function Sidebar({
             <MessageSquare size={16} />
             <span>对话区</span>
           </div>
-          <button className="new-chat-btn" onClick={() => void handleNewConversation()} title="新建对话" type="button">
+          <button className="new-chat-btn" onClick={() => {
+            onMainViewChange("chat");
+            void handleNewConversation();
+          }} title="新建对话" type="button">
             <Plus size={16} />
           </button>
         </div>
@@ -151,8 +160,11 @@ export default function Sidebar({
             {conversations.map((conversation) => (
               <button
                 key={conversation.id}
-                className={conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
-                onClick={() => setActiveConversationId(conversation.id)}
+                className={activeMainView === "chat" && conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
+                onClick={() => {
+                  onMainViewChange("chat");
+                  setActiveConversationId(conversation.id);
+                }}
                 onContextMenu={(e) => handleContextMenu(e, conversation)}
                 type="button"
               >
@@ -165,10 +177,20 @@ export default function Sidebar({
         )}
       </div>
 
-      <button className="settings-entry" onClick={onOpenSettings}>
-        <Settings size={18} />
-        <span>系统设置</span>
-      </button>
+      <div className="sidebar-bottom-actions">
+        <button
+          className={activeMainView === "ops" ? "sidebar-bottom-item active" : "sidebar-bottom-item"}
+          onClick={() => onMainViewChange("ops")}
+          type="button"
+        >
+          <Server size={18} />
+          <span>服务器管理</span>
+        </button>
+        <button className="sidebar-bottom-item settings-entry" onClick={onOpenSettings} type="button">
+          <Settings size={18} />
+          <span>系统设置</span>
+        </button>
+      </div>
     </aside>
   );
 }

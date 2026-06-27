@@ -117,6 +117,51 @@ export interface McpToolCallResult {
   is_error: boolean;
 }
 
+export interface OpsServer {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  auth_method: "key" | "agent" | "password" | string;
+  key_path: string;
+  password: string;
+  remote_dir: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpsServerDraft {
+  id?: string;
+  name: string;
+  host: string;
+  port?: number;
+  username: string;
+  auth_method: string;
+  key_path: string;
+  password: string;
+  remote_dir: string;
+}
+
+export interface OpsUploadRequest {
+  server_id: string;
+  local_path: string;
+  remote_path: string;
+}
+
+export interface OpsAiRequest {
+  server_id: string;
+  model_config_id: string;
+  prompt: string;
+  last_ssh_output?: string | null;
+}
+
+export interface OpsSshEvent {
+  session_id: string;
+  kind: "ready" | "data" | "error" | "closed" | string;
+  data: string;
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;

@@ -104,6 +104,53 @@ pub struct McpServerDraft {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsServer {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub username: String,
+    pub auth_method: String,
+    pub key_path: String,
+    pub password: String,
+    pub remote_dir: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsServerDraft {
+    pub id: Option<String>,
+    pub name: String,
+    pub host: String,
+    pub port: Option<i64>,
+    pub username: String,
+    #[serde(default = "default_ops_auth_method")]
+    pub auth_method: String,
+    #[serde(default)]
+    pub key_path: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub remote_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsUploadRequest {
+    pub server_id: String,
+    pub local_path: String,
+    pub remote_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsAiRequest {
+    pub server_id: String,
+    pub model_config_id: String,
+    pub prompt: String,
+    pub last_ssh_output: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -289,4 +336,8 @@ fn default_true() -> bool {
 
 fn default_mcp_transport() -> String {
     "stdio".to_string()
+}
+
+fn default_ops_auth_method() -> String {
+    "key".to_string()
 }

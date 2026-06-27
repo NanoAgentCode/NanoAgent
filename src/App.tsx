@@ -26,6 +26,7 @@ import { useWorkspace } from "./hooks/useWorkspace";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
+import OpsPanel from "./components/OpsPanel";
 import SettingsModal from "./components/settings/SettingsModal";
 import type {
   Conversation,
@@ -35,6 +36,7 @@ import type {
 } from "./types";
 
 type CloseAction = "tray" | "quit";
+type MainView = "chat" | "ops";
 
 const CLOSE_ACTION_KEY = "nano-agent-close-action";
 const CLOSE_SKIP_PROMPT_KEY = "nano-agent-close-skip-prompt";
@@ -47,6 +49,7 @@ function App() {
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("theme");
+  const [activeMainView, setActiveMainView] = useState<MainView>("chat");
 
   const chatRef = useRef<any>(null);
 
@@ -407,6 +410,8 @@ function App() {
         handleContextMenu={handleContextMenu}
         handleProjectContextMenu={handleProjectContextMenu}
         onOpenSettings={() => model.handleOpenModelConfig(setShowModelConfig)}
+        activeMainView={activeMainView}
+        onMainViewChange={setActiveMainView}
       />
 
       {projects.showNewProjectDialog && (
@@ -570,33 +575,37 @@ function App() {
         handleDeleteArchivedConversation={handleDeleteArchivedConversation}
       />
 
-      <ChatPane
-        activeConversationId={activeConversationId}
-        activeConversation={activeConversation}
-        messages={messages}
-        messageReasoning={messageReasoning}
-        chatInput={chatInput}
-        ragFiles={ragFiles}
-        indexingRagFileName={indexingRagFileName}
-        promptSuggestions={promptSuggestions}
-        selectedPromptIndex={selectedPromptIndex}
-        busy={busy}
-        executingToolMessageId={executingToolMessageId}
-        messageToolCalls={messageToolCalls}
-        notice={notice}
-        obs={obs}
-        model={model}
-        handleSendMessage={handleSendMessage}
-        handleNewConversation={handleNewConversation}
-        handleCloseConversation={handleCloseConversation}
-        handleExecuteTool={handleExecuteTool}
-        handleRejectTool={handleRejectTool}
-        handleInputChange={handleInputChange}
-        handleChatInputKeyDown={handleChatInputKeyDown}
-        insertPrompt={insertPrompt}
-        handleDeleteRagFile={handleDeleteRagFile}
-        setNotice={setNotice}
-      />
+      {activeMainView === "ops" ? (
+        <OpsPanel notice={notice} setNotice={setNotice} />
+      ) : (
+        <ChatPane
+          activeConversationId={activeConversationId}
+          activeConversation={activeConversation}
+          messages={messages}
+          messageReasoning={messageReasoning}
+          chatInput={chatInput}
+          ragFiles={ragFiles}
+          indexingRagFileName={indexingRagFileName}
+          promptSuggestions={promptSuggestions}
+          selectedPromptIndex={selectedPromptIndex}
+          busy={busy}
+          executingToolMessageId={executingToolMessageId}
+          messageToolCalls={messageToolCalls}
+          notice={notice}
+          obs={obs}
+          model={model}
+          handleSendMessage={handleSendMessage}
+          handleNewConversation={handleNewConversation}
+          handleCloseConversation={handleCloseConversation}
+          handleExecuteTool={handleExecuteTool}
+          handleRejectTool={handleRejectTool}
+          handleInputChange={handleInputChange}
+          handleChatInputKeyDown={handleChatInputKeyDown}
+          insertPrompt={insertPrompt}
+          handleDeleteRagFile={handleDeleteRagFile}
+          setNotice={setNotice}
+        />
+      )}
 
       {env.showEnvPrompt && (
         <div className="env-setup-backdrop" style={{

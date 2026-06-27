@@ -18,6 +18,10 @@ import type {
   McpToolInfo,
   ModelConfig,
   ModelConfigDraft,
+  OpsAiRequest,
+  OpsServer,
+  OpsServerDraft,
+  OpsUploadRequest,
   PersistedMessage,
   GitHubSkill,
   ProjectFileContent,
@@ -107,6 +111,42 @@ export function refreshMcpTools(id: string) {
 
 export function callMcpTool(request: McpToolCallRequest) {
   return invoke<McpToolCallResult>("call_mcp_tool", { request });
+}
+
+export function listOpsServers() {
+  return invoke<OpsServer[]>("list_ops_servers");
+}
+
+export function saveOpsServer(draft: OpsServerDraft) {
+  return invoke<OpsServer>("save_ops_server", { draft });
+}
+
+export function deleteOpsServer(id: string) {
+  return invoke<void>("delete_ops_server", { id });
+}
+
+export function testOpsSshConnection(serverId: string) {
+  return invoke<string>("test_ops_ssh_connection", { serverId });
+}
+
+export function uploadOpsFile(request: OpsUploadRequest) {
+  return invoke<string>("upload_ops_file", { request });
+}
+
+export function startOpsSshSession(serverId: string) {
+  return invoke<string>("start_ops_ssh_session", { serverId });
+}
+
+export function sendOpsSshInput(sessionId: string, input: string) {
+  return invoke<void>("send_ops_ssh_input", { sessionId, input });
+}
+
+export function stopOpsSshSession(sessionId: string) {
+  return invoke<void>("stop_ops_ssh_session", { sessionId });
+}
+
+export function askOpsAi(request: OpsAiRequest) {
+  return invoke<{ content: string }>("ask_ops_ai", { request });
 }
 
 export function listConversations(projectPath?: string | null) {
