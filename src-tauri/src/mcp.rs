@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use reqwest::header::{
     HeaderMap, HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE, ORIGIN, USER_AGENT,
@@ -8,13 +9,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{timeout, Duration};
 
 use crate::error::{AppError, AppResult};
 use crate::models::McpServerConfig;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+const MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2024-11-05"];
+const STDERR_LINE_LIMIT: usize = 80;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpToolInfo {
@@ -90,7 +93,15 @@ impl McpClientManager {
         self.disconnect(&config.id).await?;
         match McpSession::start(&config).await {
             Ok(mut session) => {
-                let tools = session.list_tools().await?;
+                let tools = match session.list_tools().await {
+                    Ok(tools) => tools,
+                    Err(err) => {
+                        let message = format!("mcp startup tool discovery failed: {err}");
+                        self.last_errors.insert(config.id.clone(), message.clone());
+                        session.shutdown().await;
+                        return Err(AppError::Message(message));
+                    }
+                };
                 session.set_tools(tools);
                 self.last_errors.remove(&config.id);
                 let view = McpServerView {
@@ -238,9 +249,57 @@ struct StdioSession {
     child: Child,
     stdin: ChildStdin,
     stdout: Lines<BufReader<ChildStdout>>,
+    stderr: StdioStderrCapture,
     request_id: u64,
     server_id: String,
     tools: Vec<McpToolInfo>,
+}
+
+#[derive(Clone, Default)]
+struct StdioStderrCapture {
+    lines: Arc<AsyncMutex<VecDeque<String>>>,
+}
+
+impl StdioStderrCapture {
+    fn spawn<R>(&self, stderr: R)
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        let lines = self.lines.clone();
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr).lines();
+            loop {
+                match reader.next_line().await {
+                    Ok(Some(line)) => {
+                        let mut captured = lines.lock().await;
+                        if captured.len() >= STDERR_LINE_LIMIT {
+                            captured.pop_front();
+                        }
+                        captured.push_back(line);
+                    }
+                    Ok(None) => break,
+                    Err(err) => {
+                        let mut captured = lines.lock().await;
+                        if captured.len() >= STDERR_LINE_LIMIT {
+                            captured.pop_front();
+                        }
+                        captured.push_back(format!("failed to read stderr: {err}"));
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    async fn snapshot(&self) -> String {
+        self.lines
+            .lock()
+            .await
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 impl StdioSession {
@@ -271,11 +330,9 @@ impl StdioSession {
         }
 
         let mut child = command.spawn()?;
-        if let Some(stderr) = child.stderr.take() {
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while matches!(lines.next_line().await, Ok(Some(_))) {}
-            });
+        let stderr = StdioStderrCapture::default();
+        if let Some(child_stderr) = child.stderr.take() {
+            stderr.spawn(child_stderr);
         }
         let stdin = child
             .stdin
@@ -289,27 +346,31 @@ impl StdioSession {
             child,
             stdin,
             stdout: BufReader::new(stdout).lines(),
+            stderr,
             request_id: 0,
             server_id: config.id.clone(),
             tools: Vec::new(),
         };
-        let _ = session
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "NanoAgent",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }),
-            )
-            .await?;
+        session.initialize_with_fallback().await?;
         session
             .notify("notifications/initialized", json!({}))
             .await?;
         Ok(session)
+    }
+
+    async fn initialize_with_fallback(&mut self) -> AppResult<String> {
+        let mut failures = Vec::new();
+        for version in MCP_PROTOCOL_VERSIONS {
+            match self.request("initialize", initialize_params(version)).await {
+                Ok(result) => return Ok(negotiated_protocol_version(&result, version)),
+                Err(err) => {
+                    failures.push(format!("{version}: {err}"));
+                }
+            }
+        }
+        let stderr = self.stderr.snapshot().await;
+        let detail = format_handshake_failures("stdio", &failures, Some(&stderr));
+        Err(AppError::Message(detail))
     }
 
     async fn notify(&mut self, method: &str, params: Value) -> AppResult<()> {
@@ -325,14 +386,37 @@ impl StdioSession {
         self.request_id += 1;
         let id = self.request_id;
         let message = json_rpc_request(id, method, params);
-        self.write_message(message).await?;
+        self.write_message(message).await.map_err(|err| {
+            AppError::Message(format!("mcp stdio write failed for {method}: {err}"))
+        })?;
 
         loop {
-            let line = timeout(REQUEST_TIMEOUT, self.stdout.next_line())
-                .await
-                .map_err(|_| AppError::Message(format!("mcp request timed out: {method}")))??;
+            let line = match timeout(REQUEST_TIMEOUT, self.stdout.next_line()).await {
+                Ok(Ok(line)) => line,
+                Ok(Err(err)) => {
+                    let stderr = self.stderr.snapshot().await;
+                    return Err(AppError::Message(append_detail(
+                        &format!("mcp stdio read failed for {method}: {err}"),
+                        "stderr",
+                        &stderr,
+                    )));
+                }
+                Err(_) => {
+                    let stderr = self.stderr.snapshot().await;
+                    return Err(AppError::Message(append_detail(
+                        &format!("mcp request timed out: {method}"),
+                        "stderr",
+                        &stderr,
+                    )));
+                }
+            };
             let Some(line) = line else {
-                return Err(AppError::Message("mcp server closed stdout".to_string()));
+                let stderr = self.stderr.snapshot().await;
+                return Err(AppError::Message(append_detail(
+                    "mcp server closed stdout",
+                    "stderr",
+                    &stderr,
+                )));
             };
             if let Some(result) = parse_json_rpc_line(&line, id)? {
                 return result;
@@ -354,6 +438,7 @@ struct HttpSession {
     url: String,
     headers: HeaderMap,
     session_id: Option<String>,
+    protocol_version: String,
     request_id: u64,
     tools: Vec<McpToolInfo>,
 }
@@ -366,26 +451,37 @@ impl HttpSession {
             url: config.url.clone(),
             headers: parse_headers(&config.headers_json)?,
             session_id: None,
+            protocol_version: MCP_PROTOCOL_VERSIONS[0].to_string(),
             request_id: 0,
             tools: Vec::new(),
         };
-        let _ = session
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": MCP_PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "NanoAgent",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }),
-            )
-            .await?;
+        session.initialize_with_fallback().await?;
         session
             .notification("notifications/initialized", json!({}))
             .await?;
         Ok(session)
+    }
+
+    async fn initialize_with_fallback(&mut self) -> AppResult<String> {
+        let mut failures = Vec::new();
+        for version in MCP_PROTOCOL_VERSIONS {
+            self.protocol_version = (*version).to_string();
+            match self.request("initialize", initialize_params(version)).await {
+                Ok(result) => {
+                    self.protocol_version = negotiated_protocol_version(&result, version);
+                    return Ok(self.protocol_version.clone());
+                }
+                Err(err) => {
+                    self.session_id = None;
+                    failures.push(format!("{version}: {err}"));
+                }
+            }
+        }
+        Err(AppError::Message(format_handshake_failures(
+            "streamable http",
+            &failures,
+            None,
+        )))
     }
 
     async fn request(&mut self, method: &str, params: Value) -> AppResult<Value> {
@@ -425,7 +521,7 @@ impl HttpSession {
             .post(&self.url)
             .headers(self.headers.clone())
             .header(CONTENT_TYPE, "application/json")
-            .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION);
+            .header("MCP-Protocol-Version", self.protocol_version.as_str());
         if is_request {
             request = request.header(ACCEPT, "application/json, text/event-stream");
         } else {
@@ -438,9 +534,12 @@ impl HttpSession {
             .await
             .map_err(|_| AppError::Message("mcp http request timed out".to_string()))??;
         if !response.status().is_success() && response.status() != StatusCode::ACCEPTED {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
             return Err(AppError::Message(format!(
-                "mcp http request failed: HTTP {}",
-                response.status()
+                "mcp http request failed: HTTP {}{}",
+                status,
+                format_response_body(&body)
             )));
         }
         Ok(response)
@@ -462,7 +561,7 @@ impl HttpSession {
             .client
             .delete(&self.url)
             .headers(self.headers)
-            .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
+            .header("MCP-Protocol-Version", self.protocol_version)
             .header("Mcp-Session-Id", session_id)
             .send()
             .await;
@@ -477,6 +576,7 @@ struct SseSession {
     headers: HeaderMap,
     stream: Response,
     stream_buffer: String,
+    protocol_version: String,
     request_id: u64,
     tools: Vec<McpToolInfo>,
 }
@@ -501,7 +601,9 @@ impl SseSession {
         }
         let mut buffer = String::new();
         let endpoint = loop {
-            let event = read_sse_event(&mut response, &mut buffer).await?;
+            let event = timeout(REQUEST_TIMEOUT, read_sse_event(&mut response, &mut buffer))
+                .await
+                .map_err(|_| AppError::Message("mcp sse endpoint timed out".to_string()))??;
             if event.event.as_deref() == Some("endpoint") {
                 let endpoint = event.data.trim();
                 if endpoint.is_empty() {
@@ -517,26 +619,34 @@ impl SseSession {
             headers,
             stream: response,
             stream_buffer: buffer,
+            protocol_version: MCP_PROTOCOL_VERSIONS[0].to_string(),
             request_id: 0,
             tools: Vec::new(),
         };
-        let _ = session
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {
-                        "name": "NanoAgent",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }),
-            )
-            .await?;
+        session.initialize_with_fallback().await?;
         session
             .notification("notifications/initialized", json!({}))
             .await?;
         Ok(session)
+    }
+
+    async fn initialize_with_fallback(&mut self) -> AppResult<String> {
+        let mut failures = Vec::new();
+        for version in MCP_PROTOCOL_VERSIONS {
+            self.protocol_version = (*version).to_string();
+            match self.request("initialize", initialize_params(version)).await {
+                Ok(result) => {
+                    self.protocol_version = negotiated_protocol_version(&result, version);
+                    return Ok(self.protocol_version.clone());
+                }
+                Err(err) => failures.push(format!("{version}: {err}")),
+            }
+        }
+        Err(AppError::Message(format_handshake_failures(
+            "sse",
+            &failures,
+            None,
+        )))
     }
 
     async fn request(&mut self, method: &str, params: Value) -> AppResult<Value> {
@@ -575,15 +685,19 @@ impl SseSession {
             .headers(self.headers.clone())
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
+            .header("MCP-Protocol-Version", self.protocol_version.as_str())
             .json(&body)
             .send()
             .await?;
         if response.status().is_success() || response.status() == StatusCode::ACCEPTED {
             Ok(())
         } else {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
             Err(AppError::Message(format!(
-                "mcp sse post failed: HTTP {}",
-                response.status()
+                "mcp sse post failed: HTTP {}{}",
+                status,
+                format_response_body(&body)
             )))
         }
     }
@@ -702,6 +816,71 @@ fn json_rpc_request(id: u64, method: &str, params: Value) -> Value {
         "method": method,
         "params": params,
     })
+}
+
+fn initialize_params(protocol_version: &str) -> Value {
+    json!({
+        "protocolVersion": protocol_version,
+        "capabilities": {},
+        "clientInfo": {
+            "name": "NanoAgent",
+            "version": env!("CARGO_PKG_VERSION")
+        }
+    })
+}
+
+fn negotiated_protocol_version(result: &Value, fallback: &str) -> String {
+    result
+        .get("protocolVersion")
+        .and_then(Value::as_str)
+        .filter(|version| !version.trim().is_empty())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn format_handshake_failures(
+    transport: &str,
+    failures: &[String],
+    stderr: Option<&str>,
+) -> String {
+    let detail = if failures.is_empty() {
+        "no protocol attempts were made".to_string()
+    } else {
+        failures.join("\n")
+    };
+    let message = format!(
+        "mcp {transport} handshake failed after trying protocol versions {}:\n{detail}",
+        MCP_PROTOCOL_VERSIONS.join(", ")
+    );
+    append_detail(&message, "stderr", stderr.unwrap_or(""))
+}
+
+fn append_detail(message: &str, label: &str, detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.is_empty() {
+        message.to_string()
+    } else {
+        format!("{message}\n\n{label}:\n{}", truncate_detail(detail, 4000))
+    }
+}
+
+fn format_response_body(body: &str) -> String {
+    let body = body.trim();
+    if body.is_empty() {
+        String::new()
+    } else {
+        format!("\nresponse body:\n{}", truncate_detail(body, 2000))
+    }
+}
+
+fn truncate_detail(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}\n... truncated ...")
+    } else {
+        truncated
+    }
 }
 
 fn parse_tools(server_id: &str, result: Value) -> Vec<McpToolInfo> {

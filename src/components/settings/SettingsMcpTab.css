@@ -2,6 +2,11 @@
 .mcp-config-grid .model-config-row { display: flex; align-items: center; gap: 10px; }
 .mcp-config-row { cursor: pointer; }
 .mcp-server-row-content { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.mcp-row-error {
+  color: var(--accent-red);
+  font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-semibold);
+}
 .mcp-status-dot {
   width: 8px; height: 8px; flex: 0 0 auto; border-radius: 999px;
   background: var(--text-muted); opacity: 0.75;
@@ -51,6 +56,22 @@
   font-size: var(--font-size-sm); line-height: 1.5;
 }
 .mcp-form-card textarea:focus { border-color: var(--border-color-focus); box-shadow: var(--focus-ring); }
+.mcp-error-panel {
+  display: grid; gap: 8px; min-width: 0;
+  padding: 10px 12px; border: 1px solid rgba(239,68,68,0.32);
+  border-radius: 8px; background: rgba(239,68,68,0.07);
+}
+.mcp-error-panel-header {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--accent-red); font-size: var(--font-size-sm);
+}
+.mcp-error-panel-header svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.mcp-error-panel pre {
+  max-height: 220px; margin: 0; overflow: auto; white-space: pre-wrap;
+  overflow-wrap: anywhere; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
 .mcp-actions { width: 100%; padding-top: 0; border-top: 0; }
 .mcp-action-status {
   position: relative; display: flex; align-items: center;

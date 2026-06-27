@@ -1,4 +1,4 @@
-import { Info, Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Info, Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { formatMcpTransportLabel } from "../../lib/formatters";
 import type { UseMcpReturn } from "../../hooks/useMcp";
 
@@ -32,6 +32,9 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
                   </button>
                 </div>
                 <span title={server.config.command || server.config.url}>{formatMcpTransportLabel(server.config.transport)} · {server.config.command || server.config.url} · {server.tools.length} tools</span>
+                {server.status.error && (
+                  <span className="mcp-row-error" title={server.status.error}>启动失败</span>
+                )}
               </button>
             );
           })}
@@ -73,11 +76,20 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
                 </label>
               </>
             )}
+            {mcp.selectedMcpServer?.status.error && (
+              <div className="mcp-error-panel" role="status">
+                <div className="mcp-error-panel-header">
+                  <AlertTriangle />
+                  <strong>启动诊断</strong>
+                </div>
+                <pre>{mcp.selectedMcpServer.status.error}</pre>
+              </div>
+            )}
           </div>
           <div className="modal-actions icon-actions mcp-actions icon-actions-bar">
             <div className="mcp-action-status">
               {mcp.selectedMcpServer?.status.error && (
-                <span className="mcp-status-text error" title={mcp.selectedMcpServer.status.error}>连接错误</span>
+                <span className="mcp-status-text error" title={mcp.selectedMcpServer.status.error}>启动失败</span>
               )}
               {mcp.selectedMcpServer && (
                 <div className="mcp-tools-tooltip-wrap">
