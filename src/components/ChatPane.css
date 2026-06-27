@@ -26,6 +26,24 @@
 .chat-header > div svg {
   color: var(--accent-cyan);
 }
+.chat-header-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.chat-header-title strong {
+  color: var(--text-primary);
+  font-size: var(--font-size-display);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.2;
+}
+.chat-header-title span {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.2;
+  white-space: nowrap;
+}
 /* 顶部右侧操作区 */
 .chat-header-actions {
   display: flex;

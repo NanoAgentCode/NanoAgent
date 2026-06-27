@@ -131,7 +131,10 @@ export default function ChatPane({
       <header className="chat-header">
         <div>
           <Bot size={19} />
-          <strong>AI 助手</strong>
+          <div className="chat-header-title">
+            <strong>本地智能助手</strong>
+            <span>私有记忆 · 项目上下文 · 工具协作</span>
+          </div>
         </div>
         {activeConversationId && (
           <div className="chat-header-actions">

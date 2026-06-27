@@ -1,38 +1,25 @@
 .sidebar {
   grid-area: sidebar;
-  padding: 16px;
+  padding: 18px 16px 16px;
   background: var(--bg-sidebar);
-  gap: 20px;
+  gap: 16px;
   display: flex;
   flex-direction: column;
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 4px 16px;
-  border-bottom: 1px dashed var(--border-color);
-  flex-shrink: 0;
-}
-.brand svg {
-  color: var(--accent-cyan);
-  filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.4));
-  animation: pulse-glow 3s infinite alternate;
-}
-.brand strong {
-  display: block;
+.sidebar-slogan {
+  margin: 0;
+  padding: 2px 4px 16px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: var(--font-size-display);
   font-weight: var(--font-weight-bold);
-  letter-spacing: 0.5px;
-  color: var(--text-primary);
-}
-.brand span {
-  color: var(--text-secondary);
-  display: block;
-  font-size: var(--font-size-xs);
-  margin-top: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
+  line-height: 1.35;
+  text-align: center;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, var(--text-primary) 12%, var(--accent-cyan) 54%, var(--accent-purple) 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 .sidebar-section {
   display: flex;

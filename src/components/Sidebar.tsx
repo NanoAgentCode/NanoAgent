@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, MessageSquare, Plus, Settings, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, MessageSquare, Plus, Settings } from "lucide-react";
 import type { Conversation, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "../hooks/useProjects";
 
@@ -27,13 +27,7 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <Sparkles size={22} />
-        <div>
-          <strong>NanoAgent</strong>
-          <span>本地效率助手客户端</span>
-        </div>
-      </div>
+      <p className="sidebar-slogan">本地优先，智能协作</p>
 
       <div className="sidebar-section projects">
         <div className="sidebar-section-header">
