@@ -2389,7 +2389,7 @@ fn quit_app(app: AppHandle) {
 }
 
 fn setup_system_tray(app: &mut tauri::App) -> Result<(), String> {
-    let show_item = MenuItem::with_id(app, "tray_show", "显示 NanoAgent", true, None::<&str>)
+    let show_item = MenuItem::with_id(app, "tray_show", "显示应用", true, None::<&str>)
         .map_err(|err| err.to_string())?;
     let separator = PredefinedMenuItem::separator(app).map_err(|err| err.to_string())?;
     let quit_item = MenuItem::with_id(app, "tray_quit", "退出应用", true, None::<&str>)
