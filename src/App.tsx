@@ -67,7 +67,8 @@ function App() {
   const model = useModel(
     setNotice,
     () => chatRef.current?.activeConversationId || "",
-    (updater: React.SetStateAction<Conversation[]>) => chatRef.current?.setConversations(updater)
+    (updater: React.SetStateAction<Conversation[]>) => chatRef.current?.setConversations(updater),
+    projects.setProjectConversations
   );
   const skills = useSkills(setNotice);
 

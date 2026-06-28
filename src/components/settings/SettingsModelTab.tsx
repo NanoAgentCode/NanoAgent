@@ -35,8 +35,13 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
             return (
               <button
                 key={m.id}
-                className={m.id === model.modelDraft.id ? "model-config-row active" : "model-config-row"}
-                onClick={() => model.setModelDraft(normalizeModelDraft(m))}
+                className={m.id === model.activeModelId ? "model-config-row active" : "model-config-row"}
+                onClick={() => {
+                  model.setModelDraft(normalizeModelDraft(m));
+                  void model.handleActiveModelChange(m.id);
+                }}
+                title={m.id === model.activeModelId ? "当前使用中" : "切换到此模型"}
+                type="button"
               >
                 <span className={`status-dot status-dot--${statusInfo.status}`} title={dotTitle} />
                 <div className="model-config-row-info">

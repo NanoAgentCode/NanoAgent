@@ -95,7 +95,8 @@ export interface UseModelReturn {
 export function useModel(
   setNotice: (message: string) => void,
   activeConversationId: string | (() => string),
-  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>> | ((updater: any) => void)
+  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>> | ((updater: any) => void),
+  setProjectConversations?: React.Dispatch<React.SetStateAction<Record<string, Conversation[]>>>
 ): UseModelReturn {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [modelDraft, setModelDraft] = useState<ModelConfigDraft>(emptyModelDraft);
@@ -204,8 +205,8 @@ export function useModel(
       const saved = await saveModelConfig(modelDraft);
       const nextModels = await listModelConfigs();
       setModels(nextModels);
-      setActiveModelId(saved.id);
       setModelDraft(normalizeModelDraft(saved));
+      await handleActiveModelChange(saved.id);
       setNotice("模型配置已保存");
     } catch (e) {
       setNotice(`保存模型配置失败: ${String(e)}`);
@@ -245,7 +246,7 @@ export function useModel(
       const nextModels = await listModelConfigs();
       setModels(nextModels);
       if (modelDraft.id === activeModelId) {
-        setActiveModelId(nextModels.find((m) => m.id !== "embedding-config")?.id || "");
+        await handleActiveModelChange(nextModels.find((m) => m.id !== "embedding-config")?.id || "");
       }
       setModelDraft(emptyModelDraft);
       setNotice("模型配置已删除");
@@ -364,9 +365,20 @@ export function useModel(
     if (resolvedActiveId) {
       try {
         await updateConversationModel(resolvedActiveId, modelId || null);
-        const resolvedSetConversations = typeof setConversations === "function" ? setConversations : setConversations;
-        resolvedSetConversations((current: Conversation[]) =>
+        setConversations((current: Conversation[]) =>
           current.map((c) => (c.id === resolvedActiveId ? { ...c, model_config_id: modelId || null } : c))
+        );
+        setProjectConversations?.((current) =>
+          Object.fromEntries(
+            Object.entries(current).map(([projectId, conversations]) => [
+              projectId,
+              conversations.map((conversation) =>
+                conversation.id === resolvedActiveId
+                  ? { ...conversation, model_config_id: modelId || null }
+                  : conversation
+              )
+            ])
+          )
         );
       } catch (error) {
         setNotice(`切换对话大模型失败: ${String(error)}`);
