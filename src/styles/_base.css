@@ -68,6 +68,10 @@ select:focus-visible {
   background: var(--bg-app);
 }
 
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
 .is-resizing,
 .is-resizing * {
   user-select: none;

@@ -40,6 +40,7 @@ type MainView = "chat" | "ops";
 
 const CLOSE_ACTION_KEY = "nano-agent-close-action";
 const CLOSE_SKIP_PROMPT_KEY = "nano-agent-close-skip-prompt";
+const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -50,6 +51,9 @@ function App() {
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("theme");
   const [activeMainView, setActiveMainView] = useState<MainView>("chat");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  });
 
   const chatRef = useRef<any>(null);
 
@@ -170,6 +174,10 @@ function App() {
     const timer = window.setTimeout(() => setNotice(""), 5000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     void loadAll();
@@ -382,7 +390,7 @@ function App() {
 
   return (
     <main
-      className="app-shell"
+      className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}
       onDragOver={(event) => {
         event.preventDefault();
         setIsRagDragging(true);
@@ -412,6 +420,8 @@ function App() {
         onOpenSettings={() => model.handleOpenModelConfig(setShowModelConfig)}
         activeMainView={activeMainView}
         onMainViewChange={setActiveMainView}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
       />
 
       {projects.showNewProjectDialog && (

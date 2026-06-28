@@ -5,8 +5,16 @@
   gap: 16px;
   display: flex;
   flex-direction: column;
+  transition: padding 0.18s ease;
+}
+.sidebar-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
 }
 .sidebar-slogan {
+  flex: 1;
   margin: 0;
   padding: 2px 4px 16px;
   border-bottom: 1px solid var(--border-color);
@@ -20,6 +28,21 @@
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+.sidebar-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--control-radius-sm);
+  color: var(--text-muted);
+  background: transparent;
+}
+.sidebar-collapse-btn:hover {
+  background: var(--control-bg-subtle);
+  color: var(--accent-cyan);
 }
 .sidebar-section {
   display: flex;
@@ -52,6 +75,10 @@
   gap: 6px;
 }
 .sidebar-section-toggle {
+  min-height: 26px;
+  padding: 0;
+  border-radius: var(--control-radius-sm);
+  color: inherit;
   cursor: pointer;
   user-select: none;
   transition: color 0.15s ease;
@@ -221,6 +248,11 @@
   color: var(--text-muted);
   flex-shrink: 0;
 }
+.sidebar-project-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.sidebar-project-item.active .sidebar-project-icon,
 .sidebar-chat-item.active .chat-icon {
   color: var(--accent-cyan);
 }
@@ -297,4 +329,80 @@
 
 .settings-entry {
   font-weight: var(--font-weight-semibold);
+}
+
+.sidebar.collapsed {
+  align-items: center;
+  padding: 14px 8px;
+  gap: 14px;
+}
+
+.sidebar.collapsed .sidebar-topbar {
+  justify-content: center;
+  width: 100%;
+}
+
+.sidebar.collapsed .sidebar-section,
+.sidebar.collapsed .sidebar-bottom-actions,
+.sidebar.collapsed .sidebar-project-list,
+.sidebar.collapsed .sidebar-chat-list {
+  align-items: center;
+  width: 100%;
+}
+
+.sidebar.collapsed .sidebar-section.projects {
+  max-height: 42%;
+}
+
+.sidebar.collapsed .sidebar-section-header {
+  justify-content: center;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.sidebar.collapsed .sidebar-section-toggle,
+.sidebar.collapsed .sidebar-collapse-btn,
+.sidebar.collapsed .sidebar-project-item,
+.sidebar.collapsed .sidebar-chat-item,
+.sidebar.collapsed .sidebar-bottom-item {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar.collapsed .sidebar-section-toggle,
+.sidebar.collapsed .sidebar-project-item,
+.sidebar.collapsed .sidebar-chat-item,
+.sidebar.collapsed .sidebar-bottom-item {
+  gap: 0;
+}
+
+.sidebar.collapsed .sidebar-project-list,
+.sidebar.collapsed .sidebar-chat-list {
+  gap: 6px;
+  padding-right: 0;
+}
+
+.sidebar.collapsed .sidebar-chat-list .sidebar-chat-item {
+  padding-left: 0;
+}
+
+.sidebar.collapsed .project-expand-btn,
+.sidebar.collapsed .sidebar-project-dot,
+.sidebar.collapsed .project-detail,
+.sidebar.collapsed .empty {
+  display: none;
+}
+
+.sidebar.collapsed .sidebar-bottom-item {
+  grid-template-columns: 1fr;
+}
+
+.sidebar.collapsed .sidebar-bottom-item svg {
+  justify-self: center;
 }
