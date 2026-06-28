@@ -11,6 +11,7 @@ import {
   testOpsSshConnection
 } from "../api";
 import type { OpsServer, OpsServerDraft, OpsSshEvent } from "../types";
+import { confirmAction } from "../lib/dialogs";
 
 interface OpsPanelProps {
   notice: string;
@@ -264,7 +265,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
 
   async function handleDeleteServer() {
     if (!selectedServer) return;
-    if (!confirm(`确定删除服务器「${selectedServer.name}」吗？`)) return;
+    if (!(await confirmAction(`确定删除服务器「${selectedServer.name}」吗？`))) return;
     setBusyAction("delete");
     try {
       await deleteOpsServer(selectedServer.id);

@@ -28,6 +28,7 @@ import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import OpsPanel from "./components/OpsPanel";
 import SettingsModal from "./components/settings/SettingsModal";
+import { confirmAction } from "./lib/dialogs";
 import type {
   Conversation,
   ProjectEntry,
@@ -54,6 +55,8 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
   });
+  const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
 
   const chatRef = useRef<any>(null);
 
@@ -348,7 +351,7 @@ function App() {
   }, []);
 
   async function handleDeleteArchivedConversation(conversation: Conversation) {
-    if (!confirm(`Delete conversation "${conversation.title}"?`)) {
+    if (!(await confirmAction(`确定要删除会话「${conversation.title}」吗？`))) {
       return;
     }
 
@@ -384,6 +387,29 @@ function App() {
     }
     setClosePromptOpen(false);
     void performCloseAction(closeAction);
+  }
+
+  function openRenameDialog(conversation: Conversation) {
+    setRenameTarget(conversation);
+    setRenameTitle(conversation.title);
+  }
+
+  function closeRenameDialog() {
+    setRenameTarget(null);
+    setRenameTitle("");
+  }
+
+  async function handleConfirmRename() {
+    if (!renameTarget) {
+      return;
+    }
+    const trimmed = renameTitle.trim();
+    if (!trimmed) {
+      setNotice("会话名称不能为空");
+      return;
+    }
+    await handleRenameConversation(renameTarget.id, trimmed);
+    closeRenameDialog();
   }
 
 
@@ -497,6 +523,50 @@ function App() {
                 disabled={projects.projectApprovalText.trim() !== projects.pendingProjectRemoval.name}
               >
                 批准移除
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="modal-backdrop" onClick={closeRenameDialog}>
+          <section
+            className="project-dialog rename-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rename-dialog-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <Edit size={18} />
+                <strong id="rename-dialog-title">重命名会话</strong>
+              </div>
+              <button className="modal-close-btn" onClick={closeRenameDialog} aria-label="关闭" title="关闭" type="button">&times;</button>
+            </header>
+            <label>
+              <span>会话名称</span>
+              <input
+                value={renameTitle}
+                onChange={(event) => setRenameTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    void handleConfirmRename();
+                  }
+                  if (event.key === "Escape") {
+                    closeRenameDialog();
+                  }
+                }}
+                autoFocus
+              />
+            </label>
+            <footer>
+              <button className="ghost" type="button" onClick={closeRenameDialog}>
+                取消
+              </button>
+              <button className="primary" type="button" onClick={() => void handleConfirmRename()}>
+                确定
               </button>
             </footer>
           </section>
@@ -740,10 +810,7 @@ function App() {
                 className="custom-context-menu-item"
                 onClick={() => {
                   if (projects.contextMenu.conversation) {
-                    void handleRenameConversation(
-                      projects.contextMenu.conversation.id,
-                      projects.contextMenu.conversation.title
-                    );
+                    openRenameDialog(projects.contextMenu.conversation);
                   }
                   projects.setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}

@@ -6,6 +6,7 @@ import {
   normalizeSkills,
   type Skill
 } from "../lib/skills";
+import { confirmAction } from "../lib/dialogs";
 
 export interface UseSkillsReturn {
   skills: Skill[];
@@ -32,7 +33,7 @@ export interface UseSkillsReturn {
   tempDir: string;
   checkLocalSkills: () => Promise<void>;
   handleToggleSkill: (id: string, enabled: boolean) => void;
-  handleDeleteSkill: (id: string) => void;
+  handleDeleteSkill: (id: string) => Promise<void>;
   handleSaveNewSkill: () => void;
 }
 
@@ -164,13 +165,13 @@ export function useSkills(setNotice: (message: string) => void): UseSkillsReturn
     localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
   }
 
-  function handleDeleteSkill(id: string) {
+  async function handleDeleteSkill(id: string) {
     if (isBuiltInSkill(id)) {
       setNotice("系统内置技能只能禁用，不能删除。");
       return;
     }
 
-    if (confirm("确定要删除该技能吗？")) {
+    if (await confirmAction("确定要删除该技能吗？")) {
       const nextSkills = skills.filter((s) => s.id !== id);
       setSkills(nextSkills);
       localStorage.setItem("nano-agent-skills", JSON.stringify(nextSkills));
@@ -183,12 +184,12 @@ export function useSkills(setNotice: (message: string) => void): UseSkillsReturn
 
   function handleSaveNewSkill() {
     if (!newSkillDraft.id || !newSkillDraft.name) {
-      alert("请填写技能ID和技能名称！");
+      setNotice("请填写技能ID和技能名称。");
       return;
     }
     
     if (skills.some((s) => s.id === newSkillDraft.id)) {
-      alert("该技能ID已存在，请使用其他ID！");
+      setNotice("该技能ID已存在，请使用其他ID。");
       return;
     }
 

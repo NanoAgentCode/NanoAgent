@@ -9,6 +9,7 @@ import {
 } from "../api";
 import type { McpServerDraft, McpServerView } from "../types";
 import { formatStdioCommandLine, parseStdioCommandLine } from "../lib/stdioCommand";
+import { confirmAction } from "../lib/dialogs";
 
 export const emptyMcpDraft: McpServerDraft = {
   name: "filesystem-server",
@@ -143,7 +144,7 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
       handleNewMcpServer();
       return;
     }
-    if (!confirm("确定要删除该 MCP 服务器配置吗？")) {
+    if (!(await confirmAction("确定要删除该 MCP 服务器配置吗？"))) {
       return;
     }
     setMcpBusyId(mcpDraft.id);

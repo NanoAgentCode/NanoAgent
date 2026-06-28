@@ -8,6 +8,7 @@ import {
 } from "../api";
 import type { Memory } from "../types";
 import { parseTags } from "../lib/messageHelpers";
+import { confirmAction } from "../lib/dialogs";
 
 export interface UseMemoryReturn {
   memoryItems: Memory[];
@@ -109,7 +110,7 @@ export function useMemory(setNotice: (message: string) => void): UseMemoryReturn
     if (!selectedMemory) {
       return;
     }
-    if (!confirm("确定要删除该记忆吗？")) {
+    if (!(await confirmAction("确定要删除该记忆吗？"))) {
       return;
     }
     try {

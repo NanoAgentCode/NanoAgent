@@ -4,6 +4,7 @@ import {
   listAgentRunTimelines,
   clearObservabilitySpans
 } from "../api";
+import { confirmAction } from "../lib/dialogs";
 import type { ObservabilitySpan, AgentRunTimeline } from "../types";
 import type { ObservabilityTraceGroup } from "../components/ObservabilityPanel";
 
@@ -121,7 +122,7 @@ export function useObservability(
   }
 
   async function handleClearObservability() {
-    if (!confirm("Clear all observability spans?")) {
+    if (!(await confirmAction("确定要清空全部观测追踪记录吗？"))) {
       return;
     }
 

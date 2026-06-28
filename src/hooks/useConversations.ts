@@ -11,6 +11,7 @@ import {
 import type { Conversation, PersistedMessage, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "./useProjects";
 import type { UseModelReturn } from "./useModel";
+import { confirmAction } from "../lib/dialogs";
 
 export interface UseConversationsReturn {
   conversations: Conversation[];
@@ -34,7 +35,7 @@ export interface UseConversationsReturn {
   handleNewProjectConversation: (project: ProjectEntry) => Promise<void>;
   handleDeleteConversation: () => Promise<void>;
   handleArchiveConversation: () => Promise<void>;
-  handleRenameConversation: (id: string, currentTitle: string) => Promise<void>;
+  handleRenameConversation: (id: string, nextTitle: string) => Promise<void>;
   handleContextArchiveConversation: (conversation: Conversation) => Promise<void>;
   handleContextDeleteConversation: (conversation: Conversation) => Promise<void>;
   loadArchivedPreview: (conversationId: string) => Promise<void>;
@@ -170,12 +171,10 @@ export function useConversations(
     }
   }
 
-  async function handleRenameConversation(id: string, currentTitle: string) {
-    const nextTitle = prompt("请输入新的会话名称：", currentTitle);
-    if (nextTitle === null) return;
+  async function handleRenameConversation(id: string, nextTitle: string) {
     const trimmed = nextTitle.trim();
     if (!trimmed) {
-      alert("会话名称不能为空");
+      setNotice("会话名称不能为空");
       return;
     }
     try {
@@ -186,7 +185,7 @@ export function useConversations(
       ]);
     } catch (e) {
       console.error(e);
-      alert("重命名失败");
+      setNotice("重命名失败");
     }
   }
 
@@ -214,12 +213,12 @@ export function useConversations(
       }
     } catch (e) {
       console.error(e);
-      alert("归档失败");
+      setNotice("归档失败");
     }
   }
 
   async function handleContextDeleteConversation(conversation: Conversation) {
-    if (!confirm(`确定要删除会话「${conversation.title}」吗？`)) return;
+    if (!(await confirmAction(`确定要删除会话「${conversation.title}」吗？`))) return;
     try {
       await deleteConversation(conversation.id);
       const isProjectConversation = Boolean(conversation.project_path);
@@ -243,7 +242,7 @@ export function useConversations(
       }
     } catch (e) {
       console.error(e);
-      alert("删除失败");
+      setNotice("删除失败");
     }
   }
 
