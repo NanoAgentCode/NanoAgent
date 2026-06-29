@@ -1299,6 +1299,19 @@ button.danger:active:not(:disabled) {
   stroke-width: 2.2;
 }
 
+.model-icon-action {
+  width: var(--control-height-md);
+  height: var(--control-height-md);
+  min-width: var(--control-height-md);
+  min-height: var(--control-height-md);
+  padding: 0;
+}
+
+.model-icon-action svg {
+  width: 17px;
+  height: 17px;
+}
+
 .model-action-btn:hover:not(:disabled),
 .model-action-btn:focus-visible:not(:disabled) {
   border-color: var(--control-border-hover);

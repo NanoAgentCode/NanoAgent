@@ -15,9 +15,8 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
     <div className="settings-tab-content model-tab-content">
       <div className="model-header-row">
         <h3>LLM管理</h3>
-        <button className="model-action-btn model-action-btn--new" onClick={() => model.handleNewModelConfig(setShowModelConfig)} title="新建模型配置" type="button">
+        <button className="model-action-btn model-icon-action model-action-btn--new" onClick={() => model.handleNewModelConfig(setShowModelConfig)} title="新建模型配置" aria-label="新建模型配置" type="button">
           <Plus size={15} />
-          <span>新建模型</span>
         </button>
       </div>
       <p className="description description--tight">配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
@@ -100,17 +99,14 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
               </span>
             )}
             {(model.llmTestStatus.status === "idle" || model.llmTestStatus.status === "testing") && <div className="status-spacer" />}
-            <button className="model-action-btn model-action-btn--test" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} title="测试连接" type="button">
+            <button className="model-action-btn model-icon-action model-action-btn--test" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} title={model.llmTestStatus.status === "testing" ? "测试中" : "测试连接"} aria-label={model.llmTestStatus.status === "testing" ? "测试中" : "测试连接"} type="button">
               {model.llmTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
-              <span>测试</span>
             </button>
-            <button className="model-action-btn model-action-btn--save" onClick={model.handleSaveModel} title={isEditingModel ? "保存修改并使用" : "创建模型并使用"} type="button">
+            <button className="model-action-btn model-icon-action model-action-btn--save" onClick={model.handleSaveModel} title={isEditingModel ? "保存修改并使用" : "创建模型并使用"} aria-label={isEditingModel ? "保存修改并使用" : "创建模型并使用"} type="button">
               {isEditingModel ? <Edit3 /> : <Save />}
-              <span>{isEditingModel ? "保存修改" : "创建模型"}</span>
             </button>
-            <button className="model-action-btn model-action-btn--delete" title="删除模型" onClick={model.handleDeleteModel} disabled={!isEditingModel} type="button">
+            <button className="model-action-btn model-icon-action model-action-btn--delete" title="删除模型" aria-label="删除模型" onClick={model.handleDeleteModel} disabled={!isEditingModel} type="button">
               <Trash2 />
-              <span>删除模型</span>
             </button>
           </div>
         </div>
