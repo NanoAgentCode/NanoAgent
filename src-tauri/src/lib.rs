@@ -2980,6 +2980,79 @@ fn show_app_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_autostart() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let output = Command::new("reg")
+            .args(&["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "NanoAgent"])
+            .output();
+        match output {
+            Ok(out) => Ok(out.status.success()),
+            Err(e) => Err(format!("Failed to execute reg command: {e}")),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        if enabled {
+            let current_exe = std::env::current_exe()
+                .map_err(|e| format!("Failed to get current exe path: {e}"))?;
+            let exe_path = current_exe.to_str()
+                .ok_or_else(|| "Current exe path contains invalid UTF-8".to_string())?;
+            let output = Command::new("reg")
+                .args(&[
+                    "add",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v",
+                    "NanoAgent",
+                    "/t",
+                    "REG_SZ",
+                    "/d",
+                    exe_path,
+                    "/f"
+                ])
+                .output()
+                .map_err(|e| format!("Failed to execute reg add command: {e}"))?;
+            if !output.status.success() {
+                let err_msg = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("Registry add failed: {err_msg}"));
+            }
+        } else {
+            let output = Command::new("reg")
+                .args(&[
+                    "delete",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                    "/v",
+                    "NanoAgent",
+                    "/f"
+                ])
+                .output()
+                .map_err(|e| format!("Failed to execute reg delete command: {e}"))?;
+            if !output.status.success() {
+                let err_msg = String::from_utf8_lossy(&output.stderr);
+                if !err_msg.contains("The system was unable to find the specified registry key or value") {
+                    return Err(format!("Registry delete failed: {err_msg}"));
+                }
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Autostart is only supported on Windows".to_string())
+    }
+}
+
+#[tauri::command]
 fn minimize_to_tray(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -3155,7 +3228,9 @@ pub fn run() {
             clear_observability_spans,
             show_app_window,
             minimize_to_tray,
-            quit_app
+            quit_app,
+            get_autostart,
+            set_autostart
         ])
         .run(tauri::generate_context!())
         .expect("error while running NanoAgent");

@@ -86,7 +86,7 @@ export default function SettingsModal({
               onClick={() => setActiveSettingsTab("theme")}
             >
               <Sun size={16} />
-              <span>主题选择</span>
+              <span>通用设置</span>
             </button>
             <button
               className={activeSettingsTab === "memory" ? "settings-nav-item active" : "settings-nav-item"}

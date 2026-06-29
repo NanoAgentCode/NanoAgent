@@ -449,3 +449,11 @@ export interface AbsoluteFileContent {
 export function readAbsoluteFile(path: string) {
   return invoke<AbsoluteFileContent>("read_absolute_file", { path });
 }
+
+export function getAutostart() {
+  return invoke<boolean>("get_autostart");
+}
+
+export function setAutostart(enabled: boolean) {
+  return invoke<void>("set_autostart", { enabled });
+}
