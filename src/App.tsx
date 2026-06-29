@@ -36,9 +36,10 @@ import SettingsModal from "./components/settings/SettingsModal";
 import { confirmAction } from "./lib/dialogs";
 import {
   getStoredCloseAction,
+  getStoredClosePreferences,
   getStoredCloseSkipPrompt,
-  setStoredCloseAction,
-  setStoredCloseSkipPrompt,
+  setStoredClosePreferences,
+  subscribeClosePreferencesChanged,
   type CloseAction
 } from "./lib/closeBehavior";
 import type {
@@ -162,6 +163,13 @@ function App() {
   }, [closePromptOpen]);
 
   useEffect(() => {
+    return subscribeClosePreferencesChanged((preferences) => {
+      setCloseAction(preferences.action);
+      setCloseDontAsk(preferences.skipPrompt);
+    });
+  }, []);
+
+  useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (!obs.showChatRuntime) return;
       const target = event.target as Node;
@@ -227,15 +235,14 @@ function App() {
         return;
       }
 
-      const savedAction = getStoredCloseAction();
-      const skipPrompt = getStoredCloseSkipPrompt();
-      if (skipPrompt) {
-        void performCloseAction(savedAction);
+      const savedPreferences = getStoredClosePreferences();
+      if (savedPreferences.skipPrompt) {
+        void performCloseAction(savedPreferences.action);
         return;
       }
 
-      setCloseAction(savedAction);
-      setCloseDontAsk(false);
+      setCloseAction(savedPreferences.action);
+      setCloseDontAsk(savedPreferences.skipPrompt);
       setClosePromptOpen(true);
     }).then((unlisten) => {
       unlistenClose = unlisten;
@@ -399,8 +406,7 @@ function App() {
   }
 
   function handleConfirmClosePrompt() {
-    setStoredCloseAction(closeAction);
-    setStoredCloseSkipPrompt(closeDontAsk);
+    setStoredClosePreferences({ action: closeAction, skipPrompt: closeDontAsk });
     setClosePromptOpen(false);
     void performCloseAction(closeAction);
   }

@@ -2987,9 +2987,11 @@ fn get_autostart() -> Result<bool, String> {
         use winreg::RegKey;
 
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let run_key = hkcu
-            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
-            .map_err(|e| format!("Failed to open startup registry key: {e}"))?;
+        let run_key = match hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
+            Ok(key) => key,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(format!("Failed to open startup registry key: {e}")),
+        };
 
         Ok(run_key.get_value::<String, _>("NanoAgent").is_ok())
     }
@@ -3015,6 +3017,8 @@ fn set_autostart(enabled: bool) -> Result<(), String> {
             let current_exe = std::env::current_exe()
                 .map_err(|e| format!("Failed to get current exe path: {e}"))?;
 
+            // Register the app executable directly. Going through cmd.exe or powershell.exe
+            // makes Windows show a console window during logon startup.
             let startup_command = format!("\"{}\"", current_exe.display());
             run_key
                 .set_value("NanoAgent", &startup_command)

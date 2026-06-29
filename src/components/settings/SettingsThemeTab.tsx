@@ -8,6 +8,7 @@ import {
   getStoredCloseSkipPrompt,
   setStoredCloseAction,
   setStoredCloseSkipPrompt,
+  subscribeClosePreferencesChanged,
   type CloseAction
 } from "../../lib/closeBehavior";
 
@@ -19,21 +20,42 @@ interface SettingsThemeTabProps {
 export default function SettingsThemeTab({ themeMode, setThemeMode }: SettingsThemeTabProps) {
   const [autostart, setAutostartState] = useState(false);
   const [autostartBusy, setAutostartBusy] = useState(false);
+  const [autostartLoaded, setAutostartLoaded] = useState(false);
   const [closeAction, setCloseAction] = useState<CloseAction>(() => getStoredCloseAction());
   const [closeSkipPrompt, setCloseSkipPrompt] = useState(() => getStoredCloseSkipPrompt());
 
   useEffect(() => {
+    let active = true;
     getAutostart()
-      .then(setAutostartState)
-      .catch((err) => console.error("Failed to query autostart status:", err));
+      .then((enabled) => {
+        if (active) {
+          setAutostartState(enabled);
+        }
+      })
+      .catch((err) => console.error("Failed to query autostart status:", err))
+      .finally(() => {
+        if (active) {
+          setAutostartLoaded(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    return subscribeClosePreferencesChanged((preferences) => {
+      setCloseAction(preferences.action);
+      setCloseSkipPrompt(preferences.skipPrompt);
+    });
   }, []);
 
   const handleAutostartChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const checked = event.target.checked;
     setAutostartBusy(true);
+    setAutostartState(checked);
     try {
       await setAutostart(checked);
-      setAutostartState(checked);
     } catch (err) {
       console.error("Failed to update autostart status:", err);
       setAutostartState(!checked);
@@ -110,7 +132,7 @@ export default function SettingsThemeTab({ themeMode, setThemeMode }: SettingsTh
             type="checkbox"
             checked={autostart}
             onChange={handleAutostartChange}
-            disabled={autostartBusy}
+            disabled={!autostartLoaded || autostartBusy}
           />
           <span>开机自启动</span>
         </label>
