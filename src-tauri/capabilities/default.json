@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Default desktop permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "core:app:allow-set-app-theme", "opener:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "core:app:allow-set-app-theme",
+    "opener:default",
+    "dialog:allow-open",
+    "dialog:allow-message"
+  ]
 }

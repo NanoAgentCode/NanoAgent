@@ -1,10 +1,20 @@
 import { confirm as tauriConfirm, message as tauriMessage } from "@tauri-apps/plugin-dialog";
 
-type DialogKind = "info" | "warning" | "error";
+export type DialogKind = "info" | "warning" | "error";
+export type ConfirmActionHandler = (content: string, kind: DialogKind) => Promise<boolean>;
 
 const APP_DIALOG_TITLE = "NanoAgent";
+let customConfirmHandler: ConfirmActionHandler | null = null;
+
+export function registerConfirmActionHandler(handler: ConfirmActionHandler | null) {
+  customConfirmHandler = handler;
+}
 
 export async function confirmAction(content: string, kind: DialogKind = "warning") {
+  if (customConfirmHandler) {
+    return customConfirmHandler(content, kind);
+  }
+
   try {
     return await tauriConfirm(content, {
       title: APP_DIALOG_TITLE,

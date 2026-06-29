@@ -26,6 +26,7 @@ import { useWorkspace } from "./hooks/useWorkspace";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
+import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import OpsPanel from "./components/OpsPanel";
 import SettingsModal from "./components/settings/SettingsModal";
 import { confirmAction } from "./lib/dialogs";
@@ -887,6 +888,7 @@ function App() {
           </div>
         </div>
       )}
+      <ConfirmDialogHost />
     </main>
   );
 }
