@@ -32,6 +32,19 @@ try {
     $_ -and ($_) -notmatch 'Git[\\/]+(usr|mingw\d+)[\\/]+bin' -and $_ -ne $cargoBin
   }
   $msvcEnv['PATH'] = (@($cargoBin) + $segments) -join ';'
+
+  $msvcInclude = Join-Path $Root ".build\msvc-include-shims"
+  $excptHeader = Join-Path $msvcInclude "excpt.h"
+  $damagedExcptHeader = Get-ChildItem -LiteralPath "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC" -Recurse -Filter "excpt.*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne "excpt.h" -and (Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction SilentlyContinue) -contains "//" } |
+    Select-Object -First 1
+  if ($damagedExcptHeader -and -not (Test-Path -LiteralPath (Join-Path $damagedExcptHeader.DirectoryName "excpt.h"))) {
+    New-Item -ItemType Directory -Path $msvcInclude -Force | Out-Null
+    Copy-Item -LiteralPath $damagedExcptHeader.FullName -Destination $excptHeader -Force
+    $msvcEnv['INCLUDE'] = "$msvcInclude;$($msvcEnv['INCLUDE'])"
+    Write-Host "==> Using local MSVC header shim: $excptHeader"
+  }
+
   foreach ($key in $msvcEnv.Keys) { Set-Item -Path ('Env:' + $key) -Value $msvcEnv[$key] }
 
   Write-Host "==> Using linker: $((Get-Command link.exe -ErrorAction SilentlyContinue).Source)"

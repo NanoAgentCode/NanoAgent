@@ -56,6 +56,7 @@
   font-size: var(--font-size-sm); line-height: 1.5;
 }
 .mcp-form-card textarea:focus { border-color: var(--border-color-focus); box-shadow: var(--focus-ring); }
+.mcp-json-actions { justify-content: flex-end; padding-top: 0; border-top: 0; }
 .mcp-error-panel {
   display: grid; gap: 8px; min-width: 0;
   padding: 10px 12px; border: 1px solid rgba(239,68,68,0.32);

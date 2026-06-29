@@ -1,4 +1,4 @@
-import { AlertTriangle, Info, Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Braces, Check, Info, Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
 import { formatMcpTransportLabel } from "../../lib/formatters";
 import type { UseMcpReturn } from "../../hooks/useMcp";
 
@@ -76,6 +76,13 @@ export default function SettingsMcpTab({ mcp }: SettingsMcpTabProps) {
                 </label>
               </>
             )}
+            <label><span>配置 JSON</span>
+              <textarea value={mcp.mcpConfigJson} onChange={(event) => mcp.setMcpConfigJson(event.target.value)} rows={10} spellCheck={false} />
+            </label>
+            <div className="mcp-json-actions icon-actions-bar">
+              <button className="icon-only-btn compact" onClick={mcp.handleApplyMcpConfigJson} title="应用 JSON 配置" aria-label="应用 JSON 配置" type="button"><Check /></button>
+              <button className="icon-only-btn compact" onClick={mcp.handleFormatMcpConfigJson} title="从表单格式化 JSON" aria-label="从表单格式化 JSON" type="button"><Braces /></button>
+            </div>
             {mcp.selectedMcpServer?.status.error && (
               <div className="mcp-error-panel" role="status">
                 <div className="mcp-error-panel-header">

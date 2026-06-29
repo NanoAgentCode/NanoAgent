@@ -1,6 +1,7 @@
 node_modules
 dist
 target
+.build/
 .codegraph/
 src-tauri/target
 src-tauri/gen

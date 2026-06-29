@@ -12,7 +12,7 @@ export async function confirmAction(content: string, kind: DialogKind = "warning
     });
   } catch (error) {
     console.error("Failed to show confirmation dialog:", error);
-    return false;
+    return window.confirm(content);
   }
 }
 

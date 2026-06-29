@@ -356,15 +356,25 @@ function App() {
       return;
     }
 
-    await deleteConversation(conversation.id);
-    chat.setArchivedConversations((current) => current.filter((item) => item.id !== conversation.id));
-    if (chat.activeConversationId === conversation.id) {
-      chat.setActiveConversationId("");
-      chat.setMessages([]);
-    }
-    if (chat.previewArchivedId === conversation.id) {
-      chat.setPreviewArchivedId("");
-      chat.setPreviewMessages([]);
+    try {
+      await deleteConversation(conversation.id);
+      chat.setArchivedConversations((current) => current.filter((item) => item.id !== conversation.id));
+      if (chat.activeConversationId === conversation.id) {
+        chat.setActiveConversationId("");
+        chat.setMessages([]);
+      }
+      if (chat.previewArchivedId === conversation.id) {
+        chat.setPreviewArchivedId("");
+        chat.setPreviewMessages([]);
+      }
+      await Promise.all([
+        chat.refreshConversations(),
+        projects.refreshProjectConversationMap()
+      ]);
+      setNotice("会话已删除。");
+    } catch (error) {
+      console.error(error);
+      setNotice(`删除归档会话失败：${String(error)}`);
     }
   }
 
@@ -823,10 +833,11 @@ function App() {
               <button
                 className="custom-context-menu-item"
                 onClick={() => {
-                  if (projects.contextMenu.conversation) {
-                    void handleContextArchiveConversation(projects.contextMenu.conversation);
-                  }
+                  const conversation = projects.contextMenu.conversation;
                   projects.setContextMenu((prev) => ({ ...prev, visible: false }));
+                  if (conversation) {
+                    void handleContextArchiveConversation(conversation);
+                  }
                 }}
                 type="button"
               >
@@ -836,10 +847,11 @@ function App() {
               <button
                 className="custom-context-menu-item danger-action"
                 onClick={() => {
-                  if (projects.contextMenu.conversation) {
-                    void handleContextDeleteConversation(projects.contextMenu.conversation);
-                  }
+                  const conversation = projects.contextMenu.conversation;
                   projects.setContextMenu((prev) => ({ ...prev, visible: false }));
+                  if (conversation) {
+                    void handleContextDeleteConversation(conversation);
+                  }
                 }}
                 type="button"
               >
