@@ -3406,6 +3406,11 @@ fn setup_system_tray(app: &mut tauri::App) -> Result<(), String> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Err(err) = show_main_window(app) {
+                eprintln!("failed to show main window from second instance: {err}");
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
