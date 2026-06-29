@@ -1327,19 +1327,29 @@ button.danger:active:not(:disabled) {
 }
 
 .model-action-btn--test {
+  border-color: var(--border-color-active);
+  background: transparent;
   color: var(--accent-blue);
+}
+
+.model-action-btn--test:hover:not(:disabled),
+.model-action-btn--test:focus-visible:not(:disabled) {
+  border-color: transparent;
+  background: var(--control-primary-bg);
+  color: var(--control-primary-text);
+  box-shadow: var(--control-primary-shadow);
 }
 
 .model-action-btn--save {
   border-color: var(--accent-emerald);
-  background: var(--control-success-bg);
-  color: var(--control-success-text);
+  background: transparent;
+  color: var(--accent-emerald);
 }
 
 .model-action-btn--save:hover:not(:disabled),
 .model-action-btn--save:focus-visible:not(:disabled) {
-  border-color: var(--control-success-bg-hover);
-  background: var(--control-success-bg-hover);
+  border-color: transparent;
+  background: var(--control-success-bg);
   color: var(--control-success-text);
   box-shadow: var(--control-success-shadow);
 }
