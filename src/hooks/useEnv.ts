@@ -31,6 +31,7 @@ export interface UseEnvReturn {
   runEnvCheck: () => Promise<Record<string, boolean>>;
   handleSaveTavilyApiKey: () => Promise<void>;
   handleInstallTavilyCli: () => Promise<void>;
+  handleInstallPaddleOcr: () => Promise<void>;
   handleAutoInstallMissing: () => Promise<void>;
   handleSaveCustomPaths: () => Promise<void>;
 }
@@ -46,7 +47,8 @@ export function useEnv(setNotice: (message: string) => void): UseEnvReturn {
   const [isSavingTavilyApiKey, setIsSavingTavilyApiKey] = useState(false);
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({
     node: true,
-    python: true
+    python: true,
+    paddleocr: false
   });
   const [showCustomPaths, setShowCustomPaths] = useState(false);
   const [showEnvActionsMenu, setShowEnvActionsMenu] = useState(false);
@@ -112,7 +114,7 @@ export function useEnv(setNotice: (message: string) => void): UseEnvReturn {
       return status;
     } catch (e) {
       console.error("Failed to check environment:", e);
-      return { node: false, python: false, tavily_cli: false };
+      return { node: false, python: false, tavily_cli: false, paddleocr: false };
     } finally {
       setIsCheckingEnv(false);
     }
@@ -138,6 +140,32 @@ export function useEnv(setNotice: (message: string) => void): UseEnvReturn {
     } catch (error) {
       console.error("Tavily CLI installation failed:", error);
       setNotice(`Tavily CLI 安装失败：${String(error)}`);
+    } finally {
+      setIsInstallingEnv(false);
+      setEnvInstallProgress("");
+    }
+  }
+
+  async function handleInstallPaddleOcr() {
+    setIsInstallingEnv(true);
+    setEnvInstallProgress("正在安装 PaddleOCR 与 PaddlePaddle...");
+    try {
+      const ok = await installEnv("paddleocr");
+      if (!ok) {
+        throw new Error("PaddleOCR 安装失败");
+      }
+
+      setEnvInstallProgress("安装完成，正在验证 PaddleOCR...");
+      const finalStatus = await checkEnv(nodePath, pythonPath);
+      setEnvStatus(finalStatus);
+      if (finalStatus.paddleocr) {
+        setNotice("PaddleOCR 已安装。首次执行 OCR 时会按需准备 PP-OCRv6 small 模型。");
+      } else {
+        setNotice("PaddleOCR 已尝试安装，但仍未检测到 paddleocr CLI。请重新检测环境，或在启动前设置 NANO_AGENT_PADDLEOCR_BIN。");
+      }
+    } catch (error) {
+      console.error("PaddleOCR installation failed:", error);
+      setNotice(`PaddleOCR 安装失败：${String(error)}`);
     } finally {
       setIsInstallingEnv(false);
       setEnvInstallProgress("");
@@ -233,6 +261,7 @@ export function useEnv(setNotice: (message: string) => void): UseEnvReturn {
     runEnvCheck,
     handleSaveTavilyApiKey,
     handleInstallTavilyCli,
+    handleInstallPaddleOcr,
     handleAutoInstallMissing,
     handleSaveCustomPaths
   };

@@ -108,6 +108,36 @@ export default function SettingsEnvironmentTab({ env }: SettingsEnvironmentTabPr
           </button>
         </div>
       </div>
+      <div className="env-status-banner">
+        <div className="env-status-main">
+          <div className="env-status-left">
+            <strong>OCR</strong>
+            <div className="env-status-items">
+              <div className="env-status-item-compact">
+                <span>PaddleOCR</span>
+                <span className={env.envStatus.paddleocr ? "env-status-ok" : "env-status-missing"}>{env.envStatus.paddleocr ? "✓ 已就绪" : "✗ 未检测到"}</span>
+              </div>
+              <div className="env-status-item-compact">
+                <span>模型</span>
+                <span className="env-status-ok">PP-OCRv6 small</span>
+              </div>
+            </div>
+          </div>
+          {!env.envStatus.paddleocr && (
+            <div className="env-status-actions">
+              <button className="secondary env-action-btn" type="button" onClick={env.handleInstallPaddleOcr} disabled={env.isInstallingEnv || env.isCheckingEnv || !env.envStatus.python}>
+                {env.isInstallingEnv ? "安装中..." : "安装 OCR"}
+              </button>
+            </div>
+          )}
+        </div>
+        {env.isInstallingEnv && env.envInstallProgress.includes("PaddleOCR") && (
+          <div className="env-install-progress">
+            <span className="spinner">⏳</span> {env.envInstallProgress}
+          </div>
+        )}
+        <p className="env-note">OCR 工具会调用本机 paddleocr，并使用 PP-OCRv6 small 检测与识别模型；会自动检查 PATH、Python Scripts 目录和 NANO_AGENT_PADDLEOCR_BIN。</p>
+      </div>
     </div>
   );
 }

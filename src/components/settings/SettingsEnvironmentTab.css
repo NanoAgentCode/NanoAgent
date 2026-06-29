@@ -36,6 +36,7 @@
 .env-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .env-grid-tavily { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: end; }
 .env-install-progress { font-size: var(--font-size-sm); color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.env-note { margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); line-height: 1.45; }
 .env-input-compact { padding: 6px 10px; font-size: var(--font-size-md); }
 .env-section-label { font-size: var(--font-size-sm); color: var(--text-secondary); }
 .env-tab-content { display: flex; flex-direction: column; gap: 16px; }

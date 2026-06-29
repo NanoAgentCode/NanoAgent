@@ -85,6 +85,26 @@ pub fn tool_definitions() -> Vec<AgentToolDefinition> {
             })
             .to_string(),
         },
+        AgentToolDefinition {
+            name: "ocr_image".to_string(),
+            description: "Extract text from a project image with local PaddleOCR PP-OCRv6 small."
+                .to_string(),
+            risk: "medium".to_string(),
+            requires_approval: true,
+            parameters_json: json!({
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                    "path": { "type": "string", "description": "Project-relative image path." },
+                    "output_format": {
+                        "type": "string",
+                        "enum": ["text", "raw"],
+                        "description": "Return compact recognized text or raw PaddleOCR output. Defaults to text."
+                    }
+                }
+            })
+            .to_string(),
+        },
     ]
 }
 
@@ -150,6 +170,18 @@ pub fn validate_tool_args(name: &str, args: &BTreeMap<String, String>) -> AppRes
             Ok(())
         }
         "execute_command" => require_arg(args, "command").map(|_| ()),
+        "ocr_image" => {
+            require_arg(args, "path")?;
+            if let Some(output_format) = args.get("output_format") {
+                let output_format = output_format.trim();
+                if !output_format.is_empty() && output_format != "text" && output_format != "raw" {
+                    return Err(AppError::Message(
+                        "ocr_image output_format must be text or raw".to_string(),
+                    ));
+                }
+            }
+            Ok(())
+        }
         name if name.starts_with("mcp__") => Ok(()),
         _ => Err(AppError::Message(format!("unknown tool: {name}"))),
     }

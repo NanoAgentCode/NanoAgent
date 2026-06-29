@@ -99,6 +99,19 @@ export const defaultSkills: Skill[] = [
       auth: "tvly login --api-key tvly-YOUR_KEY"
     },
     docUrl: "https://github.com/tavily-ai/skills/tree/main/skills/tavily-cli"
+  },
+  {
+    id: "paddle_ocr",
+    name: "PaddleOCR PP-OCRv6 Small",
+    provider: "PaddlePaddle",
+    description: "使用本机 PaddleOCR 对项目内图片进行端侧 OCR 文字识别，默认使用 PP-OCRv6 small 检测与识别模型。",
+    enabled: true,
+    parameters: {
+      command: "paddleocr ocr",
+      model_profile: "PP-OCRv6_small_det + PP-OCRv6_small_rec",
+      input_scope: "project-relative image path"
+    },
+    docUrl: "https://github.com/PaddlePaddle/PaddleOCR"
   }
 ];
 

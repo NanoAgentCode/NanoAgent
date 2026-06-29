@@ -113,7 +113,13 @@ export function buildSystemMessage(
   <command>具体的终端命令行</command>
 </tool_call>
 
-4. 调用 MCP 工具（仅限上方列出的已连接 MCP 工具）：
+4. 图片 OCR（对应 PaddleOCR PP-OCRv6 Small，仅处理当前项目内图片路径）：
+<tool_call name="ocr_image">
+  <path>项目内图片相对路径，如 screenshots/page.png</path>
+  <output_format>text</output_format>
+</tool_call>
+
+5. 调用 MCP 工具（仅限上方列出的已连接 MCP 工具）：
 <tool_call name="mcp__server_id__tool_name">
   <arguments>{"key":"value"}</arguments>
 </tool_call>
