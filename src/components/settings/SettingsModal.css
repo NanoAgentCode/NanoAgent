@@ -7,10 +7,26 @@
   display: flex; flex-direction: column; gap: 6px;
   overflow-y: auto; flex-shrink: 0;
 }
+
+[data-theme="light"] .settings-sidebar {
+  background: linear-gradient(180deg, #ffffff 0%, #f6faff 100%);
+}
+
+[data-theme="dark"] .settings-sidebar {
+  background: linear-gradient(180deg, rgba(5, 8, 18, 0.98), rgba(11, 17, 32, 0.98));
+}
 .settings-content {
   flex: 1; display: flex; flex-direction: column;
   min-height: 0; background: var(--bg-pane);
   position: relative; overflow: hidden;
+}
+
+[data-theme="light"] .settings-content {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+[data-theme="dark"] .settings-content {
+  background: linear-gradient(180deg, #111827 0%, #0b1120 100%);
 }
 .settings-nav-item {
   display: inline-flex; align-items: center; gap: 10px;

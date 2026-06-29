@@ -236,7 +236,7 @@ button.danger:active:not(:disabled) {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.62);
+  background: var(--modal-backdrop-bg);
   backdrop-filter: blur(8px);
 }
 
@@ -249,8 +249,8 @@ button.danger:active:not(:disabled) {
   overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 14px;
-  background: var(--bg-editor);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+  background: var(--modal-surface-bg);
+  box-shadow: var(--modal-shadow);
 }
 
 .modal-header {
@@ -331,9 +331,9 @@ button.danger:active:not(:disabled) {
   overflow: hidden;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: var(--bg-editor);
+  background: var(--modal-surface-bg);
   color: var(--text-primary);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
+  box-shadow: var(--modal-shadow);
 }
 
 .modal-shell--create {
@@ -404,7 +404,7 @@ button.danger:active:not(:disabled) {
   justify-content: flex-end;
   margin-top: auto;
   border-top: 1px solid var(--border-color);
-  background: var(--bg-card);
+  background: var(--modal-footer-bg);
 }
 
 .modal-action-btn {
@@ -510,7 +510,7 @@ button.danger:active:not(:disabled) {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(6, 10, 18, 0.42);
+  background: var(--modal-backdrop-soft-bg);
   backdrop-filter: blur(5px);
 }
 
@@ -589,12 +589,12 @@ button.danger:active:not(:disabled) {
 }
 
 [data-theme="light"] .confirm-backdrop {
-  background: rgba(15, 23, 42, 0.2);
+  background: var(--modal-backdrop-soft-bg);
 }
 
 [data-theme="light"] .confirm-dialog {
-  background: #ffffff;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.18);
+  background: var(--modal-surface-bg);
+  box-shadow: var(--modal-shadow);
 }
 
 @media (max-width: 520px) {
@@ -619,7 +619,7 @@ button.danger:active:not(:disabled) {
 
 .close-choice-backdrop {
   z-index: 12000;
-  background: rgba(6, 10, 18, 0.36);
+  background: var(--modal-backdrop-soft-bg);
   backdrop-filter: blur(4px);
 }
 
@@ -725,13 +725,13 @@ button.danger:active:not(:disabled) {
 }
 
 [data-theme="light"] .close-choice-backdrop {
-  background: rgba(15, 23, 42, 0.18);
+  background: var(--modal-backdrop-soft-bg);
 }
 
 [data-theme="light"] .close-choice-dialog {
-  background: #ffffff;
+  background: var(--modal-surface-bg);
   border-color: var(--border-color);
-  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
+  box-shadow: var(--modal-shadow);
 }
 
 @media (max-width: 520px) {
@@ -1727,8 +1727,8 @@ button.danger:active:not(:disabled) {
   width: min(520px, calc(100vw - 48px));
   max-width: none;
   padding: 0;
-  background: var(--bg-editor);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.46);
+  background: var(--modal-surface-bg);
+  box-shadow: var(--modal-shadow);
 }
 
 .env-setup-modal.modal-shell p {

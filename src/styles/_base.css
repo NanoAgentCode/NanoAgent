@@ -65,7 +65,15 @@ select:focus-visible {
   position: relative;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg-app);
+  background:
+    radial-gradient(circle at 24px 18px, rgba(125, 211, 252, 0.08), transparent 28%),
+    var(--bg-app);
+}
+
+[data-theme="light"] .app-shell {
+  background:
+    radial-gradient(circle at 24px 18px, rgba(14, 165, 233, 0.08), transparent 30%),
+    linear-gradient(180deg, #f8fbff 0%, var(--bg-app) 42%);
 }
 
 .app-shell.sidebar-collapsed {
