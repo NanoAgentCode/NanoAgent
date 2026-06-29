@@ -34,6 +34,13 @@ import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import OpsPanel from "./components/OpsPanel";
 import SettingsModal from "./components/settings/SettingsModal";
 import { confirmAction } from "./lib/dialogs";
+import {
+  getStoredCloseAction,
+  getStoredCloseSkipPrompt,
+  setStoredCloseAction,
+  setStoredCloseSkipPrompt,
+  type CloseAction
+} from "./lib/closeBehavior";
 import type {
   Conversation,
   ProjectEntry,
@@ -41,11 +48,8 @@ import type {
   SettingsTab
 } from "./types";
 
-type CloseAction = "tray" | "quit";
 type MainView = "chat" | "ops";
 
-const CLOSE_ACTION_KEY = "nano-agent-close-action";
-const CLOSE_SKIP_PROMPT_KEY = "nano-agent-close-skip-prompt";
 const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
 
 function App() {
@@ -134,10 +138,10 @@ function App() {
   });
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [closeAction, setCloseAction] = useState<CloseAction>(() => {
-    return localStorage.getItem(CLOSE_ACTION_KEY) === "quit" ? "quit" : "tray";
+    return getStoredCloseAction();
   });
   const [closeDontAsk, setCloseDontAsk] = useState(() => {
-    return localStorage.getItem(CLOSE_SKIP_PROMPT_KEY) === "true";
+    return getStoredCloseSkipPrompt();
   });
   const closePromptOpenRef = useRef(false);
 
@@ -223,8 +227,8 @@ function App() {
         return;
       }
 
-      const savedAction = localStorage.getItem(CLOSE_ACTION_KEY) === "quit" ? "quit" : "tray";
-      const skipPrompt = localStorage.getItem(CLOSE_SKIP_PROMPT_KEY) === "true";
+      const savedAction = getStoredCloseAction();
+      const skipPrompt = getStoredCloseSkipPrompt();
       if (skipPrompt) {
         void performCloseAction(savedAction);
         return;
@@ -395,12 +399,8 @@ function App() {
   }
 
   function handleConfirmClosePrompt() {
-    localStorage.setItem(CLOSE_ACTION_KEY, closeAction);
-    if (closeDontAsk) {
-      localStorage.setItem(CLOSE_SKIP_PROMPT_KEY, "true");
-    } else {
-      localStorage.removeItem(CLOSE_SKIP_PROMPT_KEY);
-    }
+    setStoredCloseAction(closeAction);
+    setStoredCloseSkipPrompt(closeDontAsk);
     setClosePromptOpen(false);
     void performCloseAction(closeAction);
   }

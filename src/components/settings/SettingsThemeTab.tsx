@@ -3,6 +3,13 @@ import { Monitor, Moon, Sun } from "lucide-react";
 import { themeLabels } from "../../lib/appHelpers";
 import type { ThemeMode } from "../../types";
 import { getAutostart, setAutostart } from "../../api";
+import {
+  getStoredCloseAction,
+  getStoredCloseSkipPrompt,
+  setStoredCloseAction,
+  setStoredCloseSkipPrompt,
+  type CloseAction
+} from "../../lib/closeBehavior";
 
 interface SettingsThemeTabProps {
   themeMode: ThemeMode;
@@ -11,6 +18,9 @@ interface SettingsThemeTabProps {
 
 export default function SettingsThemeTab({ themeMode, setThemeMode }: SettingsThemeTabProps) {
   const [autostart, setAutostartState] = useState(false);
+  const [autostartBusy, setAutostartBusy] = useState(false);
+  const [closeAction, setCloseAction] = useState<CloseAction>(() => getStoredCloseAction());
+  const [closeSkipPrompt, setCloseSkipPrompt] = useState(() => getStoredCloseSkipPrompt());
 
   useEffect(() => {
     getAutostart()
@@ -20,12 +30,26 @@ export default function SettingsThemeTab({ themeMode, setThemeMode }: SettingsTh
 
   const handleAutostartChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const checked = event.target.checked;
+    setAutostartBusy(true);
     try {
       await setAutostart(checked);
       setAutostartState(checked);
     } catch (err) {
       console.error("Failed to update autostart status:", err);
+      setAutostartState(!checked);
+    } finally {
+      setAutostartBusy(false);
     }
+  };
+
+  const handleCloseActionChange = (action: CloseAction) => {
+    setCloseAction(action);
+    setStoredCloseAction(action);
+  };
+
+  const handleCloseSkipPromptChange = (checked: boolean) => {
+    setCloseSkipPrompt(checked);
+    setStoredCloseSkipPrompt(checked);
   };
 
   return (
@@ -53,11 +77,40 @@ export default function SettingsThemeTab({ themeMode, setThemeMode }: SettingsTh
 
       <h4 style={{ margin: "18px 0 8px", fontSize: "var(--font-size-lg)", color: "var(--text-primary)" }}>系统选项</h4>
       <div className="general-settings-options" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div className="close-choice-options" role="radiogroup" aria-label="右上角关闭按钮行为" style={{ gap: "8px" }}>
+          <label className="close-choice-option">
+            <input
+              type="radio"
+              name="settings-close-action"
+              checked={closeAction === "tray"}
+              onChange={() => handleCloseActionChange("tray")}
+            />
+            <span>关闭按钮最小化到系统托盘</span>
+          </label>
+          <label className="close-choice-option">
+            <input
+              type="radio"
+              name="settings-close-action"
+              checked={closeAction === "quit"}
+              onChange={() => handleCloseActionChange("quit")}
+            />
+            <span>关闭按钮退出应用</span>
+          </label>
+        </div>
+        <label className="close-choice-checkbox" style={{ margin: 0, padding: 0 }}>
+          <input
+            type="checkbox"
+            checked={closeSkipPrompt}
+            onChange={(event) => handleCloseSkipPromptChange(event.target.checked)}
+          />
+          <span>关闭时不再提示</span>
+        </label>
         <label className="close-choice-checkbox" style={{ margin: 0, padding: 0 }}>
           <input
             type="checkbox"
             checked={autostart}
             onChange={handleAutostartChange}
+            disabled={autostartBusy}
           />
           <span>开机自启动</span>
         </label>

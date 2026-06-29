@@ -2983,14 +2983,15 @@ fn show_app_window(app: AppHandle) -> Result<(), String> {
 fn get_autostart() -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        let output = Command::new("reg")
-            .args(&["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "NanoAgent"])
-            .output();
-        match output {
-            Ok(out) => Ok(out.status.success()),
-            Err(e) => Err(format!("Failed to execute reg command: {e}")),
-        }
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_key = hkcu
+            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|e| format!("Failed to open startup registry key: {e}"))?;
+
+        Ok(run_key.get_value::<String, _>("NanoAgent").is_ok())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -3002,46 +3003,27 @@ fn get_autostart() -> Result<bool, String> {
 fn set_autostart(enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (run_key, _) = hkcu
+            .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|e| format!("Failed to open startup registry key: {e}"))?;
+
         if enabled {
             let current_exe = std::env::current_exe()
                 .map_err(|e| format!("Failed to get current exe path: {e}"))?;
-            let exe_path = current_exe.to_str()
-                .ok_or_else(|| "Current exe path contains invalid UTF-8".to_string())?;
-            let output = Command::new("reg")
-                .args(&[
-                    "add",
-                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                    "/v",
-                    "NanoAgent",
-                    "/t",
-                    "REG_SZ",
-                    "/d",
-                    exe_path,
-                    "/f"
-                ])
-                .output()
-                .map_err(|e| format!("Failed to execute reg add command: {e}"))?;
-            if !output.status.success() {
-                let err_msg = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("Registry add failed: {err_msg}"));
-            }
+
+            let startup_command = format!("\"{}\"", current_exe.display());
+            run_key
+                .set_value("NanoAgent", &startup_command)
+                .map_err(|e| format!("Failed to update startup registry value: {e}"))?;
         } else {
-            let output = Command::new("reg")
-                .args(&[
-                    "delete",
-                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-                    "/v",
-                    "NanoAgent",
-                    "/f"
-                ])
-                .output()
-                .map_err(|e| format!("Failed to execute reg delete command: {e}"))?;
-            if !output.status.success() {
-                let err_msg = String::from_utf8_lossy(&output.stderr);
-                if !err_msg.contains("The system was unable to find the specified registry key or value") {
-                    return Err(format!("Registry delete failed: {err_msg}"));
-                }
+            match run_key.delete_value("NanoAgent") {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("Failed to remove startup registry value: {e}")),
             }
         }
         Ok(())
