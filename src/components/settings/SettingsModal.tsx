@@ -68,7 +68,7 @@ export default function SettingsModal({
 
   return (
     <div className="modal-backdrop" onClick={() => setShowModelConfig(false)}>
-      <section className="modal-panel" onClick={(event) => event.stopPropagation()}>
+      <section className="modal-panel modal-shell modal-shell--settings" onClick={(event) => event.stopPropagation()}>
         <header className="modal-header">
           <div>
             <Settings size={18} />

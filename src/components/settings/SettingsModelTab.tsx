@@ -1,4 +1,4 @@
-import { Activity, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { Activity, Edit3, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { normalizeModelDraft } from "../../hooks/useModel";
 import type { UseModelReturn } from "../../hooks/useModel";
 
@@ -9,14 +9,19 @@ interface SettingsModelTabProps {
 
 export default function SettingsModelTab({ model, setShowModelConfig }: SettingsModelTabProps) {
   const llmModels = model.models.filter((m) => m.id !== "embedding-config");
+  const isEditingModel = Boolean(model.modelDraft.id && model.modelDraft.id !== "embedding-config");
+
   return (
     <div className="settings-tab-content model-tab-content">
       <div className="model-header-row">
         <h3>LLM管理</h3>
-        <button className="icon-only-btn compact" onClick={() => model.handleNewModelConfig(setShowModelConfig)} title="新建配置" aria-label="新建配置" type="button"><Plus /></button>
+        <button className="model-action-btn model-action-btn--new" onClick={() => model.handleNewModelConfig(setShowModelConfig)} title="新建模型配置" type="button">
+          <Plus size={15} />
+          <span>新建模型</span>
+        </button>
       </div>
       <p className="description description--tight">配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
-      <div className="model-config-grid">
+      <div className="model-config-grid llm-config-grid">
         <aside className="model-config-list">
           {llmModels.map((m) => {
             const statusInfo = model.modelTestStatuses[m.id] || { status: "idle" };
@@ -45,7 +50,10 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
               >
                 <span className={`status-dot status-dot--${statusInfo.status}`} title={dotTitle} />
                 <div className="model-config-row-info">
-                  <strong>{m.name}</strong>
+                  <div className="model-config-row-title">
+                    <strong>{m.name}</strong>
+                    {m.id === model.activeModelId && <span className="model-active-badge">使用中</span>}
+                  </div>
                   <span>{m.provider} / {m.model}</span>
                 </div>
               </button>
@@ -92,14 +100,17 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
               </span>
             )}
             {(model.llmTestStatus.status === "idle" || model.llmTestStatus.status === "testing") && <div className="status-spacer" />}
-            <button className="icon-text-btn" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} title="测试连接" type="button">
+            <button className="model-action-btn model-action-btn--test" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} title="测试连接" type="button">
               {model.llmTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
+              <span>测试</span>
             </button>
-            <button className="icon-text-btn success-btn" onClick={model.handleSaveModel} title="保存并使用" type="button">
-              <Save />
+            <button className="model-action-btn model-action-btn--save" onClick={model.handleSaveModel} title={isEditingModel ? "保存修改并使用" : "创建模型并使用"} type="button">
+              {isEditingModel ? <Edit3 /> : <Save />}
+              <span>{isEditingModel ? "保存修改" : "创建模型"}</span>
             </button>
-            <button className="icon-text-btn danger-btn" title="删除模型" onClick={model.handleDeleteModel} disabled={!model.modelDraft.id || model.modelDraft.id === "embedding-config"} type="button">
+            <button className="model-action-btn model-action-btn--delete" title="删除模型" onClick={model.handleDeleteModel} disabled={!isEditingModel} type="button">
               <Trash2 />
+              <span>删除模型</span>
             </button>
           </div>
         </div>

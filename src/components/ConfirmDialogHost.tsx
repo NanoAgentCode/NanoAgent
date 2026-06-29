@@ -82,10 +82,12 @@ export default function ConfirmDialogHost() {
   const Icon = dialogIcons[pending.kind];
   const copy = dialogCopy[pending.kind];
 
+  const tone = pending.kind === "info" ? "info" : "delete";
+
   return (
     <div className="confirm-backdrop" onClick={() => close(false)}>
       <section
-        className={`confirm-dialog confirm-dialog--${pending.kind}`}
+        className={`confirm-dialog modal-shell modal-shell--${tone} confirm-dialog--${pending.kind}`}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
@@ -103,10 +105,11 @@ export default function ConfirmDialogHost() {
         </header>
         <p id="confirm-dialog-content">{pending.content}</p>
         <footer>
-          <button className="ghost" type="button" onClick={() => close(false)}>
+          <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={() => close(false)}>
             取消
           </button>
-          <button ref={confirmButtonRef} className="danger" type="button" onClick={() => close(true)}>
+          <button ref={confirmButtonRef} className="modal-action-btn modal-action-btn--delete" type="button" onClick={() => close(true)}>
+            <Icon size={15} />
             {copy.confirmLabel}
           </button>
         </footer>

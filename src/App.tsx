@@ -3,8 +3,11 @@ import { setTheme } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
+  Cpu,
   Edit,
-  Folder,
+  Edit3,
+  FolderPlus,
+  Power,
   Trash2,
   Upload
 } from "lucide-react";
@@ -464,10 +467,10 @@ function App() {
 
       {projects.showNewProjectDialog && (
         <div className="modal-backdrop" onClick={() => projects.setShowNewProjectDialog(false)}>
-          <section className="project-dialog" onClick={(event) => event.stopPropagation()}>
+          <section className="project-dialog modal-shell modal-shell--create" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
-                <Folder size={18} />
+                <FolderPlus size={18} />
                 <strong>新建项目</strong>
               </div>
               <button className="modal-close-btn" onClick={() => projects.setShowNewProjectDialog(false)} aria-label="关闭" title="关闭">&times;</button>
@@ -491,10 +494,11 @@ function App() {
               />
             </label>
             <footer>
-              <button className="ghost" type="button" onClick={() => projects.setShowNewProjectDialog(false)}>
+              <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={() => projects.setShowNewProjectDialog(false)}>
                 取消
               </button>
-              <button className="primary" type="button" onClick={() => void projects.handleCreateProject()}>
+              <button className="modal-action-btn modal-action-btn--create" type="button" onClick={() => void projects.handleCreateProject()}>
+                <FolderPlus size={15} />
                 创建并打开
               </button>
             </footer>
@@ -504,11 +508,11 @@ function App() {
 
       {projects.pendingProjectRemoval && (
         <div className="modal-backdrop" onClick={() => projects.setPendingProjectRemoval(null)}>
-          <section className="project-dialog danger-approval" onClick={(event) => event.stopPropagation()}>
+          <section className="project-dialog modal-shell modal-shell--remove danger-approval" onClick={(event) => event.stopPropagation()}>
             <header>
               <div>
                 <Trash2 size={18} />
-                <strong>审批危险操作</strong>
+                <strong>移除项目入口</strong>
               </div>
               <button className="modal-close-btn" onClick={() => projects.setPendingProjectRemoval(null)} aria-label="关闭" title="关闭">&times;</button>
             </header>
@@ -525,15 +529,16 @@ function App() {
               />
             </label>
             <footer>
-              <button className="ghost" type="button" onClick={() => projects.setPendingProjectRemoval(null)}>
+              <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={() => projects.setPendingProjectRemoval(null)}>
                 取消
               </button>
               <button
-                className="danger"
+                className="modal-action-btn modal-action-btn--remove"
                 type="button"
                 onClick={projects.handleConfirmRemoveProject}
                 disabled={projects.projectApprovalText.trim() !== projects.pendingProjectRemoval.name}
               >
+                <Trash2 size={15} />
                 批准移除
               </button>
             </footer>
@@ -544,7 +549,7 @@ function App() {
       {renameTarget && (
         <div className="modal-backdrop" onClick={closeRenameDialog}>
           <section
-            className="project-dialog rename-dialog"
+            className="project-dialog modal-shell modal-shell--edit rename-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="rename-dialog-title"
@@ -552,7 +557,7 @@ function App() {
           >
             <header>
               <div>
-                <Edit size={18} />
+                <Edit3 size={18} />
                 <strong id="rename-dialog-title">重命名会话</strong>
               </div>
               <button className="modal-close-btn" onClick={closeRenameDialog} aria-label="关闭" title="关闭" type="button">&times;</button>
@@ -574,11 +579,12 @@ function App() {
               />
             </label>
             <footer>
-              <button className="ghost" type="button" onClick={closeRenameDialog}>
+              <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={closeRenameDialog}>
                 取消
               </button>
-              <button className="primary" type="button" onClick={() => void handleConfirmRename()}>
-                确定
+              <button className="modal-action-btn modal-action-btn--edit" type="button" onClick={() => void handleConfirmRename()}>
+                <Edit3 size={15} />
+                保存修改
               </button>
             </footer>
           </section>
@@ -588,22 +594,21 @@ function App() {
       {closePromptOpen && (
         <div className="modal-backdrop close-choice-backdrop" onClick={handleCancelClosePrompt}>
           <section
-            className="close-choice-dialog"
+            className="close-choice-dialog modal-shell modal-shell--close-action"
             role="dialog"
             aria-modal="true"
             aria-labelledby="close-choice-title"
             onClick={(event) => event.stopPropagation()}
           >
-            <button
-              className="close-choice-x"
-              type="button"
-              aria-label="关闭"
-              title="关闭"
-              onClick={handleCancelClosePrompt}
-            >
-              &times;
-            </button>
-            <h3 id="close-choice-title">点击关闭按钮以后：</h3>
+            <header>
+              <div>
+                <Power size={18} />
+                <strong id="close-choice-title">点击关闭按钮</strong>
+              </div>
+              <button className="modal-close-btn" type="button" aria-label="关闭" title="关闭" onClick={handleCancelClosePrompt}>
+                &times;
+              </button>
+            </header>
             <div className="close-choice-options" role="radiogroup" aria-label="关闭按钮行为">
               <label className="close-choice-option">
                 <input
@@ -633,10 +638,11 @@ function App() {
               <span>不再提示</span>
             </label>
             <footer>
-              <button className="secondary" type="button" onClick={handleCancelClosePrompt}>
+              <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={handleCancelClosePrompt}>
                 取消
               </button>
-              <button className="primary" type="button" onClick={handleConfirmClosePrompt}>
+              <button className="modal-action-btn modal-action-btn--close-action" type="button" onClick={handleConfirmClosePrompt}>
+                <Power size={15} />
                 确定
               </button>
             </footer>
@@ -700,86 +706,62 @@ function App() {
       )}
 
       {env.showEnvPrompt && (
-        <div className="env-setup-backdrop" style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: "rgba(0, 0, 0, 0.6)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 10000,
-          backdropFilter: "blur(4px)"
-        }}>
-          <div className="env-setup-modal" style={{
-            backgroundColor: "var(--bg-card)",
-            borderRadius: "12px",
-            border: "1px solid var(--border-color)",
-            padding: "24px",
-            width: "500px",
-            maxWidth: "90%",
-            boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-            color: "var(--text-main)"
-          }}>
-            <h3 style={{ margin: 0, fontSize: "1.2rem", display: "flex", alignItems: "center", gap: "8px" }}>
-              🛠️ 初始化环境配置
-            </h3>
-            <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--text-secondary)", lineHeight: "1.5" }}>
+        <div className="modal-backdrop env-setup-backdrop">
+          <div className="env-setup-modal modal-shell modal-shell--setup">
+            <header>
+              <div>
+                <Cpu size={18} />
+                <strong>初始化环境配置</strong>
+              </div>
+            </header>
+            <p>
               运行智能技能（Skills）依赖 <strong>Node.js</strong> 和 <strong>Python</strong> 环境。检测到您的系统当前缺少所需环境。
             </p>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "12px", backgroundColor: "var(--bg-main)", borderRadius: "8px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="env-status-list">
+              <div className="env-status-row">
                 <span>Node.js 环境:</span>
-                <span style={{ color: env.envStatus.node ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
-                  {env.envStatus.node ? "✓ 已就绪" : "✗ 未检测到"}
+                <span className={env.envStatus.node ? "env-status-pill ready" : "env-status-pill missing"}>
+                  {env.envStatus.node ? "已就绪" : "未检测到"}
                 </span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="env-status-row">
                 <span>Python 环境:</span>
-                <span style={{ color: env.envStatus.python ? "var(--accent-green)" : "var(--accent-red)", fontWeight: "bold" }}>
-                  {env.envStatus.python ? "✓ 已就绪" : "✗ 未检测到"}
+                <span className={env.envStatus.python ? "env-status-pill ready" : "env-status-pill missing"}>
+                  {env.envStatus.python ? "已就绪" : "未检测到"}
                 </span>
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <h4 style={{ margin: "4px 0", fontSize: "0.95rem" }}>配置已有路径（若已安装）：</h4>
-              <div className="skills-param-field" style={{ margin: 0 }}>
-                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Node.js 可执行文件路径:</label>
+            <div className="env-path-fields">
+              <h4>配置已有路径（若已安装）：</h4>
+              <div className="skills-param-field env-field-no-margin">
+                <label>Node.js 可执行文件路径:</label>
                 <input
                   value={env.nodePath}
                   onChange={(e) => env.setNodePath(e.target.value)}
                   placeholder="例如: C:\Program Files\nodejs\node.exe 或直接输入 node"
-                  style={{ width: "100%", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="skills-param-field" style={{ margin: 0 }}>
-                <label style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Python 可执行文件路径:</label>
+              <div className="skills-param-field env-field-no-margin">
+                <label>Python 可执行文件路径:</label>
                 <input
                   value={env.pythonPath}
                   onChange={(e) => env.setPythonPath(e.target.value)}
                   placeholder="例如: C:\Users\...\python.exe 或直接输入 python"
-                  style={{ width: "100%", boxSizing: "border-box" }}
                 />
               </div>
             </div>
 
             {env.isInstallingEnv && (
-              <div style={{ padding: "10px", backgroundColor: "var(--bg-main)", borderRadius: "6px", fontSize: "0.85rem", borderLeft: "4px solid var(--accent-blue)" }}>
-                <span className="spinner" style={{ marginRight: "8px" }}>⌛</span>
+              <div className="env-install-progress">
                 {env.envInstallProgress}
               </div>
             )}
 
-            <div style={{ display: "flex", gap: "10px", marginTop: "8px", justifyContent: "flex-end" }}>
+            <footer>
               <button
-                className="secondary"
+                className="modal-action-btn modal-action-btn--secondary"
                 onClick={env.dismissEnvPrompt}
                 disabled={env.isInstallingEnv || env.isCheckingEnv}
                 type="button"
@@ -787,7 +769,7 @@ function App() {
                 稍后提醒
               </button>
               <button
-                className="secondary"
+                className="modal-action-btn modal-action-btn--edit"
                 onClick={env.handleSaveCustomPaths}
                 disabled={env.isInstallingEnv || env.isCheckingEnv}
                 type="button"
@@ -795,14 +777,14 @@ function App() {
                 保存已有路径
               </button>
               <button
-                className="primary"
+                className="modal-action-btn modal-action-btn--create"
                 onClick={env.handleAutoInstallMissing}
                 disabled={env.isInstallingEnv || env.isCheckingEnv}
                 type="button"
               >
                 {env.isInstallingEnv ? "正在配置..." : "自动配置 (winget)"}
               </button>
-            </div>
+            </footer>
           </div>
         </div>
       )}

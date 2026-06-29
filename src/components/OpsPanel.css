@@ -407,25 +407,13 @@
 }
 
 .ops-config-dialog {
-  display: flex;
-  flex-direction: column;
-  width: min(760px, calc(100vw - 48px));
+  width: min(720px, calc(100vw - 48px));
   max-height: min(680px, calc(100vh - 48px));
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-editor);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
 }
 
 .ops-config-dialog-header,
 .ops-config-dialog-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
 }
 
 .ops-config-dialog-header > div {
@@ -436,7 +424,7 @@
 }
 
 .ops-config-dialog-header svg {
-  color: var(--accent-cyan);
+  color: var(--modal-tone);
 }
 
 .ops-config-dialog .ops-form-grid {
@@ -446,12 +434,19 @@
 
 .ops-config-dialog-footer {
   justify-content: flex-end;
-  border-top: 1px solid var(--border-color);
-  border-bottom: 0;
+  gap: 10px;
 }
 
 .ops-dialog-actions .danger-btn {
   margin-right: auto;
+}
+
+.ops-dialog-actions .modal-action-btn--delete {
+  margin-right: auto;
+}
+
+.ops-dialog-actions .modal-action-btn {
+  min-width: 96px;
 }
 
 .ops-ai-card {

@@ -550,7 +550,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
       </div>
       {showConfigDialog && (
         <div className="modal-backdrop" onClick={() => setShowConfigDialog(false)}>
-          <section className="ops-config-dialog" onClick={(event) => event.stopPropagation()}>
+          <section className={`ops-config-dialog modal-shell ${draft.id ? "modal-shell--edit" : "modal-shell--create"}`} onClick={(event) => event.stopPropagation()}>
             <header className="ops-config-dialog-header">
               <div>
                 <Server size={18} />
@@ -603,10 +603,10 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
               </label>
             </div>
 
-            <footer className="ops-config-dialog-footer icon-actions-bar ops-dialog-actions">
+            <footer className="ops-config-dialog-footer ops-dialog-actions">
               {draft.id && selectedServer && (
                 <button
-                  className="icon-text-btn danger-btn"
+                  className="modal-action-btn modal-action-btn--delete"
                   type="button"
                   onClick={handleDeleteServer}
                   disabled={busyAction === "delete"}
@@ -614,10 +614,11 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
                   title="删除"
                 >
                   <Trash2 size={16} />
+                  <span>删除服务器</span>
                 </button>
               )}
               <button
-                className="icon-text-btn"
+                className="modal-action-btn modal-action-btn--secondary"
                 type="button"
                 onClick={handleTestConnection}
                 disabled={busyAction === "ssh" || busyAction === "save"}
@@ -625,12 +626,14 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
                 title={busyAction === "ssh" ? "连接中" : "测试连接"}
               >
                 <CheckCircle2 size={16} />
+                <span>{busyAction === "ssh" ? "连接中" : "测试连接"}</span>
               </button>
-              <button className="icon-text-btn" type="button" onClick={() => setShowConfigDialog(false)} aria-label="取消" title="取消">
+              <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={() => setShowConfigDialog(false)} aria-label="取消" title="取消">
                 <X size={16} />
+                <span>取消</span>
               </button>
               <button
-                className="icon-text-btn success-btn"
+                className={draft.id ? "modal-action-btn modal-action-btn--edit" : "modal-action-btn modal-action-btn--create"}
                 type="button"
                 onClick={handleSaveServer}
                 disabled={busyAction === "save"}
@@ -638,6 +641,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
                 title={busyAction === "save" ? "保存中" : "保存"}
               >
                 <Save size={16} />
+                <span>{busyAction === "save" ? "保存中" : draft.id ? "保存修改" : "创建服务器"}</span>
               </button>
             </footer>
           </section>
