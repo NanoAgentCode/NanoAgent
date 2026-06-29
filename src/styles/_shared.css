@@ -228,16 +228,33 @@ button.danger:active:not(:disabled) {
    Shared: Modal / Dialog
    ======================================== */
 
+@keyframes modal-backdrop-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-shell-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
   background: var(--modal-backdrop-bg);
   backdrop-filter: blur(8px);
+  animation: modal-backdrop-fade-in 0.2s ease-out both;
 }
 
 .modal-panel {
@@ -283,25 +300,26 @@ button.danger:active:not(:disabled) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-height-sm);
-  height: var(--control-height-sm);
-  border-radius: var(--control-radius-md);
-  font-size: 20px;
-  font-weight: bold;
-  color: var(--control-danger-text);
-  background: var(--control-danger-soft-bg);
-  border: 1px solid var(--control-danger-border);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--control-radius-sm);
+  font-size: 16px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
   cursor: pointer;
   line-height: 1;
   padding: 0;
   transition: var(--control-transition);
 }
 .modal-close-btn:hover {
-  background: var(--control-danger-bg);
-  color: white;
-  border-color: var(--control-danger-bg);
-  box-shadow: var(--control-danger-shadow);
-  transform: var(--control-icon-active-scale);
+  background: var(--control-danger-soft-bg);
+  color: var(--accent-danger);
+  border-color: var(--control-danger-border);
+  transform: scale(1.05);
+}
+.modal-close-btn:active {
+  transform: scale(0.95);
 }
 
 .modal-actions {
@@ -326,14 +344,15 @@ button.danger:active:not(:disabled) {
   --modal-tone-soft: color-mix(in srgb, var(--modal-tone) 11%, transparent);
   display: flex;
   flex-direction: column;
-  width: min(440px, calc(100vw - 48px));
-  max-height: min(680px, calc(100vh - 48px));
+  width: min(380px, calc(100vw - 48px));
+  max-height: min(600px, calc(100vh - 48px));
   overflow: hidden;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--modal-surface-bg);
   color: var(--text-primary);
   box-shadow: var(--modal-shadow);
+  animation: modal-shell-appear 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .modal-shell--create {
@@ -359,9 +378,9 @@ button.danger:active:not(:disabled) {
 }
 
 .modal-panel.modal-shell--settings {
-  width: min(1100px, 95vw);
-  height: min(760px, 85vh);
-  max-height: min(760px, calc(100vh - 48px));
+  width: min(920px, 90vw);
+  height: min(640px, 80vh);
+  max-height: min(640px, calc(100vh - 48px));
   border-radius: 14px;
 }
 
@@ -370,7 +389,7 @@ button.danger:active:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 12px 16px;
 }
 
 .modal-shell > header {
@@ -503,19 +522,12 @@ button.danger:active:not(:disabled) {
 }
 
 .confirm-backdrop {
-  position: fixed;
-  inset: 0;
   z-index: 13000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
   background: var(--modal-backdrop-soft-bg);
-  backdrop-filter: blur(5px);
 }
 
 .confirm-dialog {
-  width: min(420px, calc(100vw - 32px));
+  width: min(350px, calc(100vw - 32px));
 }
 
 .confirm-dialog header {
@@ -556,28 +568,7 @@ button.danger:active:not(:disabled) {
   padding: 12px 16px 14px;
 }
 
-.confirm-dialog-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: var(--control-transition);
-}
-
-.confirm-dialog-close:hover,
-.confirm-dialog-close:focus-visible {
-  background: var(--control-danger-soft-bg);
-  color: var(--control-danger-text);
-  border-color: var(--control-danger-border);
-}
+/* confirm-dialog-close styles merged into modal-close-btn */
 
 .confirm-dialog--info header svg {
   color: var(--accent-blue);
@@ -620,11 +611,10 @@ button.danger:active:not(:disabled) {
 .close-choice-backdrop {
   z-index: 12000;
   background: var(--modal-backdrop-soft-bg);
-  backdrop-filter: blur(4px);
 }
 
 .close-choice-dialog {
-  width: min(420px, calc(100vw - 32px));
+  width: min(350px, calc(100vw - 32px));
 }
 
 .close-choice-dialog h3 {
@@ -770,7 +760,7 @@ button.danger:active:not(:disabled) {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 16px 24px 24px 24px;
+  padding: 12px 18px 18px 18px;
   overflow-y: auto;
 }
 .settings-tab-content h3 {
@@ -1646,17 +1636,7 @@ button.danger:active:not(:disabled) {
    Shared: Env setup prompt (used in App.tsx)
    ======================================== */
 .env-setup-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 10000;
-  backdrop-filter: blur(4px);
 }
 .env-setup-modal {
   background-color: var(--bg-card);
@@ -1690,22 +1670,22 @@ button.danger:active:not(:disabled) {
 
 /* Unified modal overrides for legacy project/env dialogs */
 .project-dialog.modal-shell {
-  gap: 16px;
-  width: min(440px, calc(100vw - 48px));
+  gap: 12px;
+  width: min(380px, calc(100vw - 48px));
   padding: 0;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 .project-dialog.modal-shell label {
-  margin: 0 20px;
+  margin: 0 16px;
 }
 
 .project-dialog.modal-shell label:first-of-type {
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .project-dialog.modal-shell footer {
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 
 .project-dialog.modal-shell footer button {
@@ -1729,15 +1709,13 @@ button.danger:active:not(:disabled) {
 }
 
 .danger-approval.modal-shell p {
-  margin: 18px 20px 0;
+  margin: 14px 16px 0;
 }
 
-.env-setup-backdrop {
-  z-index: 10000;
-}
+/* env-setup-backdrop z-index defined above */
 
 .env-setup-modal.modal-shell {
-  width: min(520px, calc(100vw - 48px));
+  width: min(440px, calc(100vw - 48px));
   max-width: none;
   padding: 0;
   background: var(--modal-surface-bg);
@@ -1745,14 +1723,14 @@ button.danger:active:not(:disabled) {
 }
 
 .env-setup-modal.modal-shell p {
-  margin: 18px 20px 0;
+  margin: 14px 16px 0;
 }
 
 .env-status-list,
 .env-path-fields {
   display: grid;
   gap: 10px;
-  margin: 0 20px;
+  margin: 0 16px;
 }
 
 .env-status-list {
@@ -1807,8 +1785,8 @@ button.danger:active:not(:disabled) {
 }
 
 .env-install-progress {
-  margin: 0 20px;
-  padding: 10px;
+  margin: 0 16px;
+  padding: 8px 10px;
   border-left: 4px solid var(--accent-blue);
   border-radius: 6px;
   background: var(--bg-main);
@@ -1817,7 +1795,7 @@ button.danger:active:not(:disabled) {
 
 .env-setup-modal.modal-shell footer {
   gap: 10px;
-  padding: 16px 20px;
+  padding: 12px 16px;
 }
 
 @media (max-width: 520px) {

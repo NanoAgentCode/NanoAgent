@@ -9,7 +9,8 @@ import {
   FolderPlus,
   Power,
   Trash2,
-  Upload
+  Upload,
+  X
 } from "lucide-react";
 import {
   archiveConversation,
@@ -473,7 +474,9 @@ function App() {
                 <FolderPlus size={18} />
                 <strong>新建项目</strong>
               </div>
-              <button className="modal-close-btn" onClick={() => projects.setShowNewProjectDialog(false)} aria-label="关闭" title="关闭">&times;</button>
+              <button className="modal-close-btn" onClick={() => projects.setShowNewProjectDialog(false)} aria-label="关闭" title="关闭">
+                <X size={16} />
+              </button>
             </header>
             <label>
               <span>父目录</span>
@@ -514,7 +517,9 @@ function App() {
                 <Trash2 size={18} />
                 <strong>移除项目入口</strong>
               </div>
-              <button className="modal-close-btn" onClick={() => projects.setPendingProjectRemoval(null)} aria-label="关闭" title="关闭">&times;</button>
+              <button className="modal-close-btn" onClick={() => projects.setPendingProjectRemoval(null)} aria-label="关闭" title="关闭">
+                <X size={16} />
+              </button>
             </header>
             <p>
               将从项目区移除 <strong>{projects.pendingProjectRemoval.name}</strong>。此操作不会删除磁盘文件。
@@ -560,7 +565,9 @@ function App() {
                 <Edit3 size={18} />
                 <strong id="rename-dialog-title">重命名会话</strong>
               </div>
-              <button className="modal-close-btn" onClick={closeRenameDialog} aria-label="关闭" title="关闭" type="button">&times;</button>
+              <button className="modal-close-btn" onClick={closeRenameDialog} aria-label="关闭" title="关闭" type="button">
+                <X size={16} />
+              </button>
             </header>
             <label>
               <span>会话名称</span>
@@ -606,7 +613,7 @@ function App() {
                 <strong id="close-choice-title">点击关闭按钮</strong>
               </div>
               <button className="modal-close-btn" type="button" aria-label="关闭" title="关闭" onClick={handleCancelClosePrompt}>
-                &times;
+                <X size={16} />
               </button>
             </header>
             <div className="close-choice-options" role="radiogroup" aria-label="关闭按钮行为">

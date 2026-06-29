@@ -1,5 +1,5 @@
 import {
-  Activity, Archive, Bot, Brain, Cpu, Monitor, Settings, Sparkles, Sun
+  Activity, Archive, Bot, Brain, Cpu, Monitor, Settings, Sparkles, Sun, X
 } from "lucide-react";
 import SettingsThemeTab from "./SettingsThemeTab";
 import SettingsMemoryTab from "./SettingsMemoryTab";
@@ -74,7 +74,9 @@ export default function SettingsModal({
             <Settings size={18} />
             <strong>系统设置</strong>
           </div>
-          <button className="modal-close-btn" onClick={() => setShowModelConfig(false)} aria-label="关闭" title="关闭">&times;</button>
+          <button className="modal-close-btn" onClick={() => setShowModelConfig(false)} aria-label="关闭" title="关闭">
+            <X size={16} />
+          </button>
         </header>
 
         <div className="settings-modal-layout">

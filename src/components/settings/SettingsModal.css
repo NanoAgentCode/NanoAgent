@@ -2,8 +2,8 @@
   display: flex; flex: 1; min-height: 0; overflow: hidden;
 }
 .settings-sidebar {
-  width: 220px; border-right: 1px solid var(--border-color);
-  background: var(--bg-sidebar); padding: 16px;
+  width: 180px; border-right: 1px solid var(--border-color);
+  background: var(--bg-sidebar); padding: 12px;
   display: flex; flex-direction: column; gap: 6px;
   overflow-y: auto; flex-shrink: 0;
 }

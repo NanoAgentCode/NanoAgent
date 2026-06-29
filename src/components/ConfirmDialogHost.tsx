@@ -85,7 +85,7 @@ export default function ConfirmDialogHost() {
   const tone = pending.kind === "info" ? "info" : "delete";
 
   return (
-    <div className="confirm-backdrop" onClick={() => close(false)}>
+    <div className="modal-backdrop confirm-backdrop" onClick={() => close(false)}>
       <section
         className={`confirm-dialog modal-shell modal-shell--${tone} confirm-dialog--${pending.kind}`}
         role="alertdialog"
@@ -99,7 +99,7 @@ export default function ConfirmDialogHost() {
             <Icon size={18} />
             <strong id="confirm-dialog-title">{copy.title}</strong>
           </div>
-          <button className="confirm-dialog-close" type="button" onClick={() => close(false)} aria-label="关闭" title="关闭">
+          <button className="modal-close-btn" type="button" onClick={() => close(false)} aria-label="关闭" title="关闭">
             <X size={16} />
           </button>
         </header>

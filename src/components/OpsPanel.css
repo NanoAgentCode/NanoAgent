@@ -411,30 +411,9 @@
   max-height: min(680px, calc(100vh - 48px));
 }
 
-.ops-config-dialog-header,
-.ops-config-dialog-footer {
-  padding: 12px 16px;
-}
-
-.ops-config-dialog-header > div {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-primary);
-}
-
-.ops-config-dialog-header svg {
-  color: var(--modal-tone);
-}
-
 .ops-config-dialog .ops-form-grid {
   overflow: auto;
   padding: 16px;
-}
-
-.ops-config-dialog-footer {
-  justify-content: flex-end;
-  gap: 10px;
 }
 
 .ops-dialog-actions .danger-btn {
