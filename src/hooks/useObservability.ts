@@ -15,8 +15,6 @@ export interface UseObservabilityReturn {
   setSelectedTraceId: React.Dispatch<React.SetStateAction<string>>;
   expandedObservabilityRows: string[];
   setExpandedObservabilityRows: React.Dispatch<React.SetStateAction<string[]>>;
-  agentRuntimeCollapsed: boolean;
-  setAgentRuntimeCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   traceTimelineCollapsed: boolean;
   setTraceTimelineCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
   isLoadingObservability: boolean;
@@ -41,7 +39,6 @@ export function useObservability(
   const [agentRunTimelines, setAgentRunTimelines] = useState<AgentRunTimeline[]>([]);
   const [selectedTraceId, setSelectedTraceId] = useState("");
   const [expandedObservabilityRows, setExpandedObservabilityRows] = useState<string[]>([]);
-  const [agentRuntimeCollapsed, setAgentRuntimeCollapsed] = useState(false);
   const [traceTimelineCollapsed, setTraceTimelineCollapsed] = useState(false);
   const [isLoadingObservability, setIsLoadingObservability] = useState(false);
   const [showChatRuntime, setShowChatRuntime] = useState(false);
@@ -149,8 +146,6 @@ export function useObservability(
     setSelectedTraceId,
     expandedObservabilityRows,
     setExpandedObservabilityRows,
-    agentRuntimeCollapsed,
-    setAgentRuntimeCollapsed,
     traceTimelineCollapsed,
     setTraceTimelineCollapsed,
     isLoadingObservability,

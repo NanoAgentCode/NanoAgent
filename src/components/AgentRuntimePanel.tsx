@@ -15,9 +15,7 @@ interface AgentRuntimePanelProps {
   activeConversationTitle?: string;
   timelines: AgentRunTimeline[];
   activeTimeline: AgentRunTimeline | null;
-  isCollapsed: boolean;
   expandedRows: string[];
-  onToggleCollapsed: () => void;
   onToggleRow: (rowId: string) => void;
 }
 
@@ -27,9 +25,7 @@ export default function AgentRuntimePanel({
   activeConversationTitle,
   timelines,
   activeTimeline,
-  isCollapsed,
   expandedRows,
-  onToggleCollapsed,
   onToggleRow
 }: AgentRuntimePanelProps) {
   const timelineEvents = activeTimeline ? buildAgentTimelineEvents(activeTimeline) : [];
@@ -54,23 +50,20 @@ export default function AgentRuntimePanel({
         flexShrink: 0
       }}
     >
-      <div className="observability-trace-summary clickable" onClick={onToggleCollapsed}>
+      <div className="agent-runtime-titlebar">
         <div>
-          <strong>Agent Runtime</strong>
-          <span>{activeConversationTitle || "当前会话"}</span>
+          <h2>Agent Runtime</h2>
+          <p>{activeConversationTitle || "当前会话"}</p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span>
-            {activeTimeline
-              ? `${timelines.length} runs · ${activeTimeline.run.status}`
-              : activeConversationId
-                ? "暂无运行记录"
-                : "未选择会话"}
-          </span>
-          {activeTimeline && (isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />)}
-        </div>
+        <span className="agent-runtime-title-meta">
+          {activeTimeline
+            ? `${timelines.length} runs · ${formatRuntimeStatus(activeTimeline.run.status)}`
+            : activeConversationId
+              ? "暂无运行记录"
+              : "未选择会话"}
+        </span>
       </div>
-      {activeTimeline && !isCollapsed ? (
+      {activeTimeline ? (
         <div className="agent-run-timeline">
           <div className={`agent-run-header ${activeTimeline.run.status}`}>
             <div>

@@ -183,9 +183,7 @@ export default function ChatPane({
           activeConversationTitle={activeConversation?.title}
           timelines={obs.agentRunTimelines}
           activeTimeline={obs.activeRunTimeline}
-          isCollapsed={obs.agentRuntimeCollapsed}
           expandedRows={obs.expandedObservabilityRows}
-          onToggleCollapsed={() => obs.setAgentRuntimeCollapsed(!obs.agentRuntimeCollapsed)}
           onToggleRow={obs.toggleTimelineRow}
         />
       )}
