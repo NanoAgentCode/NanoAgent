@@ -1857,6 +1857,8 @@ async fn run_project_command(
     let mut c = if cfg!(target_os = "windows") {
         let mut cmd = tokio::process::Command::new("powershell.exe");
         cmd.arg("-NoProfile").arg("-Command").arg(command);
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(0x08000000);
         cmd
     } else {
         let mut cmd = tokio::process::Command::new("sh");
