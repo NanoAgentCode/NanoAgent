@@ -104,6 +104,7 @@ export interface UseChatReturn {
   handleDeleteRagFile: (id: string) => Promise<void>;
   handleInputChange: (value: string, cursorIndex: number) => Promise<void>;
   handleChatInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  handleChatInputPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   insertPrompt: (item: Item) => void;
   loadArchivedPreview: (conversationId: string) => Promise<void>;
   resolveConversationModelId: (conversationId?: string | null) => string;
@@ -114,6 +115,13 @@ const IMAGE_ATTACHMENT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "bmp", "webp"
 function isSupportedImageAttachment(path: string) {
   const ext = path.split(".").pop()?.toLowerCase();
   return ext ? IMAGE_ATTACHMENT_EXTENSIONS.has(ext) : false;
+}
+
+function isSupportedImageAttachmentFile(file: File) {
+  if (isSupportedImageAttachment(file.name)) return true;
+  if (!file.type.startsWith("image/")) return false;
+  const subtype = file.type.slice("image/".length).toLowerCase();
+  return IMAGE_ATTACHMENT_EXTENSIONS.has(subtype);
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -669,7 +677,7 @@ export function useChat({
   }
 
   async function handleImageFiles(files: FileList | File[]) {
-    const selectedFiles = Array.from(files).filter((file) => isSupportedImageAttachment(file.name));
+    const selectedFiles = Array.from(files).filter(isSupportedImageAttachmentFile);
     if (selectedFiles.length === 0) {
       setNotice("OCR 图片仅支持 png、jpg、jpeg、bmp、webp、tif、tiff。");
       return 0;
@@ -683,7 +691,7 @@ export function useChat({
         const contentBase64 = await fileToBase64(file);
         const attachment = await saveChatImageAttachment({
           project_path: projectPath,
-          file_name: file.name,
+          file_name: file.name || "pasted-image.png",
           content_base64: contentBase64,
           source_path: null
         });
@@ -730,7 +738,7 @@ export function useChat({
   // ── RAG file handlers (need context from useChat state) ──
   async function handleRagFiles(files: FileList | File[]) {
     const fileList = Array.from(files);
-    const imageFiles = fileList.filter((file) => isSupportedImageAttachment(file.name));
+    const imageFiles = fileList.filter(isSupportedImageAttachmentFile);
     const selectedFiles = fileList.filter((file) => isSupportedRagFile(file.name));
     let imageCount = 0;
     if (imageFiles.length > 0) {
@@ -839,6 +847,14 @@ export function useChat({
     }
   }
 
+  function handleChatInputPaste(event: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const pastedFiles = Array.from(event.clipboardData.files || []);
+    if (pastedFiles.length === 0) return;
+
+    event.preventDefault();
+    void handleRagFiles(pastedFiles);
+  }
+
   // ── Compose return value ──
   return {
     // Conversations
@@ -918,6 +934,7 @@ export function useChat({
     // Input handlers
     handleInputChange: input.handleInputChange,
     handleChatInputKeyDown,
+    handleChatInputPaste,
     insertPrompt: input.insertPrompt
   };
 }

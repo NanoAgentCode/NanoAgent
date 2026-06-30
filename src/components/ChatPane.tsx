@@ -34,6 +34,7 @@ interface ChatPaneProps {
   handleRejectTool: (messageId: string, toolCall: ParsedToolCall) => Promise<void>;
   handleInputChange: (value: string, cursorIndex: number) => Promise<void>;
   handleChatInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  handleChatInputPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   handleImageFiles: (files: FileList | File[]) => Promise<number>;
   insertPrompt: (item: Item) => void;
   handleDeleteRagFile: (id: string) => Promise<void>;
@@ -65,6 +66,7 @@ export default function ChatPane({
   handleRejectTool,
   handleInputChange,
   handleChatInputKeyDown,
+  handleChatInputPaste,
   handleImageFiles,
   insertPrompt,
   handleDeleteRagFile,
@@ -315,7 +317,9 @@ export default function ChatPane({
         <textarea
           value={chatInput}
           onChange={(event) => void handleInputChange(event.target.value, event.target.selectionStart)}
+          onContextMenu={(event) => event.preventDefault()}
           onKeyDown={handleChatInputKeyDown}
+          onPaste={handleChatInputPaste}
           placeholder="问点什么，或者梳理当前的思绪..."
         />
         <input

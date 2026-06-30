@@ -142,6 +142,7 @@ function App() {
     handleDeleteRagFile,
     handleInputChange,
     handleChatInputKeyDown,
+    handleChatInputPaste,
     insertPrompt,
     loadArchivedPreview
   } = chat;
@@ -726,6 +727,7 @@ function App() {
           handleRejectTool={handleRejectTool}
           handleInputChange={handleInputChange}
           handleChatInputKeyDown={handleChatInputKeyDown}
+          handleChatInputPaste={handleChatInputPaste}
           handleImageFiles={handleImageFiles}
           insertPrompt={insertPrompt}
           handleDeleteRagFile={handleDeleteRagFile}
