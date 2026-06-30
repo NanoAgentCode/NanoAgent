@@ -3,28 +3,45 @@
   background: var(--bg-editor);
 }
 .agent-run-timeline {
-  max-height: 320px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 14px 18px 16px;
+  max-height: 360px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px 10px;
 }
 .agent-run-header {
   display: grid; grid-template-columns: minmax(0,1fr) auto;
-  gap: 8px 14px; padding: 12px;
+  gap: 4px 10px; padding: 8px 10px;
   border: 1px solid var(--border-color);
-  border-radius: 8px; background: var(--bg-card);
+  border-radius: 6px; background: var(--bg-card);
+  align-items: center;
 }
-.agent-run-header.awaiting_tool,
+.agent-run-header.completed {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+}
+.agent-run-header.running {
+  border-color: rgba(14, 165, 233, 0.35);
+  background: rgba(14, 165, 233, 0.12);
+}
+.agent-run-header.awaiting_tool {
+  border-color: rgba(245, 158, 11, 0.38);
+  background: rgba(245, 158, 11, 0.14);
+}
+.agent-run-header.failed,
+.agent-run-header.rejected,
+.agent-run-header.cancelled {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.12);
+}
 .agent-timeline-row.pending_approval,
 .agent-timeline-row.approved {
   border-color: var(--accent-cyan); background: var(--option-bg-selected);
 }
-.agent-run-header.failed,
 .agent-timeline-row.failed,
 .agent-timeline-row.rejected {
   border-color: var(--control-danger-border); background: var(--control-danger-soft-bg);
 }
 .agent-timeline-row {
-  border: 1px solid var(--border-color); border-radius: 8px;
+  border: 1px solid var(--border-color); border-radius: 6px;
   background: var(--bg-card); overflow: hidden; flex-shrink: 0;
 }
 .agent-run-header strong, .agent-run-header span, .agent-run-header small,
@@ -35,18 +52,76 @@
 .timeline-row-copy small, .agent-timeline-meta {
   color: var(--text-secondary); font-size: var(--font-size-xs);
 }
+.agent-run-header strong,
+.timeline-row-copy strong {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: 1.25;
+}
+.agent-run-header span,
+.timeline-row-copy small {
+  line-height: 1.2;
+}
 .timeline-row-toggle {
-  width: 100%; min-height: 58px;
-  display: flex; align-items: center; gap: 12px;
-  padding: 12px 14px; border: 0; background: transparent;
+  width: 100%; min-height: 40px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 9px; border: 0; background: transparent;
   color: var(--text-primary); text-align: left;
 }
 .timeline-row-toggle:hover { background: var(--bg-pane); }
 .timeline-row-copy { flex: 1; min-width: 0; }
-.agent-timeline-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; white-space: nowrap; }
-.timeline-row-detail { padding: 0 14px 14px 14px; }
+.agent-timeline-meta {
+  display: flex; flex-direction: row; align-items: center; gap: 6px;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.timeline-row-detail { padding: 0 8px 8px 8px; }
 .timeline-row-detail pre {
-  margin: 0; padding: 10px; border-radius: 6px; background: var(--bg-pane);
+  margin: 0; padding: 8px; border-radius: 5px; background: var(--bg-pane);
   color: var(--text-secondary); font-family: var(--font-mono);
   font-size: var(--font-size-xs); white-space: pre-wrap; word-break: break-word;
+}
+.agent-runtime-panel .observability-trace-summary {
+  padding: 8px 10px;
+  min-height: 42px;
+}
+.agent-runtime-panel .observability-trace-summary > div:first-child {
+  min-width: 0;
+}
+.agent-runtime-panel .observability-trace-summary strong {
+  font-size: var(--font-size-sm);
+  font-weight: 400;
+  line-height: 1.2;
+}
+.agent-runtime-panel .observability-trace-summary span {
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+}
+.agent-runtime-panel .observability-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+}
+.agent-runtime-panel .trace-detail-panel {
+  gap: 6px;
+  margin-top: 6px;
+}
+.agent-runtime-panel .trace-detail-section {
+  border-radius: 6px;
+}
+.agent-runtime-panel .trace-detail-section-header {
+  padding: 5px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+}
+.agent-runtime-panel .trace-detail-section-icon {
+  font-size: var(--font-size-sm);
+}
+.agent-runtime-panel .trace-detail-copy-btn {
+  padding: 1px 6px;
+}
+.agent-runtime-panel .trace-detail-section-body {
+  padding: 7px 8px;
+}
+.agent-runtime-panel .trace-detail-section-body pre {
+  line-height: 1.35 !important;
 }

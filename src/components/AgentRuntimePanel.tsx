@@ -42,9 +42,9 @@ export default function AgentRuntimePanel({
         position: "absolute",
         top: "56px",
         right: "20px",
-        width: "480px",
+        width: "420px",
         maxWidth: "calc(100% - 40px)",
-        maxHeight: "calc(100% - 100px)",
+        maxHeight: "calc(100% - 84px)",
         overflowY: "auto",
         zIndex: 100,
         background: "var(--bg-card)",
@@ -77,7 +77,7 @@ export default function AgentRuntimePanel({
               <strong>{formatAgentRunTitle(activeTimeline.run)}</strong>
               <span>{activeTimeline.run.id}</span>
             </div>
-            <small>{new Date(activeTimeline.run.created_at).toLocaleString()}</small>
+            <small>{formatShortTime(activeTimeline.run.created_at)}</small>
           </div>
           {timelineEvents.map((event) => {
             const rowId = `runtime-${event.id}`;
