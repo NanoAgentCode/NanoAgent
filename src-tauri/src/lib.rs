@@ -26,12 +26,12 @@ use error::AppResult;
 use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
 use mcp::{McpClientManager, McpServerView, McpToolCallRequest, McpToolCallResult, McpToolInfo};
 use models::{
-    ChatImageAttachment, ChatImageAttachmentPreview, ChatImageAttachmentRequest, ChatMessage, ChatRequest, ChatResponse,
-    ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory,
-    MemoryDraft, MemoryPatch, Message, MessageDraft, McpServerConfig, McpServerDraft,
-    ModelConfig, ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
-    ProjectFileWriteRequest, OpsAiRequest, OpsServer, OpsServerDraft, OpsUploadRequest,
-    RagChunkMatch, RagFile, RagFileDraft,
+    ChatImageAttachment, ChatImageAttachmentPreview, ChatImageAttachmentRequest, ChatMessage,
+    ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
+    ItemPatch, McpServerConfig, McpServerDraft, Memory, MemoryDraft, MemoryPatch, Message,
+    MessageDraft, ModelConfig, ModelConfigDraft, OpsAiRequest, OpsServer, OpsServerDraft,
+    OpsUploadRequest, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
+    ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -40,9 +40,7 @@ use runtime::{
     AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
     AgentToolCallDraft, RuntimeStore,
 };
-use skills::{
-    sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill,
-};
+use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -273,7 +271,10 @@ async fn list_mcp_servers(state: State<'_, AppState>) -> AppResult<Vec<McpServer
         format!(
             "servers={} connected={}",
             servers.len(),
-            servers.iter().filter(|server| server.status.connected).count()
+            servers
+                .iter()
+                .filter(|server| server.status.connected)
+                .count()
         )
     });
     finish_observation(&state, span, &result, output).await;
@@ -413,7 +414,11 @@ async fn call_mcp_tool(
         "mcp",
         Some("mcp_tool"),
         Some(format!("{}:{}", request.server_id, request.tool_name)),
-        Some(format!("tool={} args_chars={}", request.tool_name, request.arguments_json.chars().count())),
+        Some(format!(
+            "tool={} args_chars={}",
+            request.tool_name,
+            request.arguments_json.chars().count()
+        )),
         serde_json::json!({
             "server_id": request.server_id.clone(),
             "tool_name": request.tool_name.clone(),
@@ -629,7 +634,12 @@ fn emit_ops_ssh_event(app: &AppHandle, session_id: &str, kind: &str, data: impl 
     );
 }
 
-fn spawn_ops_ssh_shell(app: AppHandle, server: OpsServer, session_id: String, rx: mpsc::Receiver<OpsSshControl>) {
+fn spawn_ops_ssh_shell(
+    app: AppHandle,
+    server: OpsServer,
+    session_id: String,
+    rx: mpsc::Receiver<OpsSshControl>,
+) {
     thread::spawn(move || {
         let result = (|| -> AppResult<()> {
             let session = connect_ops_ssh2_session(&server)?;
@@ -643,7 +653,10 @@ fn spawn_ops_ssh_shell(app: AppHandle, server: OpsServer, session_id: String, rx
                 &app,
                 &session_id,
                 "ready",
-                format!("已连接 {}@{}:{}\r\n", server.username, server.host, server.port),
+                format!(
+                    "已连接 {}@{}:{}\r\n",
+                    server.username, server.host, server.port
+                ),
             );
 
             let mut buffer = [0_u8; 4096];
@@ -723,7 +736,11 @@ fn run_ops_password_command(server: &OpsServer, remote_command: &str) -> AppResu
     }
 }
 
-fn resolve_ops_remote_upload_path(server: &OpsServer, requested: &str, local_path: &std::path::Path) -> String {
+fn resolve_ops_remote_upload_path(
+    server: &OpsServer,
+    requested: &str,
+    local_path: &std::path::Path,
+) -> String {
     let file_name = local_path
         .file_name()
         .and_then(|name| name.to_str())
@@ -743,7 +760,11 @@ fn resolve_ops_remote_upload_path(server: &OpsServer, requested: &str, local_pat
     base.to_string()
 }
 
-fn upload_ops_password_file(server: &OpsServer, local_path: &std::path::Path, remote_path: &str) -> AppResult<String> {
+fn upload_ops_password_file(
+    server: &OpsServer,
+    local_path: &std::path::Path,
+    remote_path: &str,
+) -> AppResult<String> {
     let session = connect_ops_password_session(server)?;
     let sftp = session.sftp().map_err(ssh2_error)?;
     let resolved_remote_path = resolve_ops_remote_upload_path(server, remote_path, local_path);
@@ -753,7 +774,10 @@ fn upload_ops_password_file(server: &OpsServer, local_path: &std::path::Path, re
         .map_err(ssh2_error)?;
     let bytes = std::io::copy(&mut local_file, &mut remote_file)?;
     remote_file.flush()?;
-    Ok(format!("上传完成：{} 字节 -> {}", bytes, resolved_remote_path))
+    Ok(format!(
+        "上传完成：{} 字节 -> {}",
+        bytes, resolved_remote_path
+    ))
 }
 
 #[tauri::command]
@@ -768,7 +792,10 @@ async fn test_ops_ssh_connection(
         "tool",
         Some("ops_server"),
         Some(server.id.clone()),
-        Some(format!("{}@{}:{}", server.username, server.host, server.port)),
+        Some(format!(
+            "{}@{}:{}",
+            server.username, server.host, server.port
+        )),
         serde_json::json!({ "auth_method": server.auth_method }),
         Some(server.id.clone()),
     )
@@ -781,9 +808,7 @@ async fn test_ops_ssh_connection(
 
         let mut command = std::process::Command::new("ssh");
         add_ops_ssh_args(&mut command, &server)?;
-        command
-            .arg(ops_ssh_target(&server))
-            .arg(remote_command);
+        command.arg(ops_ssh_target(&server)).arg(remote_command);
         run_ops_command(command)
     })();
     let summary = result
@@ -806,7 +831,10 @@ async fn upload_ops_file(
         "tool",
         Some("ops_server"),
         Some(server.id.clone()),
-        Some(format!("local_path_chars={}", request.local_path.chars().count())),
+        Some(format!(
+            "local_path_chars={}",
+            request.local_path.chars().count()
+        )),
         serde_json::json!({ "remote_path": request.remote_path.clone() }),
         Some(server.id.clone()),
     )
@@ -854,7 +882,8 @@ async fn upload_ops_file(
             }
             "password" => {
                 return Err(crate::error::AppError::Message(
-                    "当前版本不保存或注入明文密码。请改用 SSH Agent、密钥路径，或本机 SSH 配置。".to_string(),
+                    "当前版本不保存或注入明文密码。请改用 SSH Agent、密钥路径，或本机 SSH 配置。"
+                        .to_string(),
                 ));
             }
             _ => {}
@@ -910,7 +939,10 @@ async fn start_ops_ssh_session(
         "tool",
         Some("ops_server"),
         Some(server.id.clone()),
-        Some(format!("{}@{}:{}", server.username, server.host, server.port)),
+        Some(format!(
+            "{}@{}:{}",
+            server.username, server.host, server.port
+        )),
         serde_json::json!({ "auth_method": server.auth_method }),
         Some(server.id.clone()),
     )
@@ -959,10 +991,7 @@ async fn send_ops_ssh_input(
 }
 
 #[tauri::command]
-async fn stop_ops_ssh_session(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> AppResult<()> {
+async fn stop_ops_ssh_session(state: State<'_, AppState>, session_id: String) -> AppResult<()> {
     if let Some(handle) = state.ops_ssh_sessions.lock().await.remove(&session_id) {
         let _ = handle.input.send(OpsSshControl::Close);
     }
@@ -970,10 +999,7 @@ async fn stop_ops_ssh_session(
 }
 
 #[tauri::command]
-async fn ask_ops_ai(
-    state: State<'_, AppState>,
-    request: OpsAiRequest,
-) -> AppResult<ChatResponse> {
+async fn ask_ops_ai(state: State<'_, AppState>, request: OpsAiRequest) -> AppResult<ChatResponse> {
     let server = state.db.lock().await.get_ops_server(&request.server_id)?;
     let config = state
         .db
@@ -982,7 +1008,9 @@ async fn ask_ops_ai(
         .get_model_config(&request.model_config_id)?;
     let prompt = request.prompt.trim().to_string();
     if prompt.is_empty() {
-        return Err(crate::error::AppError::Message("请输入运维问题".to_string()));
+        return Err(crate::error::AppError::Message(
+            "请输入运维问题".to_string(),
+        ));
     }
 
     let chat_request = ChatRequest {
@@ -1352,6 +1380,18 @@ async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<()> 
 #[tauri::command]
 async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
     fetch_anthropic_skills().await
+}
+
+#[tauri::command]
+async fn sync_github_skills(
+    repo: String,
+    path: String,
+    ref_name: String,
+    provider: String,
+    github_token: Option<String>,
+) -> AppResult<Vec<GitHubSkill>> {
+    skills::sync_custom_github_skills(&repo, &path, &ref_name, &provider, github_token.as_deref())
+        .await
 }
 
 #[tauri::command]
@@ -1738,10 +1778,9 @@ async fn execute_registered_tool(
         }
         name if name.starts_with("mcp__") => {
             let (server_id, tool_name) = parse_mcp_tool_name(name)?;
-            let arguments_json = args
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string()));
+            let arguments_json = args.get("arguments").cloned().unwrap_or_else(|| {
+                serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string())
+            });
             let span = start_observation(
                 state,
                 "mcp.agent.tool.call",
@@ -1795,11 +1834,13 @@ async fn execute_registered_tool(
 }
 
 fn parse_mcp_tool_name(name: &str) -> AppResult<(String, String)> {
-    let rest = name.strip_prefix("mcp__").ok_or_else(|| {
-        crate::error::AppError::Message("invalid mcp tool name".to_string())
-    })?;
+    let rest = name
+        .strip_prefix("mcp__")
+        .ok_or_else(|| crate::error::AppError::Message("invalid mcp tool name".to_string()))?;
     let (server_id, tool_name) = rest.split_once("__").ok_or_else(|| {
-        crate::error::AppError::Message("mcp tool name must be mcp__server_id__tool_name".to_string())
+        crate::error::AppError::Message(
+            "mcp tool name must be mcp__server_id__tool_name".to_string(),
+        )
     })?;
     if server_id.trim().is_empty() || tool_name.trim().is_empty() {
         return Err(crate::error::AppError::Message(
@@ -1990,7 +2031,11 @@ fn is_supported_ocr_image(path: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
-fn run_paddle_ocr(project_path: &str, relative_path: &str, output_format: &str) -> AppResult<String> {
+fn run_paddle_ocr(
+    project_path: &str,
+    relative_path: &str,
+    output_format: &str,
+) -> AppResult<String> {
     const MAX_OCR_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
     const OCR_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -2143,12 +2188,17 @@ fn run_paddleocr_with_timeout(
 
     let started_at = std::time::Instant::now();
     loop {
-        if let Some(status) = child.try_wait().map_err(|err| {
-            crate::error::AppError::Message(format!("等待 PaddleOCR 失败：{err}"))
-        })? {
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|err| crate::error::AppError::Message(format!("等待 PaddleOCR 失败：{err}")))?
+        {
             let stdout = stdout_handle.join().unwrap_or_default();
             let stderr = stderr_handle.join().unwrap_or_default();
-            return Ok(std::process::Output { status, stdout, stderr });
+            return Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            });
         }
 
         if started_at.elapsed() >= timeout {
@@ -2180,7 +2230,9 @@ fn extract_paddleocr_text(output: &str) -> String {
         let Some(list_start_relative) = output[marker_index..].find('[') else {
             break;
         };
-        let mut chars = output[marker_index + list_start_relative + 1..].chars().peekable();
+        let mut chars = output[marker_index + list_start_relative + 1..]
+            .chars()
+            .peekable();
         while let Some(ch) = chars.next() {
             if ch == ']' {
                 break;
@@ -2389,7 +2441,11 @@ fn paddleocr_from_windows_user_scripts() -> Option<String> {
         roots.push(std::path::PathBuf::from(appdata).join("Python"));
     }
     if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
-        roots.push(std::path::PathBuf::from(localappdata).join("Programs").join("Python"));
+        roots.push(
+            std::path::PathBuf::from(localappdata)
+                .join("Programs")
+                .join("Python"),
+        );
     }
 
     for root in roots {
@@ -2457,7 +2513,14 @@ fn install_paddleocr() -> AppResult<bool> {
 
     run_install_command(
         python_cmd,
-        &["-m", "pip", "install", "--user", "paddleocr", "paddlepaddle"],
+        &[
+            "-m",
+            "pip",
+            "install",
+            "--user",
+            "paddleocr",
+            "paddlepaddle",
+        ],
     )
 }
 
@@ -2695,7 +2758,11 @@ async fn save_chat_image_attachment(
         ));
     }
 
-    let bytes = if let Some(source_path) = request.source_path.as_deref().filter(|value| !value.trim().is_empty()) {
+    let bytes = if let Some(source_path) = request
+        .source_path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         let source = std::path::PathBuf::from(source_path);
         let metadata = std::fs::metadata(&source).map_err(|err| {
             crate::error::AppError::Message(format!("读取图片文件信息失败: {err}"))
@@ -2718,9 +2785,10 @@ async fn save_chat_image_attachment(
         std::fs::read(&source)
             .map_err(|err| crate::error::AppError::Message(format!("读取图片失败: {err}")))?
     } else {
-        let content_base64 = request.content_base64.as_deref().ok_or_else(|| {
-            crate::error::AppError::Message("图片内容不能为空".to_string())
-        })?;
+        let content_base64 = request
+            .content_base64
+            .as_deref()
+            .ok_or_else(|| crate::error::AppError::Message("图片内容不能为空".to_string()))?;
         let data = content_base64
             .split_once(',')
             .map(|(_, data)| data)
@@ -2751,7 +2819,11 @@ async fn save_chat_image_attachment(
 }
 
 fn image_mime_from_path(path: &std::path::Path) -> &'static str {
-    match path.extension().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase()) {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+    {
         Some(ext) if ext == "jpg" || ext == "jpeg" => "image/jpeg",
         Some(ext) if ext == "bmp" => "image/bmp",
         Some(ext) if ext == "webp" => "image/webp",
@@ -2799,7 +2871,11 @@ async fn read_chat_image_attachment(
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(ChatImageAttachmentPreview {
         relative_path: normalized,
-        data_url: format!("data:{};base64,{}", image_mime_from_path(&file_path), encoded),
+        data_url: format!(
+            "data:{};base64,{}",
+            image_mime_from_path(&file_path),
+            encoded
+        ),
     })
 }
 
@@ -3059,10 +3135,9 @@ fn rag_content_hash(name: &str, content: &str) -> String {
 }
 
 fn app_settings_path(app: &AppHandle) -> AppResult<std::path::PathBuf> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|err| crate::error::AppError::Message(format!("failed to resolve app data directory: {err}")))?;
+    let data_dir = app.path().app_data_dir().map_err(|err| {
+        crate::error::AppError::Message(format!("failed to resolve app data directory: {err}"))
+    })?;
     std::fs::create_dir_all(&data_dir)?;
     Ok(data_dir.join("settings.json"))
 }
@@ -3269,14 +3344,19 @@ struct AbsoluteFileContent {
 fn extract_doc_binary_text(data: &[u8]) -> String {
     let mut text = String::new();
     let mut i = 0;
-    
+
     while i < data.len() {
         // Try UTF-16 LE sequence (Common in Windows legacy Word files)
         let mut utf16_chars = Vec::new();
         let mut j = i;
         while j + 1 < data.len() {
             let u = u16::from_le_bytes([data[j], data[j + 1]]);
-            if (u >= 0x20 && u <= 0x7E) || u == 0x0A || u == 0x0D || u == 0x09 || (u >= 0x4E00 && u <= 0x9FFF) {
+            if (u >= 0x20 && u <= 0x7E)
+                || u == 0x0A
+                || u == 0x0D
+                || u == 0x09
+                || (u >= 0x4E00 && u <= 0x9FFF)
+            {
                 utf16_chars.push(u);
                 j += 2;
             } else {
@@ -3291,7 +3371,7 @@ fn extract_doc_binary_text(data: &[u8]) -> String {
                 continue;
             }
         }
-        
+
         // Try ASCII sequence
         let mut ascii_chars = Vec::new();
         let mut j = i;
@@ -3312,10 +3392,10 @@ fn extract_doc_binary_text(data: &[u8]) -> String {
                 continue;
             }
         }
-        
+
         i += 1;
     }
-    
+
     // Clean up multiple spaces/newlines
     let mut cleaned = String::new();
     let mut prev_space = false;
@@ -3350,7 +3430,8 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
             let doc = pdf_oxide::PdfDocument::open(path)
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
             let mut text = String::new();
-            let num_pages = doc.page_count()
+            let num_pages = doc
+                .page_count()
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
             for i in 0..num_pages {
                 if let Ok(page_text) = doc.extract_text(i) {
@@ -3364,12 +3445,13 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
             let file = std::fs::File::open(path)?;
             let mut archive = zip::ZipArchive::new(file)
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            let mut doc_file = archive.by_name("word/document.xml")
+            let mut doc_file = archive
+                .by_name("word/document.xml")
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
             let mut xml_content = String::new();
             use std::io::Read;
             doc_file.read_to_string(&mut xml_content)?;
-            
+
             let mut text = String::new();
             let mut pos = 0;
             while let Some(start) = xml_content[pos..].find("<w:t") {
@@ -3395,7 +3477,7 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
             let mut archive = zip::ZipArchive::new(file)
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
             let mut text = String::new();
-            
+
             let mut slide_names = Vec::new();
             for i in 0..archive.len() {
                 if let Ok(archive_file) = archive.by_index(i) {
@@ -3440,15 +3522,15 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
             Ok(text.trim().to_string())
         }
         "xlsx" => {
-            use calamine::{Reader, Data};
+            use calamine::{Data, Reader};
             let mut excel = calamine::open_workbook_auto(path)
                 .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
             let mut markdown = String::new();
-            
+
             for sheet_name in excel.sheet_names().to_owned() {
                 if let Ok(range) = excel.worksheet_range(&sheet_name) {
                     markdown.push_str(&format!("## Sheet: {}\n\n", sheet_name));
-                    
+
                     for (row_idx, row) in range.rows().enumerate() {
                         markdown.push('|');
                         for cell in row {
@@ -3466,7 +3548,7 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
                             markdown.push_str(&format!(" {} |", escaped));
                         }
                         markdown.push('\n');
-                        
+
                         if row_idx == 0 {
                             markdown.push('|');
                             for _ in row {
@@ -3480,9 +3562,7 @@ fn extract_text_from_file(path: &str) -> AppResult<String> {
             }
             Ok(markdown.trim().to_string())
         }
-        _ => {
-            Ok(std::fs::read_to_string(path)?)
-        }
+        _ => Ok(std::fs::read_to_string(path)?),
     }
 }
 
@@ -3526,7 +3606,11 @@ async fn read_absolute_file(
         let size = metadata.len();
         let content = extract_text_from_file(&path)?;
 
-        Ok(AbsoluteFileContent { name, size, content })
+        Ok(AbsoluteFileContent {
+            name,
+            size,
+            content,
+        })
     })();
     let summary = result
         .as_ref()
@@ -3535,7 +3619,6 @@ async fn read_absolute_file(
     finish_observation(&state, span, &result, summary).await;
     result
 }
-
 
 #[tauri::command]
 async fn list_observability_spans(
@@ -3770,6 +3853,7 @@ pub fn run() {
             update_memory,
             delete_memory,
             sync_anthropic_skills,
+            sync_github_skills,
             list_local_skills,
             get_tavily_api_key,
             save_tavily_api_key,

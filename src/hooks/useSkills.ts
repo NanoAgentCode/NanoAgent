@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
-import { listLocalSkills } from "../api";
+import { listLocalSkills, syncGitHubSkills } from "../api";
+import type { GitHubSkill } from "../types";
 import {
   defaultSkills,
   isBuiltInSkill,
@@ -31,10 +32,110 @@ export interface UseSkillsReturn {
   }>>;
   skillsDir: string;
   tempDir: string;
+  githubSourceDraft: {
+    id: string;
+    name: string;
+    repo: string;
+    path: string;
+    refName: string;
+    provider: string;
+    githubToken: string;
+  };
+  setGithubSourceDraft: React.Dispatch<React.SetStateAction<{
+    id: string;
+    name: string;
+    repo: string;
+    path: string;
+    refName: string;
+    provider: string;
+    githubToken: string;
+  }>>;
+  githubSkillSources: GitHubSkillSource[];
+  selectedGitHubSourceId: string;
+  sourceSkillPreview: {
+    sourceId: string;
+    sourceName: string;
+    skills: GitHubSkill[];
+    isLoading: boolean;
+    error: string;
+  } | null;
+  handleSelectGitHubSource: (id: string) => void;
+  handlePreviewGitHubSourceSkills: (id: string) => Promise<void>;
+  handleNewGitHubSource: () => void;
+  handleSaveGitHubSource: () => void;
+  handleDeleteGitHubSource: () => Promise<void>;
+  isSyncingGitHubSkills: boolean;
   checkLocalSkills: () => Promise<void>;
+  handleSyncGitHubSkills: () => Promise<void>;
   handleToggleSkill: (id: string, enabled: boolean) => void;
   handleDeleteSkill: (id: string) => Promise<void>;
   handleSaveNewSkill: () => void;
+}
+
+const GITHUB_SKILLS_SOURCE_KEY = "nano-agent-github-skills-source";
+const GITHUB_SKILLS_SOURCES_KEY = "nano-agent-github-skills-sources";
+
+interface GitHubSkillSource {
+  id: string;
+  name: string;
+  repo: string;
+  path: string;
+  refName: string;
+  provider: string;
+  githubToken: string;
+}
+
+function createDefaultGitHubSource(): GitHubSkillSource {
+  return {
+    id: "nanoagentcode-skills-manager-main-root",
+    name: "NanoAgentCode skills-manager",
+    repo: "NanoAgentCode/skills-manager",
+    path: "",
+    refName: "main",
+    provider: "NanoAgentCode",
+    githubToken: ""
+  };
+}
+
+function createGitHubSkillId(provider: string, slug: string) {
+  const prefix = provider.trim() || "github";
+  return `github_${prefix}_${slug}`
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function createGitHubSourceId(repo: string, path: string, refName: string) {
+  return `${repo}_${path || "root"}_${refName}`
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function normalizeGitHubSource(source: Partial<GitHubSkillSource>): GitHubSkillSource {
+  const repo = (source.repo || "").trim().replace(/^https:\/\/github\.com\//, "").replace(/\/$/, "");
+  const path = (source.path || "").trim().replace(/^\/+|\/+$/g, "");
+  const refName = (source.refName || "main").trim() || "main";
+  const provider = (source.provider || "GitHub").trim() || "GitHub";
+  const githubToken = (source.githubToken || "").trim();
+  const id = source.id || createGitHubSourceId(repo, path, refName);
+  return {
+    id,
+    name: (source.name || repo || "GitHub Skills").trim(),
+    repo,
+    path,
+    refName,
+    provider,
+    githubToken
+  };
+}
+
+function sourceToDraft(source: GitHubSkillSource) {
+  return {
+    ...source
+  };
 }
 
 export function useSkills(setNotice: (message: string) => void): UseSkillsReturn {
@@ -54,6 +155,36 @@ export function useSkills(setNotice: (message: string) => void): UseSkillsReturn
     description: "",
     docUrl: ""
   });
+  const [githubSkillSources, setGithubSkillSources] = useState<GitHubSkillSource[]>(() => {
+    const savedSources = localStorage.getItem(GITHUB_SKILLS_SOURCES_KEY);
+    if (savedSources) {
+      try {
+        const parsed = JSON.parse(savedSources) as Partial<GitHubSkillSource>[];
+        const sources = parsed.map(normalizeGitHubSource).filter((source) => source.repo);
+        if (sources.length > 0) return sources;
+      } catch (e) {
+        console.error("Failed to parse GitHub skills sources from localStorage", e);
+      }
+    }
+
+    const savedSingleSource = localStorage.getItem(GITHUB_SKILLS_SOURCE_KEY);
+    if (savedSingleSource) {
+      try {
+        const source = normalizeGitHubSource(JSON.parse(savedSingleSource) as Partial<GitHubSkillSource>);
+        if (source.repo) return [source];
+      } catch (e) {
+        console.error("Failed to parse GitHub skills source from localStorage", e);
+      }
+    }
+
+    return [createDefaultGitHubSource()];
+  });
+  const [selectedGitHubSourceId, setSelectedGitHubSourceId] = useState(() => githubSkillSources[0]?.id || "");
+  const [githubSourceDraft, setGithubSourceDraft] = useState(() =>
+    sourceToDraft(githubSkillSources[0] || createDefaultGitHubSource())
+  );
+  const [isSyncingGitHubSkills, setIsSyncingGitHubSkills] = useState(false);
+  const [sourceSkillPreview, setSourceSkillPreview] = useState<UseSkillsReturn["sourceSkillPreview"]>(null);
 
   const [skills, setSkills] = useState<Skill[]>(() => {
     const saved = localStorage.getItem("nano-agent-skills");
@@ -157,6 +288,166 @@ export function useSkills(setNotice: (message: string) => void): UseSkillsReturn
     }
   }
 
+  function persistGitHubSources(sources: GitHubSkillSource[]) {
+    localStorage.setItem(GITHUB_SKILLS_SOURCES_KEY, JSON.stringify(sources));
+  }
+
+  function handleSelectGitHubSource(id: string) {
+    const source = githubSkillSources.find((item) => item.id === id);
+    if (!source) return;
+    setSelectedGitHubSourceId(id);
+    setGithubSourceDraft(sourceToDraft(source));
+  }
+
+  async function handlePreviewGitHubSourceSkills(id: string) {
+    const source = githubSkillSources.find((item) => item.id === id);
+    if (!source) return;
+    const draftToken = id === selectedGitHubSourceId ? githubSourceDraft.githubToken.trim() : "";
+    const githubToken = draftToken || source.githubToken.trim();
+    setSelectedGitHubSourceId(id);
+    setGithubSourceDraft(sourceToDraft({ ...source, githubToken }));
+    setSourceSkillPreview({
+      sourceId: id,
+      sourceName: source.name,
+      skills: [],
+      isLoading: true,
+      error: ""
+    });
+
+    try {
+      const skills = await syncGitHubSkills(
+        source.repo,
+        source.path,
+        source.refName,
+        source.provider,
+        githubToken
+      );
+      setSourceSkillPreview({
+        sourceId: id,
+        sourceName: source.name,
+        skills,
+        isLoading: false,
+        error: ""
+      });
+      if (skills.length === 0) {
+        setNotice("当前源未找到包含 SKILL.md 的技能。");
+      }
+    } catch (error) {
+      console.error("Failed to preview GitHub skills:", error);
+      setSourceSkillPreview({
+        sourceId: id,
+        sourceName: source.name,
+        skills: [],
+        isLoading: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  function handleNewGitHubSource() {
+    setSelectedGitHubSourceId("");
+    setGithubSourceDraft({
+      id: "",
+      name: "",
+      repo: "",
+      path: "",
+      refName: "main",
+      provider: "GitHub",
+      githubToken: ""
+    });
+  }
+
+  function upsertGitHubSourceFromDraft() {
+    const source = normalizeGitHubSource(githubSourceDraft);
+    if (!source.repo || source.repo.split("/").length !== 2) {
+      setNotice("请填写 GitHub 仓库，格式为 owner/repo。");
+      return null;
+    }
+    const nextSources = [
+      source,
+      ...githubSkillSources.filter((item) => item.id !== source.id)
+    ];
+    setGithubSkillSources(nextSources);
+    persistGitHubSources(nextSources);
+    setSelectedGitHubSourceId(source.id);
+    setGithubSourceDraft(sourceToDraft(source));
+    return source;
+  }
+
+  function handleSaveGitHubSource() {
+    const source = upsertGitHubSourceFromDraft();
+    if (source) {
+      setNotice("Skills 源已保存。");
+    }
+  }
+
+  async function handleDeleteGitHubSource() {
+    if (!selectedGitHubSourceId) {
+      setNotice("请选择要删除的 Skills 源。");
+      return;
+    }
+    if (!(await confirmAction("确定要删除该 Skills 源吗？已同步的技能不会被删除。"))) {
+      return;
+    }
+    const nextSources = githubSkillSources.filter((source) => source.id !== selectedGitHubSourceId);
+    const fallbackSource = nextSources[0] || createDefaultGitHubSource();
+    const persistedSources = nextSources.length > 0 ? nextSources : [fallbackSource];
+    setGithubSkillSources(persistedSources);
+    persistGitHubSources(persistedSources);
+    setSelectedGitHubSourceId(fallbackSource.id);
+    setGithubSourceDraft(sourceToDraft(fallbackSource));
+    setNotice("Skills 源已删除。");
+  }
+
+  async function handleSyncGitHubSkills() {
+    const source = upsertGitHubSourceFromDraft();
+    if (!source) return;
+    const { repo, path, refName, provider } = source;
+    const githubToken = source.githubToken.trim();
+    setIsSyncingGitHubSkills(true);
+    try {
+      const githubSkills = await syncGitHubSkills(repo, path, refName, provider, githubToken);
+      if (githubSkills.length === 0) {
+        setNotice("未在该路径下找到包含 SKILL.md 的技能。");
+        return;
+      }
+
+      setSkills((current) => {
+        const skillMap = new Map(current.map((skill) => [skill.id, skill]));
+        githubSkills.forEach((githubSkill) => {
+          const id = createGitHubSkillId(provider, githubSkill.slug);
+          const existing = skillMap.get(id);
+          skillMap.set(id, {
+            id,
+            name: githubSkill.name,
+            provider,
+            description: githubSkill.description,
+            enabled: existing?.enabled ?? true,
+            parameters: existing?.parameters ?? {
+              source_repo: repo,
+              source_path: path,
+              source_ref: refName
+            },
+            docUrl: githubSkill.doc_url
+          });
+        });
+
+        const merged = normalizeSkills(Array.from(skillMap.values()));
+        localStorage.setItem("nano-agent-skills", JSON.stringify(merged));
+        return merged;
+      });
+
+      setSelectedSkillId(createGitHubSkillId(provider, githubSkills[0].slug));
+      setIsAddingSkill(false);
+      setNotice(`已从 GitHub 同步 ${githubSkills.length} 个技能。`);
+    } catch (error) {
+      console.error("Failed to sync GitHub skills:", error);
+      setNotice(`同步 GitHub 技能失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsSyncingGitHubSkills(false);
+    }
+  }
+
   function handleToggleSkill(id: string, enabled: boolean) {
     const nextSkills = skills.map((s) =>
       s.id === id ? { ...s, enabled } : s
@@ -232,7 +523,19 @@ export function useSkills(setNotice: (message: string) => void): UseSkillsReturn
     setNewSkillDraft,
     skillsDir,
     tempDir,
+    githubSourceDraft,
+    setGithubSourceDraft,
+    githubSkillSources,
+    selectedGitHubSourceId,
+    sourceSkillPreview,
+    handleSelectGitHubSource,
+    handlePreviewGitHubSourceSkills,
+    handleNewGitHubSource,
+    handleSaveGitHubSource,
+    handleDeleteGitHubSource,
+    isSyncingGitHubSkills,
     checkLocalSkills,
+    handleSyncGitHubSkills,
     handleToggleSkill,
     handleDeleteSkill,
     handleSaveNewSkill

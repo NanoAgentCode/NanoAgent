@@ -1,4 +1,5 @@
-import { Save, Power, Trash2, Plus } from "lucide-react";
+import { useState } from "react";
+import { CircleAlert, DownloadCloud, Save, Power, Trash2, Plus, Pencil } from "lucide-react";
 import { isBuiltInSkill } from "../../lib/skills";
 import type { UseSkillsReturn } from "../../hooks/useSkills";
 
@@ -7,16 +8,200 @@ interface SettingsSkillsTabProps {
 }
 
 export default function SettingsSkillsTab({ skills }: SettingsSkillsTabProps) {
+  const [activeSkillsPane, setActiveSkillsPane] = useState<"skills" | "sources">("skills");
+  const [sourcePanelMode, setSourcePanelMode] = useState<"preview" | "edit">("preview");
+
   return (
     <div className="settings-tab-content skills-tab-layout">
-      <div className="model-header-row">
-        <h3>Skills 管理</h3>
-        <button className="icon-only-btn compact" onClick={() => { skills.setIsAddingSkill(true); skills.setSelectedSkillId(""); }} title="添加自定义技能" aria-label="添加自定义技能" type="button">
-          <Plus />
-        </button>
+      <div className="skills-top-row">
+        <div className="skills-pane-tabs" role="tablist" aria-label="Skills 设置">
+          <button
+            className={activeSkillsPane === "skills" ? "skills-pane-tab active" : "skills-pane-tab"}
+            onClick={() => setActiveSkillsPane("skills")}
+            type="button"
+            role="tab"
+            aria-selected={activeSkillsPane === "skills"}
+          >
+            Skills 管理
+          </button>
+          <button
+            className={activeSkillsPane === "sources" ? "skills-pane-tab active" : "skills-pane-tab"}
+            onClick={() => setActiveSkillsPane("sources")}
+            type="button"
+            role="tab"
+            aria-selected={activeSkillsPane === "sources"}
+          >
+            Skills 源管理
+          </button>
+        </div>
+        {activeSkillsPane === "skills" && (
+          <button className="icon-only-btn compact" onClick={() => { skills.setIsAddingSkill(true); skills.setSelectedSkillId(""); }} title="添加自定义技能" aria-label="添加自定义技能" type="button">
+            <Plus />
+          </button>
+        )}
+        {activeSkillsPane === "sources" && (
+          <button className="icon-only-btn compact" onClick={() => { setSourcePanelMode("edit"); skills.handleNewGitHubSource(); }} title="新建 Skills 源" aria-label="新建 Skills 源" type="button">
+            <Plus />
+          </button>
+        )}
       </div>
       <p className="description">配置并扩展 AI 助手的工具与自动化能力（例如内置 Anthropic 官方的 Text Editor、Bash Tool 等）。</p>
-      <div className="skills-config-grid">
+      {activeSkillsPane === "sources" ? (
+        <section className="skills-source-manager">
+          <div className="skills-source-list">
+            {skills.githubSkillSources.map((source) => (
+              <div
+                key={source.id}
+                className={source.id === skills.selectedGitHubSourceId ? "skills-source-row active" : "skills-source-row"}
+              >
+                <button
+                  className="skills-source-row-main"
+                  onClick={() => { setSourcePanelMode("preview"); skills.handlePreviewGitHubSourceSkills(source.id); }}
+                  type="button"
+                  title="查看该源包含的 Skills"
+                >
+                  <strong>{source.name}</strong>
+                  <span>{source.repo}{source.path ? `/${source.path}` : ""}</span>
+                </button>
+                <button
+                  className="skills-source-info-btn"
+                  onClick={() => { setSourcePanelMode("preview"); skills.handlePreviewGitHubSourceSkills(source.id); }}
+                  type="button"
+                  title="查看该源包含的 Skills"
+                  aria-label={`查看 ${source.name} 包含的 Skills`}
+                >
+                  <CircleAlert size={16} />
+                </button>
+                <button
+                  className="skills-source-info-btn"
+                  onClick={() => { setSourcePanelMode("edit"); skills.handleSelectGitHubSource(source.id); }}
+                  type="button"
+                  title="编辑该 Skills 源"
+                  aria-label={`编辑 ${source.name}`}
+                >
+                  <Pencil size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="skills-github-source">
+            {sourcePanelMode === "edit" ? (
+              <>
+                <div className="skills-param-field">
+                  <label className="skills-field-label">源名称</label>
+                  <input
+                    value={skills.githubSourceDraft.name}
+                    onChange={(e) => skills.setGithubSourceDraft((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder="NanoAgentCode skills-manager"
+                  />
+                </div>
+                <div className="skills-param-field">
+                  <label className="skills-field-label">GitHub 仓库</label>
+                  <input
+                    value={skills.githubSourceDraft.repo}
+                    onChange={(e) => skills.setGithubSourceDraft((prev) => ({ ...prev, repo: e.target.value }))}
+                    placeholder="NanoAgentCode/skills-manager"
+                  />
+                </div>
+                <div className="skills-param-field">
+                  <label className="skills-field-label">路径</label>
+                  <input
+                    value={skills.githubSourceDraft.path}
+                    onChange={(e) => skills.setGithubSourceDraft((prev) => ({ ...prev, path: e.target.value }))}
+                    placeholder="留空表示仓库根路径"
+                  />
+                </div>
+                <div className="skills-source-inline-fields">
+                  <div className="skills-param-field">
+                    <label className="skills-field-label">分支</label>
+                    <input
+                      value={skills.githubSourceDraft.refName}
+                      onChange={(e) => skills.setGithubSourceDraft((prev) => ({ ...prev, refName: e.target.value }))}
+                      placeholder="main"
+                    />
+                  </div>
+                  <div className="skills-param-field">
+                    <label className="skills-field-label">提供方</label>
+                    <input
+                      value={skills.githubSourceDraft.provider}
+                      onChange={(e) => skills.setGithubSourceDraft((prev) => ({ ...prev, provider: e.target.value }))}
+                      placeholder="GitHub"
+                    />
+                  </div>
+                </div>
+                <div className="skills-param-field">
+                  <label className="skills-field-label">Token</label>
+                  <input
+                    type="password"
+                    value={skills.githubSourceDraft.githubToken}
+                    onChange={(e) => skills.setGithubSourceDraft((prev) => ({ ...prev, githubToken: e.target.value }))}
+                    placeholder="可选，突破 API 限额"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="skills-source-actions">
+                  <button className="icon-text-btn" onClick={skills.handleSaveGitHubSource} type="button" title="保存源">
+                    <Save size={16} />
+                  </button>
+                  <button className="icon-text-btn danger-btn" onClick={skills.handleDeleteGitHubSource} type="button" title="删除源">
+                    <Trash2 size={16} />
+                  </button>
+                  <button
+                    className="icon-text-btn skills-github-sync-btn"
+                    onClick={skills.handleSyncGitHubSkills}
+                    disabled={skills.isSyncingGitHubSkills}
+                    type="button"
+                    title="从当前源同步技能"
+                  >
+                    <DownloadCloud size={16} />
+                    {skills.isSyncingGitHubSkills ? "同步中" : "同步"}
+                  </button>
+                </div>
+              </>
+            ) : skills.sourceSkillPreview ? (
+              <div className="skills-source-preview">
+                <div className="skills-source-preview-header">
+                  <strong>{skills.sourceSkillPreview.sourceName}</strong>
+                  <span>
+                    {skills.sourceSkillPreview.isLoading
+                      ? "加载中"
+                      : skills.sourceSkillPreview.error
+                        ? "加载失败"
+                        : `${skills.sourceSkillPreview.skills.length} 个 Skills`}
+                  </span>
+                </div>
+                {skills.sourceSkillPreview.error ? (
+                  <p>{skills.sourceSkillPreview.error}</p>
+                ) : (
+                  <div className="skills-source-preview-list">
+                    {skills.sourceSkillPreview.isLoading ? (
+                      <span>正在读取当前源...</span>
+                    ) : skills.sourceSkillPreview.skills.length > 0 ? (
+                      skills.sourceSkillPreview.skills.map((skill) => (
+                        <a
+                          key={skill.slug}
+                          href={skill.doc_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="skills-source-preview-item"
+                        >
+                          <strong>{skill.name}</strong>
+                          <span>{skill.description}</span>
+                        </a>
+                      ))
+                    ) : (
+                      <span>当前源未找到技能。</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="empty">点击左侧感叹号查看当前源包含的 Skills</div>
+            )}
+          </div>
+        </section>
+      ) : (
+        <div className="skills-config-grid">
         <aside className="skills-config-list skills-config-list-inner">
           <div className="skills-config-list-scroll">
             {skills.skills.map((skill) => (
@@ -94,6 +279,7 @@ export default function SettingsSkillsTab({ skills }: SettingsSkillsTabProps) {
           })()}
         </div>
       </div>
+      )}
     </div>
   );
 }

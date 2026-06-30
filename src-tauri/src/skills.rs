@@ -38,22 +38,76 @@ struct GitHubError {
 }
 
 pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
-    sync_github_skills(
+    fetch_github_skills(
         ANTHROPIC_SKILLS_API,
         RAW_SKILL_BASE,
         "https://github.com/anthropics/skills/tree/main/skills",
         "Anthropic",
+        None,
     )
     .await
 }
 
-async fn sync_github_skills(
+pub async fn sync_custom_github_skills(
+    repo: &str,
+    path: &str,
+    ref_name: &str,
+    provider: &str,
+    github_token: Option<&str>,
+) -> AppResult<Vec<GitHubSkill>> {
+    let repo = repo.trim().trim_matches('/');
+    if repo.split('/').count() != 2 {
+        return Err(AppError::Message(
+            "GitHub 仓库格式应为 owner/repo，例如 yourname/codex-skills".to_string(),
+        ));
+    }
+
+    let path = path.trim().trim_matches('/');
+
+    let ref_name = ref_name.trim();
+    let ref_name = if ref_name.is_empty() {
+        "main"
+    } else {
+        ref_name
+    };
+    let provider = provider.trim();
+    let provider = if provider.is_empty() {
+        "GitHub"
+    } else {
+        provider
+    };
+    let (contents_api, raw_skill_base, doc_base) = if path.is_empty() {
+        (
+            format!("https://api.github.com/repos/{repo}/contents?ref={ref_name}"),
+            format!("https://raw.githubusercontent.com/{repo}/{ref_name}"),
+            format!("https://github.com/{repo}/tree/{ref_name}"),
+        )
+    } else {
+        (
+            format!("https://api.github.com/repos/{repo}/contents/{path}?ref={ref_name}"),
+            format!("https://raw.githubusercontent.com/{repo}/{ref_name}/{path}"),
+            format!("https://github.com/{repo}/tree/{ref_name}/{path}"),
+        )
+    };
+
+    fetch_github_skills(
+        &contents_api,
+        &raw_skill_base,
+        &doc_base,
+        provider,
+        github_token,
+    )
+    .await
+}
+
+async fn fetch_github_skills(
     contents_api: &str,
     raw_skill_base: &str,
     doc_base: &str,
     provider: &str,
+    github_token: Option<&str>,
 ) -> AppResult<Vec<GitHubSkill>> {
-    let client = Arc::new(github_client()?);
+    let client = Arc::new(github_client(github_token)?);
     let response = client.get(contents_api).send().await?;
 
     if !response.status().is_success() {
@@ -61,6 +115,33 @@ async fn sync_github_skills(
     }
 
     let items = response.json::<Vec<GitHubContentItem>>().await?;
+    if items
+        .iter()
+        .any(|item| item.item_type == "file" && item.name.eq_ignore_ascii_case("SKILL.md"))
+    {
+        let slug = doc_base
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.is_empty())
+            .unwrap_or("custom-skill")
+            .to_string();
+        let (name, description) = fetch_skill_frontmatter(&client, raw_skill_base, "")
+            .await
+            .unwrap_or_else(|_| {
+                (
+                    title_from_slug(&slug),
+                    fallback_description(provider, &slug),
+                )
+            });
+        return Ok(vec![GitHubSkill {
+            slug,
+            name,
+            description,
+            doc_url: doc_base.to_string(),
+        }]);
+    }
+
     let dir_items: Vec<_> = items
         .into_iter()
         .filter(|item| item.item_type == "dir")
@@ -103,7 +184,7 @@ async fn sync_github_skills(
     Ok(skills)
 }
 
-fn github_client() -> AppResult<reqwest::Client> {
+fn github_client(github_token: Option<&str>) -> AppResult<reqwest::Client> {
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         reqwest::header::USER_AGENT,
@@ -118,13 +199,22 @@ fn github_client() -> AppResult<reqwest::Client> {
         reqwest::header::HeaderValue::from_static("2022-11-28"),
     );
 
-    if let Ok(token) = std::env::var("GITHUB_TOKEN").or_else(|_| std::env::var("GH_TOKEN")) {
-        if !token.trim().is_empty() {
-            let value = format!("Bearer {}", token.trim());
-            let auth = reqwest::header::HeaderValue::from_str(&value)
-                .map_err(|err| AppError::Message(format!("invalid GitHub token header: {err}")))?;
-            headers.insert(reqwest::header::AUTHORIZATION, auth);
-        }
+    let token = github_token
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::var("GITHUB_TOKEN")
+                .or_else(|_| std::env::var("GH_TOKEN"))
+                .ok()
+                .map(|token| token.trim().to_string())
+                .filter(|token| !token.is_empty())
+        });
+    if let Some(token) = token {
+        let value = format!("Bearer {token}");
+        let auth = reqwest::header::HeaderValue::from_str(&value)
+            .map_err(|err| AppError::Message(format!("invalid GitHub token header: {err}")))?;
+        headers.insert(reqwest::header::AUTHORIZATION, auth);
     }
 
     reqwest::Client::builder()
@@ -138,10 +228,12 @@ async fn fetch_skill_frontmatter(
     raw_skill_base: &str,
     slug: &str,
 ) -> AppResult<(String, String)> {
-    let response = client
-        .get(format!("{raw_skill_base}/{slug}/SKILL.md"))
-        .send()
-        .await?;
+    let skill_url = if slug.is_empty() {
+        format!("{raw_skill_base}/SKILL.md")
+    } else {
+        format!("{raw_skill_base}/{slug}/SKILL.md")
+    };
+    let response = client.get(skill_url).send().await?;
 
     if !response.status().is_success() {
         return Err(github_status_error(response).await);
