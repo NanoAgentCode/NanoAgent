@@ -23,3 +23,15 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>
 );
+
+const STARTUP_MIN_VISIBLE_MS = 1200;
+const STARTUP_FADE_MS = 260;
+
+window.requestAnimationFrame(() => {
+  window.setTimeout(() => {
+    const startup = document.getElementById("nano-startup");
+    if (!startup) return;
+    startup.classList.add("nano-startup--hide");
+    window.setTimeout(() => startup.remove(), STARTUP_FADE_MS);
+  }, STARTUP_MIN_VISIBLE_MS);
+});
