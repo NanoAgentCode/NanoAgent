@@ -186,6 +186,7 @@ export default function SettingsSkillsTab({ skills }: SettingsSkillsTabProps) {
                           className="skills-source-preview-item"
                         >
                           <strong>{skill.name}</strong>
+                          <code>{skill.skill_path}</code>
                           <span>{skill.description}</span>
                         </a>
                       ))

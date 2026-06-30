@@ -295,6 +295,7 @@ export interface GitHubSkill {
   name: string;
   description: string;
   doc_url: string;
+  skill_path: string;
 }
 
 export interface ProjectEntry {

@@ -423,10 +423,13 @@ export function useSkills(setNotice: (message: string) => void): UseSkillsReturn
             provider,
             description: githubSkill.description,
             enabled: existing?.enabled ?? true,
-            parameters: existing?.parameters ?? {
-              source_repo: repo,
-              source_path: path,
-              source_ref: refName
+            parameters: {
+              ...(existing?.parameters ?? {
+                source_repo: repo,
+                source_path: path,
+                source_ref: refName
+              }),
+              source_skill_path: githubSkill.skill_path
             },
             docUrl: githubSkill.doc_url
           });

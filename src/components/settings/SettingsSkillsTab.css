@@ -289,6 +289,12 @@
 .skills-source-preview-item strong {
   font-size: var(--font-size-md);
 }
+.skills-source-preview-item code {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
 .skills-source-preview-item span {
   color: var(--text-secondary);
   font-size: var(--font-size-sm);

@@ -6,9 +6,6 @@ use tokio::sync::Semaphore;
 
 use crate::error::{AppError, AppResult};
 
-const ANTHROPIC_SKILLS_API: &str =
-    "https://api.github.com/repos/anthropics/skills/contents/skills?ref=main";
-const RAW_SKILL_BASE: &str = "https://raw.githubusercontent.com/anthropics/skills/main/skills";
 const USER_AGENT: &str = "NanoAgent/0.1 (https://github.com/NanoAgentCode/NanoAgent)";
 
 /// Maximum concurrent HTTP requests when fetching individual SKILL.md files.
@@ -22,11 +19,18 @@ pub struct GitHubSkill {
     pub name: String,
     pub description: String,
     pub doc_url: String,
+    pub skill_path: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct GitHubContentItem {
-    name: String,
+struct GitHubTreeResponse {
+    tree: Vec<GitHubTreeItem>,
+    truncated: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct GitHubTreeItem {
+    path: String,
     #[serde(rename = "type")]
     item_type: String,
 }
@@ -38,14 +42,7 @@ struct GitHubError {
 }
 
 pub async fn sync_anthropic_skills() -> AppResult<Vec<GitHubSkill>> {
-    fetch_github_skills(
-        ANTHROPIC_SKILLS_API,
-        RAW_SKILL_BASE,
-        "https://github.com/anthropics/skills/tree/main/skills",
-        "Anthropic",
-        None,
-    )
-    .await
+    fetch_github_skills("anthropics/skills", "skills", "main", "Anthropic", None).await
 }
 
 pub async fn sync_custom_github_skills(
@@ -76,93 +73,69 @@ pub async fn sync_custom_github_skills(
     } else {
         provider
     };
-    let (contents_api, raw_skill_base, doc_base) = if path.is_empty() {
-        (
-            format!("https://api.github.com/repos/{repo}/contents?ref={ref_name}"),
-            format!("https://raw.githubusercontent.com/{repo}/{ref_name}"),
-            format!("https://github.com/{repo}/tree/{ref_name}"),
-        )
-    } else {
-        (
-            format!("https://api.github.com/repos/{repo}/contents/{path}?ref={ref_name}"),
-            format!("https://raw.githubusercontent.com/{repo}/{ref_name}/{path}"),
-            format!("https://github.com/{repo}/tree/{ref_name}/{path}"),
-        )
-    };
-
-    fetch_github_skills(
-        &contents_api,
-        &raw_skill_base,
-        &doc_base,
-        provider,
-        github_token,
-    )
-    .await
+    fetch_github_skills(repo, path, ref_name, provider, github_token).await
 }
 
 async fn fetch_github_skills(
-    contents_api: &str,
-    raw_skill_base: &str,
-    doc_base: &str,
+    repo: &str,
+    path: &str,
+    ref_name: &str,
     provider: &str,
     github_token: Option<&str>,
 ) -> AppResult<Vec<GitHubSkill>> {
     let client = Arc::new(github_client(github_token)?);
-    let response = client.get(contents_api).send().await?;
+    let tree_api = format!("https://api.github.com/repos/{repo}/git/trees/{ref_name}?recursive=1");
+    let response = client.get(tree_api).send().await?;
 
     if !response.status().is_success() {
         return Err(github_status_error(response).await);
     }
 
-    let items = response.json::<Vec<GitHubContentItem>>().await?;
-    if items
-        .iter()
-        .any(|item| item.item_type == "file" && item.name.eq_ignore_ascii_case("SKILL.md"))
-    {
-        let slug = doc_base
-            .trim_end_matches('/')
-            .rsplit('/')
-            .next()
-            .filter(|value| !value.is_empty())
-            .unwrap_or("custom-skill")
-            .to_string();
-        let (name, description) = fetch_skill_frontmatter(&client, raw_skill_base, "")
-            .await
-            .unwrap_or_else(|_| {
-                (
-                    title_from_slug(&slug),
-                    fallback_description(provider, &slug),
-                )
-            });
-        return Ok(vec![GitHubSkill {
-            slug,
-            name,
-            description,
-            doc_url: doc_base.to_string(),
-        }]);
+    let tree = response.json::<GitHubTreeResponse>().await?;
+    if tree.truncated {
+        return Err(AppError::Message(
+            "GitHub tree response was truncated; use a narrower source path or a token."
+                .to_string(),
+        ));
     }
 
-    let dir_items: Vec<_> = items
+    let source_path = normalize_repo_path(path);
+    let mut skill_paths: Vec<_> = tree
+        .tree
         .into_iter()
-        .filter(|item| item.item_type == "dir")
+        .filter(|item| {
+            item.item_type == "blob"
+                && item
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("SKILL.md"))
+        })
+        .filter_map(|item| {
+            let relative_path = path_relative_to_source(&item.path, &source_path)?;
+            Some((item.path, relative_path))
+        })
         .collect();
+    skill_paths.sort_by(|left, right| left.0.cmp(&right.0));
 
     // Fetch all SKILL.md files concurrently, bounded by a semaphore so we
     // don't blast GitHub's unauthenticated API with dozens of requests at once.
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_FETCHES));
 
-    let futures: Vec<_> = dir_items
+    let futures: Vec<_> = skill_paths
         .iter()
-        .map(|item| {
+        .map(|(full_skill_path, relative_skill_path)| {
             let client = Arc::clone(&client);
             let sem = Arc::clone(&semaphore);
-            let slug = item.name.clone();
-            let doc_base = doc_base.to_string();
+            let full_skill_path = full_skill_path.clone();
+            let relative_skill_path = relative_skill_path.clone();
+            let slug = slug_from_source_skill_path(&source_path, &relative_skill_path);
+            let doc_url = skill_doc_url(repo, ref_name, &full_skill_path);
             let provider = provider.to_string();
-            let raw_skill_base = raw_skill_base.to_string();
+            let raw_skill_url = skill_raw_url(repo, ref_name, &full_skill_path);
             async move {
                 let _permit = sem.acquire_owned().await;
-                let (name, description) = fetch_skill_frontmatter(&client, &raw_skill_base, &slug)
+                let (name, description) = fetch_skill_frontmatter(&client, &raw_skill_url, &slug)
                     .await
                     .unwrap_or_else(|_| {
                         (
@@ -171,10 +144,11 @@ async fn fetch_github_skills(
                         )
                     });
                 GitHubSkill {
-                    doc_url: format!("{doc_base}/{slug}"),
                     slug,
                     name,
                     description,
+                    doc_url,
+                    skill_path: full_skill_path,
                 }
             }
         })
@@ -182,6 +156,71 @@ async fn fetch_github_skills(
 
     let skills = join_all(futures).await;
     Ok(skills)
+}
+
+fn normalize_repo_path(path: &str) -> String {
+    path.trim().trim_matches('/').replace('\\', "/")
+}
+
+fn path_relative_to_source(full_path: &str, source_path: &str) -> Option<String> {
+    let full_path = normalize_repo_path(full_path);
+    if source_path.is_empty() {
+        return Some(full_path);
+    }
+
+    if full_path.eq_ignore_ascii_case(source_path) {
+        return Some(String::new());
+    }
+
+    let prefix = format!("{source_path}/");
+    full_path
+        .strip_prefix(&prefix)
+        .map(|relative| relative.to_string())
+}
+
+fn slug_from_skill_path(skill_path: &str) -> String {
+    let skill_path = normalize_repo_path(skill_path);
+    let lower_path = skill_path.to_ascii_lowercase();
+    let skill_dir = if lower_path == "skill.md" {
+        ""
+    } else if lower_path.ends_with("/skill.md") {
+        &skill_path[..skill_path.len() - "/SKILL.md".len()]
+    } else {
+        skill_path.as_str()
+    }
+    .trim_matches('/');
+
+    if skill_dir.is_empty() {
+        "custom-skill".to_string()
+    } else {
+        skill_dir.to_string()
+    }
+}
+
+fn slug_from_source_skill_path(source_path: &str, relative_skill_path: &str) -> String {
+    if relative_skill_path.eq_ignore_ascii_case("SKILL.md") && !source_path.is_empty() {
+        return source_path
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.is_empty())
+            .unwrap_or("custom-skill")
+            .to_string();
+    }
+
+    slug_from_skill_path(relative_skill_path)
+}
+
+fn skill_doc_url(repo: &str, ref_name: &str, skill_path: &str) -> String {
+    let skill_dir = slug_from_skill_path(skill_path);
+    if skill_dir == "custom-skill" {
+        format!("https://github.com/{repo}/blob/{ref_name}/SKILL.md")
+    } else {
+        format!("https://github.com/{repo}/tree/{ref_name}/{skill_dir}")
+    }
+}
+
+fn skill_raw_url(repo: &str, ref_name: &str, skill_path: &str) -> String {
+    format!("https://raw.githubusercontent.com/{repo}/{ref_name}/{skill_path}")
 }
 
 fn github_client(github_token: Option<&str>) -> AppResult<reqwest::Client> {
@@ -225,14 +264,9 @@ fn github_client(github_token: Option<&str>) -> AppResult<reqwest::Client> {
 
 async fn fetch_skill_frontmatter(
     client: &reqwest::Client,
-    raw_skill_base: &str,
+    skill_url: &str,
     slug: &str,
 ) -> AppResult<(String, String)> {
-    let skill_url = if slug.is_empty() {
-        format!("{raw_skill_base}/SKILL.md")
-    } else {
-        format!("{raw_skill_base}/{slug}/SKILL.md")
-    };
     let response = client.get(skill_url).send().await?;
 
     if !response.status().is_success() {
@@ -350,6 +384,12 @@ pub async fn list_local_skills(app: &tauri::AppHandle) -> AppResult<(String, Vec
             let name = name.unwrap_or_else(|| title_from_slug(&slug));
             let description = description.unwrap_or_else(|| format!("本地安装目录技能：{slug}"));
 
+            let skill_path = skill_md_path
+                .strip_prefix(&skills_dir)
+                .unwrap_or(&skill_md_path)
+                .to_string_lossy()
+                .replace('\\', "/");
+
             local_skills.push(GitHubSkill {
                 slug,
                 name,
@@ -358,6 +398,7 @@ pub async fn list_local_skills(app: &tauri::AppHandle) -> AppResult<(String, Vec
                     "file:///{}",
                     skill_md_path.to_string_lossy().replace('\\', "/")
                 ),
+                skill_path,
             });
         }
     }
