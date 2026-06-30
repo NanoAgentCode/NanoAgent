@@ -1,6 +1,6 @@
 import type { ItemKind, WebSearchStatus, WorkspaceView, ThemeMode } from "../types";
 import { parseToolResult } from "./messageHelpers";
-import MarkdownMessage from "../components/MarkdownMessage";
+import ImageAttachmentMessage from "../components/ImageAttachmentMessage";
 import ToolResultMessage from "../components/ToolResultMessage";
 
 export const kindLabels: Record<ItemKind, string> = {
@@ -40,10 +40,14 @@ export const themeLabels: Record<ThemeMode, string> = {
   dark: "夜晚主题"
 };
 
-export function renderMessageContent(content: string) {
+interface RenderMessageContentOptions {
+  attachmentProjectPath?: string | null;
+}
+
+export function renderMessageContent(content: string, options: RenderMessageContentOptions = {}) {
   const toolResult = parseToolResult(content);
   if (toolResult) {
     return <ToolResultMessage result={toolResult} />;
   }
-  return <MarkdownMessage content={content} />;
+  return <ImageAttachmentMessage content={content} projectPath={options.attachmentProjectPath} />;
 }

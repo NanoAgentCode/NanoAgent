@@ -125,6 +125,9 @@ function App() {
     selectedPromptIndex,
     busy,
     uploadingImageAttachment,
+    pendingImageAttachments,
+    removePendingImageAttachment,
+    attachmentProjectPath,
     executingToolMessageId,
     messageToolCalls,
     activeConversation,
@@ -714,9 +717,11 @@ function App() {
           selectedPromptIndex={selectedPromptIndex}
           busy={busy}
           uploadingImageAttachment={uploadingImageAttachment}
+          pendingImageAttachments={pendingImageAttachments}
           isRagDragging={isRagDragging}
           executingToolMessageId={executingToolMessageId}
           messageToolCalls={messageToolCalls}
+          attachmentProjectPath={attachmentProjectPath}
           notice={notice}
           obs={obs}
           model={model}
@@ -729,6 +734,7 @@ function App() {
           handleChatInputKeyDown={handleChatInputKeyDown}
           handleChatInputPaste={handleChatInputPaste}
           handleImageFiles={handleImageFiles}
+          removePendingImageAttachment={removePendingImageAttachment}
           insertPrompt={insertPrompt}
           handleDeleteRagFile={handleDeleteRagFile}
           setNotice={setNotice}

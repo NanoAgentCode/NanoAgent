@@ -344,6 +344,11 @@ export interface ChatImageAttachment {
   size: number;
 }
 
+export interface ChatImageAttachmentPreview {
+  relative_path: string;
+  data_url: string;
+}
+
 export interface ObservabilitySpan {
   id: string;
   trace_id: string;

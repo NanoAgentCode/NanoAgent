@@ -345,6 +345,12 @@ pub struct ChatImageAttachment {
     pub size: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatImageAttachmentPreview {
+    pub relative_path: String,
+    pub data_url: String,
+}
+
 fn default_true() -> bool {
     true
 }

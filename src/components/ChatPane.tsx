@@ -5,7 +5,7 @@ import AgentRuntimePanel from "./AgentRuntimePanel";
 import { formatWebSearchBadge, renderMessageContent } from "../lib/appHelpers";
 import { parseToolCall, parseToolResult } from "../lib/messageHelpers";
 import type { ParsedToolCall } from "../lib/messageHelpers";
-import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation } from "../types";
+import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation, ChatImageAttachment } from "../types";
 import type { UseObservabilityReturn } from "../hooks/useObservability";
 import type { UseModelReturn } from "../hooks/useModel";
 
@@ -21,9 +21,11 @@ interface ChatPaneProps {
   selectedPromptIndex: number;
   busy: boolean;
   uploadingImageAttachment: boolean;
+  pendingImageAttachments: ChatImageAttachment[];
   isRagDragging: boolean;
   executingToolMessageId: string | null;
   messageToolCalls: Record<string, AgentToolCall>;
+  attachmentProjectPath: string;
   notice: string;
   obs: UseObservabilityReturn;
   model: UseModelReturn;
@@ -36,6 +38,7 @@ interface ChatPaneProps {
   handleChatInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   handleChatInputPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   handleImageFiles: (files: FileList | File[]) => Promise<number>;
+  removePendingImageAttachment: (relativePath: string) => void;
   insertPrompt: (item: Item) => void;
   handleDeleteRagFile: (id: string) => Promise<void>;
   setNotice: (message: string) => void;
@@ -53,9 +56,11 @@ export default function ChatPane({
   selectedPromptIndex,
   busy,
   uploadingImageAttachment,
+  pendingImageAttachments,
   isRagDragging,
   executingToolMessageId,
   messageToolCalls,
+  attachmentProjectPath,
   notice,
   obs,
   model,
@@ -68,6 +73,7 @@ export default function ChatPane({
   handleChatInputKeyDown,
   handleChatInputPaste,
   handleImageFiles,
+  removePendingImageAttachment,
   insertPrompt,
   handleDeleteRagFile,
   setNotice
@@ -222,7 +228,7 @@ export default function ChatPane({
                   )}
                 </div>
               )}
-              {renderMessageContent(message.content)}
+              {renderMessageContent(message.content, { attachmentProjectPath })}
               
               {toolCall && (
                 <div className="tool-call-card">
@@ -289,8 +295,22 @@ export default function ChatPane({
             ))}
           </div>
         )}
-        {(ragFiles.length > 0 || indexingRagFileName) && (
+        {(pendingImageAttachments.length > 0 || ragFiles.length > 0 || indexingRagFileName) && (
           <div className="rag-file-strip">
+            {pendingImageAttachments.map((attachment) => (
+              <span key={attachment.relative_path} className="rag-file-chip image" title={attachment.name}>
+                <ImagePlus size={14} />
+                <span>{attachment.name}</span>
+                <button
+                  aria-label={`移除 ${attachment.name}`}
+                  onClick={() => removePendingImageAttachment(attachment.relative_path)}
+                  title="移除图片"
+                  type="button"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
             {indexingRagFileName && (
               <span className="rag-file-chip indexing">
                 <FileText size={14} />
@@ -353,7 +373,7 @@ export default function ChatPane({
             <button className="project-add-chat-btn" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
               <Plus size={16} />
             </button>
-            <button className="chat-header-square send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || !chatInput.trim()} type="button">
+            <button className="chat-header-square send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || (!chatInput.trim() && pendingImageAttachments.length === 0)} type="button">
               <SendHorizontal size={20} />
             </button>
           </div>

@@ -79,6 +79,9 @@ export interface UseChatReturn {
   conversationRunIds: Record<string, string>;
   setConversationRunIds: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   uploadingImageAttachment: boolean;
+  pendingImageAttachments: ChatImageAttachment[];
+  removePendingImageAttachment: (relativePath: string) => void;
+  attachmentProjectPath: string;
   activeConversation: Conversation | undefined;
   activeConversationProject: ProjectEntry | null;
   loadMessages: (conversationId: string) => Promise<void>;
@@ -175,6 +178,7 @@ export function useChat({
   const [messageToolCalls, setMessageToolCalls] = useState<Record<string, AgentToolCall>>({});
   const [conversationRunIds, setConversationRunIds] = useState<Record<string, string>>({});
   const [uploadingImageAttachment, setUploadingImageAttachment] = useState(false);
+  const [pendingImageAttachments, setPendingImageAttachments] = useState<ChatImageAttachment[]>([]);
 
   // ── Sync activeConversationId ref ──
   useEffect(() => {
@@ -233,12 +237,13 @@ export function useChat({
 
   // ── Send message ──
   async function handleSendMessage() {
-    const content = input.chatInput.trim();
+    const textContent = input.chatInput.trim();
+    const content = buildMessageContentWithImageAttachments(textContent, pendingImageAttachments);
     const memoryDraft = extractMemoryDraft(content);
     const effectiveModelId = conv.resolveConversationModelId(conv.activeConversationId);
     const activeModelId = effectiveModelId;
 
-    if (!content || (!activeModelId && !memoryDraft)) {
+    if ((!textContent && pendingImageAttachments.length === 0) || (!activeModelId && !memoryDraft)) {
       setNotice(activeModelId ? "" : "请先保存并选择一个模型");
       return;
     }
@@ -291,6 +296,9 @@ export function useChat({
           await conv.refreshConversations(conversationId);
         }
         return;
+      }
+      if (pendingImageAttachments.length > 0) {
+        setPendingImageAttachments([]);
       }
 
       const enabledMemories = await listEnabledMemories();
@@ -663,17 +671,31 @@ export function useChat({
     return resolvedProject?.path || projectHint?.path || skills.tempDir;
   }
 
-  function appendImageAttachmentPrompt(attachments: ChatImageAttachment[]) {
+  function buildImageAttachmentPrompt(attachments: ChatImageAttachment[]) {
     if (attachments.length === 0) return;
     const lines = [
       "图片附件：",
       ...attachments.map((attachment) => `- ${attachment.name}: ${attachment.relative_path}`),
       "需要识别图片文字时，请调用 ocr_image 工具。"
     ];
-    input.setChatInput((current) => {
-      const trimmed = current.trimEnd();
-      return trimmed ? `${trimmed}\n\n${lines.join("\n")}` : lines.join("\n");
-    });
+    return lines.join("\n");
+  }
+
+  function buildMessageContentWithImageAttachments(textContent: string, attachments: ChatImageAttachment[]) {
+    const imagePrompt = buildImageAttachmentPrompt(attachments);
+    if (!imagePrompt) return textContent;
+    return textContent ? `${textContent}\n\n${imagePrompt}` : imagePrompt;
+  }
+
+  function addPendingImageAttachments(attachments: ChatImageAttachment[]) {
+    if (attachments.length === 0) return;
+    setPendingImageAttachments((current) => [...current, ...attachments]);
+  }
+
+  function removePendingImageAttachment(relativePath: string) {
+    setPendingImageAttachments((current) =>
+      current.filter((attachment) => attachment.relative_path !== relativePath)
+    );
   }
 
   async function handleImageFiles(files: FileList | File[]) {
@@ -697,7 +719,7 @@ export function useChat({
         });
         attachments.push(attachment);
       }
-      appendImageAttachmentPrompt(attachments);
+      addPendingImageAttachments(attachments);
       setNotice(`已添加 ${attachments.length} 张图片，可直接让助手识别文字。`);
       return attachments.length;
     } catch (error) {
@@ -728,7 +750,7 @@ export function useChat({
         });
         attachments.push(attachment);
       }
-      appendImageAttachmentPrompt(attachments);
+      addPendingImageAttachments(attachments);
       return attachments.length;
     } finally {
       setUploadingImageAttachment(false);
@@ -841,7 +863,7 @@ export function useChat({
       input.handleChatInputKeyDown(event);
     } else if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!busy && input.chatInput.trim()) {
+      if (!busy && (input.chatInput.trim() || pendingImageAttachments.length > 0)) {
         void handleSendMessage();
       }
     }
@@ -901,6 +923,9 @@ export function useChat({
     messageToolCalls, setMessageToolCalls,
     conversationRunIds, setConversationRunIds,
     uploadingImageAttachment,
+    pendingImageAttachments,
+    removePendingImageAttachment,
+    attachmentProjectPath: getAttachmentProjectPath(),
 
     // Conversation methods
     refreshConversations: conv.refreshConversations,

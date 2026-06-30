@@ -44,6 +44,7 @@ import type {
   RagFile,
   RagFileDraft,
   ChatImageAttachment,
+  ChatImageAttachmentPreview,
   ChatImageAttachmentRequest,
 } from "./types";
 
@@ -335,6 +336,10 @@ export function renameProjectFile(request: ProjectFileMoveRequest) {
 
 export function saveChatImageAttachment(request: ChatImageAttachmentRequest) {
   return invoke<ChatImageAttachment>("save_chat_image_attachment", { request });
+}
+
+export function readChatImageAttachment(projectPath: string, relativePath: string) {
+  return invoke<ChatImageAttachmentPreview>("read_chat_image_attachment", { projectPath, relativePath });
 }
 
 export function executeBashCommand(projectPath: string, command: string) {

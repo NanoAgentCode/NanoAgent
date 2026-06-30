@@ -26,7 +26,7 @@ use error::AppResult;
 use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
 use mcp::{McpClientManager, McpServerView, McpToolCallRequest, McpToolCallResult, McpToolInfo};
 use models::{
-    ChatImageAttachment, ChatImageAttachmentRequest, ChatMessage, ChatRequest, ChatResponse,
+    ChatImageAttachment, ChatImageAttachmentPreview, ChatImageAttachmentRequest, ChatMessage, ChatRequest, ChatResponse,
     ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory,
     MemoryDraft, MemoryPatch, Message, MessageDraft, McpServerConfig, McpServerDraft,
     ModelConfig, ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
@@ -2750,6 +2750,59 @@ async fn save_chat_image_attachment(
     })
 }
 
+fn image_mime_from_path(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|value| value.to_str()).map(|value| value.to_ascii_lowercase()) {
+        Some(ext) if ext == "jpg" || ext == "jpeg" => "image/jpeg",
+        Some(ext) if ext == "bmp" => "image/bmp",
+        Some(ext) if ext == "webp" => "image/webp",
+        Some(ext) if ext == "tif" || ext == "tiff" => "image/tiff",
+        _ => "image/png",
+    }
+}
+
+#[tauri::command]
+async fn read_chat_image_attachment(
+    project_path: String,
+    relative_path: String,
+) -> AppResult<ChatImageAttachmentPreview> {
+    const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+
+    let normalized = normalize_relative_path(&relative_path)?;
+    if !normalized.starts_with(".nano-agent/uploads/images/") {
+        return Err(crate::error::AppError::Message(
+            "只能预览对话图片附件".to_string(),
+        ));
+    }
+
+    let root = project_root(&project_path)?;
+    let file_path = resolve_project_relative_path(&root, &normalized)?;
+    if !is_supported_ocr_image(&file_path) {
+        return Err(crate::error::AppError::Message(
+            "OCR 图片仅支持 png、jpg、jpeg、bmp、webp、tif、tiff".to_string(),
+        ));
+    }
+    let metadata = std::fs::metadata(&file_path)
+        .map_err(|err| crate::error::AppError::Message(format!("读取图片文件信息失败: {err}")))?;
+    if !metadata.is_file() {
+        return Err(crate::error::AppError::Message(
+            "只能预览普通图片文件".to_string(),
+        ));
+    }
+    if metadata.len() > MAX_IMAGE_BYTES {
+        return Err(crate::error::AppError::Message(
+            "图片超过 25MB，无法预览".to_string(),
+        ));
+    }
+
+    let bytes = std::fs::read(&file_path)
+        .map_err(|err| crate::error::AppError::Message(format!("读取图片失败: {err}")))?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(ChatImageAttachmentPreview {
+        relative_path: normalized,
+        data_url: format!("data:{};base64,{}", image_mime_from_path(&file_path), encoded),
+    })
+}
+
 fn write_project_file_inner(
     request: ProjectFileWriteRequest,
     allow_overwrite: bool,
@@ -3744,6 +3797,7 @@ pub fn run() {
             delete_project_file,
             rename_project_file,
             save_chat_image_attachment,
+            read_chat_image_attachment,
             execute_bash_command,
             write_local_file,
             read_local_file,
