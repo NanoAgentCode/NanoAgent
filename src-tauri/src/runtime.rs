@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -56,6 +57,12 @@ pub struct AgentRunTimeline {
     pub tool_calls: Vec<AgentToolCall>,
 }
 
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct RuntimeRecoverySummary {
+    pub runs_failed: usize,
+    pub tool_calls_failed: usize,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentRunDraft {
     pub conversation_id: String,
@@ -91,6 +98,7 @@ impl RuntimeStore {
         let conn = Connection::open(path)?;
         let store = Self { conn };
         store.init()?;
+        store.recover_interrupted_work()?;
         Ok(store)
     }
 
@@ -152,6 +160,124 @@ impl RuntimeStore {
             ",
         )?;
         Ok(())
+    }
+
+    pub fn recover_interrupted_work(&self) -> AppResult<RuntimeRecoverySummary> {
+        let interrupted_tool_calls = self.list_tool_calls_by_status("running")?;
+        for tool_call in &interrupted_tool_calls {
+            self.record_step(AgentStepDraft {
+                run_id: tool_call.run_id.clone(),
+                kind: "tool".to_string(),
+                status: "failed".to_string(),
+                input_summary: Some(tool_call.name.clone()),
+                output_summary: Some("tool execution interrupted by app restart".to_string()),
+                metadata_json: Some(
+                    json!({
+                        "tool_call_id": tool_call.id,
+                        "recovery": "app_restart"
+                    })
+                    .to_string(),
+                ),
+            })?;
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let tool_calls_failed = self.conn.execute(
+            "
+            UPDATE agent_tool_calls
+            SET status = 'failed',
+                result_summary = 'interrupted_by_restart',
+                error = 'tool execution interrupted by app restart',
+                updated_at = ?1,
+                completed_at = ?1
+            WHERE status = 'running'
+            ",
+            params![now],
+        )?;
+
+        let interrupted_runs = self.list_runs_needing_recovery()?;
+        for run in &interrupted_runs {
+            self.record_step(AgentStepDraft {
+                run_id: run.id.clone(),
+                kind: "error".to_string(),
+                status: "failed".to_string(),
+                input_summary: Some(run.status.clone()),
+                output_summary: Some("agent run interrupted by app restart".to_string()),
+                metadata_json: Some(json!({ "recovery": "app_restart" }).to_string()),
+            })?;
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let runs_failed = self.conn.execute(
+            "
+            UPDATE agent_runs
+            SET status = 'failed',
+                updated_at = ?1,
+                completed_at = ?1,
+                error = 'agent run interrupted by app restart'
+            WHERE status = 'running'
+               OR (
+                    status = 'awaiting_tool'
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM agent_tool_calls
+                        WHERE agent_tool_calls.run_id = agent_runs.id
+                          AND agent_tool_calls.status IN ('pending_approval', 'approved', 'running')
+                    )
+               )
+            ",
+            params![now],
+        )?;
+
+        Ok(RuntimeRecoverySummary {
+            runs_failed,
+            tool_calls_failed,
+        })
+    }
+
+    fn list_tool_calls_by_status(&self, status: &str) -> AppResult<Vec<AgentToolCall>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, run_id, message_id, name, args_json, status, result_summary,
+                   error, created_at, updated_at, completed_at
+            FROM agent_tool_calls
+            WHERE status = ?1
+            ORDER BY created_at ASC
+            ",
+        )?;
+
+        let tool_calls = stmt
+            .query_map(params![status], row_to_tool_call)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        Ok(tool_calls)
+    }
+
+    fn list_runs_needing_recovery(&self) -> AppResult<Vec<AgentRun>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, conversation_id, project_path, model_config_id, trigger_message_id,
+                   status, created_at, updated_at, completed_at, error
+            FROM agent_runs
+            WHERE status = 'running'
+               OR (
+                    status = 'awaiting_tool'
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM agent_tool_calls
+                        WHERE agent_tool_calls.run_id = agent_runs.id
+                          AND agent_tool_calls.status IN ('pending_approval', 'approved', 'running')
+                    )
+               )
+            ORDER BY created_at ASC
+            ",
+        )?;
+
+        let runs = stmt
+            .query_map([], row_to_run)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+        Ok(runs)
     }
 
     pub fn create_run(&self, draft: AgentRunDraft) -> AppResult<AgentRun> {
@@ -454,9 +580,9 @@ impl RuntimeStore {
             "completed" => "tool call already completed; duplicate execution refused".to_string(),
             "failed" => "tool call already failed; duplicate execution refused".to_string(),
             "rejected" => "tool call was rejected and cannot be executed".to_string(),
-            status => format!(
-                "tool call must be approved before execution; current status: {status}"
-            ),
+            status => {
+                format!("tool call must be approved before execution; current status: {status}")
+            }
         };
         Err(AppError::Message(message))
     }
@@ -596,4 +722,243 @@ fn clean_status(status: &str) -> String {
 
 fn is_terminal_status(status: &str) -> bool {
     matches!(status, "completed" | "failed" | "cancelled" | "rejected")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn test_db_path() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "nano-agent-runtime-test-{}.sqlite3",
+            Uuid::new_v4()
+        ))
+    }
+
+    fn test_store() -> RuntimeStore {
+        let path = test_db_path();
+        test_store_at(path)
+    }
+
+    fn test_store_at(path: PathBuf) -> RuntimeStore {
+        RuntimeStore::open(path).expect("runtime store should open")
+    }
+
+    fn create_run(store: &RuntimeStore) -> AgentRun {
+        store
+            .create_run(AgentRunDraft {
+                conversation_id: "conversation-1".to_string(),
+                project_path: Some("D:/workspace/project".to_string()),
+                model_config_id: Some("model-1".to_string()),
+                trigger_message_id: Some("message-1".to_string()),
+            })
+            .expect("run should be created")
+    }
+
+    fn create_tool_call(store: &RuntimeStore) -> AgentToolCall {
+        let run = create_run(store);
+        store
+            .create_tool_call(AgentToolCallDraft {
+                run_id: run.id,
+                message_id: "message-1".to_string(),
+                name: "read_file".to_string(),
+                args_json: "{\"path\":\"README.md\"}".to_string(),
+            })
+            .expect("tool call should be created")
+    }
+
+    #[test]
+    fn created_tool_call_starts_pending_approval() {
+        let store = test_store();
+        let tool_call = create_tool_call(&store);
+
+        assert_eq!(tool_call.status, "pending_approval");
+        assert!(tool_call.completed_at.is_none());
+        assert!(tool_call.result_summary.is_none());
+        assert!(tool_call.error.is_none());
+    }
+
+    #[test]
+    fn start_tool_call_requires_approval() {
+        let store = test_store();
+        let tool_call = create_tool_call(&store);
+
+        let err = store
+            .start_tool_call(&tool_call.id)
+            .expect_err("pending tool call should not start");
+        assert!(err.to_string().contains("must be approved"));
+        assert_eq!(
+            store.get_tool_call(&tool_call.id).unwrap().status,
+            "pending_approval"
+        );
+    }
+
+    #[test]
+    fn approved_tool_call_starts_once() {
+        let store = test_store();
+        let tool_call = create_tool_call(&store);
+
+        let approved = store
+            .approve_tool_call(&tool_call.id)
+            .expect("tool call should be approved");
+        assert_eq!(approved.status, "approved");
+
+        let running = store
+            .start_tool_call(&tool_call.id)
+            .expect("approved tool call should start");
+        assert_eq!(running.status, "running");
+        assert!(running.completed_at.is_none());
+
+        let err = store
+            .start_tool_call(&tool_call.id)
+            .expect_err("running tool call should reject duplicate execution");
+        assert!(err.to_string().contains("already running"));
+        assert_eq!(
+            store.get_tool_call(&tool_call.id).unwrap().status,
+            "running"
+        );
+    }
+
+    #[test]
+    fn rejected_tool_call_cannot_start() {
+        let store = test_store();
+        let tool_call = create_tool_call(&store);
+
+        store
+            .approve_tool_call(&tool_call.id)
+            .expect("tool call should be approved");
+        let rejected = store
+            .reject_tool_call(&tool_call.id, Some("not safe".to_string()))
+            .expect("approved tool call should be rejectable");
+        assert_eq!(rejected.status, "rejected");
+        assert!(rejected.completed_at.is_some());
+
+        let err = store
+            .start_tool_call(&tool_call.id)
+            .expect_err("rejected tool call should not start");
+        assert!(err.to_string().contains("rejected"));
+    }
+
+    #[test]
+    fn completed_tool_call_cannot_start_again() {
+        let store = test_store();
+        let tool_call = create_tool_call(&store);
+
+        store
+            .approve_tool_call(&tool_call.id)
+            .expect("tool call should be approved");
+        store
+            .start_tool_call(&tool_call.id)
+            .expect("approved tool call should start");
+        let completed = store
+            .update_tool_call(&tool_call.id, "completed", Some("ok".to_string()), None)
+            .expect("tool call should complete");
+        assert_eq!(completed.status, "completed");
+        assert!(completed.completed_at.is_some());
+
+        let err = store
+            .start_tool_call(&tool_call.id)
+            .expect_err("completed tool call should reject duplicate execution");
+        assert!(err.to_string().contains("already completed"));
+    }
+
+    #[test]
+    fn terminal_run_status_sets_completed_at() {
+        let store = test_store();
+        let run = create_run(&store);
+
+        let completed = store
+            .finish_run(&run.id, "completed", None)
+            .expect("run should finish");
+        assert_eq!(completed.status, "completed");
+        assert!(completed.completed_at.is_some());
+        assert!(completed.error.is_none());
+    }
+
+    #[test]
+    fn open_recovers_running_tool_call_and_run_after_restart() {
+        let path = test_db_path();
+        let (run_id, tool_call_id) = {
+            let store = test_store_at(path.clone());
+            let run = create_run(&store);
+            let tool_call = store
+                .create_tool_call(AgentToolCallDraft {
+                    run_id: run.id.clone(),
+                    message_id: "message-1".to_string(),
+                    name: "read_file".to_string(),
+                    args_json: "{\"path\":\"README.md\"}".to_string(),
+                })
+                .expect("tool call should be created");
+            store
+                .approve_tool_call(&tool_call.id)
+                .expect("tool call should be approved");
+            store
+                .start_tool_call(&tool_call.id)
+                .expect("tool call should start");
+            store
+                .finish_run(&run.id, "awaiting_tool", None)
+                .expect("run should wait on tool");
+            (run.id, tool_call.id)
+        };
+
+        let recovered = test_store_at(path);
+        let run = recovered.get_run(&run_id).expect("run should exist");
+        let tool_call = recovered
+            .get_tool_call(&tool_call_id)
+            .expect("tool call should exist");
+        let steps = recovered.list_steps(&run_id).expect("steps should list");
+
+        assert_eq!(run.status, "failed");
+        assert_eq!(
+            run.error.as_deref(),
+            Some("agent run interrupted by app restart")
+        );
+        assert!(run.completed_at.is_some());
+        assert_eq!(tool_call.status, "failed");
+        assert_eq!(
+            tool_call.error.as_deref(),
+            Some("tool execution interrupted by app restart")
+        );
+        assert!(tool_call.completed_at.is_some());
+        assert!(steps
+            .iter()
+            .any(|step| step.kind == "tool" && step.status == "failed"));
+        assert!(steps
+            .iter()
+            .any(|step| step.kind == "error" && step.status == "failed"));
+    }
+
+    #[test]
+    fn open_keeps_awaiting_tool_run_with_pending_approval() {
+        let path = test_db_path();
+        let (run_id, tool_call_id) = {
+            let store = test_store_at(path.clone());
+            let run = create_run(&store);
+            let tool_call = store
+                .create_tool_call(AgentToolCallDraft {
+                    run_id: run.id.clone(),
+                    message_id: "message-1".to_string(),
+                    name: "read_file".to_string(),
+                    args_json: "{\"path\":\"README.md\"}".to_string(),
+                })
+                .expect("tool call should be created");
+            store
+                .finish_run(&run.id, "awaiting_tool", None)
+                .expect("run should wait on approval");
+            (run.id, tool_call.id)
+        };
+
+        let recovered = test_store_at(path);
+        let run = recovered.get_run(&run_id).expect("run should exist");
+        let tool_call = recovered
+            .get_tool_call(&tool_call_id)
+            .expect("tool call should exist");
+
+        assert_eq!(run.status, "awaiting_tool");
+        assert!(run.completed_at.is_none());
+        assert!(run.error.is_none());
+        assert_eq!(tool_call.status, "pending_approval");
+        assert!(tool_call.completed_at.is_none());
+    }
 }
