@@ -154,6 +154,7 @@ export default function SettingsModal({
                 archivedConversations={archivedConversations}
                 previewArchivedId={previewArchivedId}
                 previewMessages={previewMessages}
+                tempDir={skills.tempDir}
                 loadArchivedPreview={loadArchivedPreview}
                 handleRestoreConversation={handleRestoreConversation}
                 handleDeleteArchivedConversation={handleDeleteArchivedConversation}

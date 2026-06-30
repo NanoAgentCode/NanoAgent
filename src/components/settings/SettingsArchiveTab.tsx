@@ -8,6 +8,7 @@ interface SettingsArchiveTabProps {
   archivedConversations: Conversation[];
   previewArchivedId: string;
   previewMessages: PersistedMessage[];
+  tempDir: string;
   loadArchivedPreview: (conversationId: string) => Promise<void>;
   handleRestoreConversation: (conversation: Conversation) => Promise<void>;
   handleDeleteArchivedConversation: (conversation: Conversation) => Promise<void>;
@@ -17,10 +18,14 @@ export default function SettingsArchiveTab({
   archivedConversations,
   previewArchivedId,
   previewMessages,
+  tempDir,
   loadArchivedPreview,
   handleRestoreConversation,
   handleDeleteArchivedConversation
 }: SettingsArchiveTabProps) {
+  const previewConversation = archivedConversations.find((c) => c.id === previewArchivedId);
+  const attachmentProjectPath = previewConversation?.project_path || tempDir;
+
   return (
     <div className="settings-tab-content archive-tab-content">
       <h3>归档列表</h3>
@@ -50,9 +55,9 @@ export default function SettingsArchiveTab({
             <>
               <div className="archive-preview-header">
                 <div className="archive-preview-title-container">
-                  <h4>{archivedConversations.find((c) => c.id === previewArchivedId)?.title || "对话预览"}</h4>
+                  <h4>{previewConversation?.title || "对话预览"}</h4>
                   <span className="archive-preview-date">
-                    {formatDateTime(archivedConversations.find((c) => c.id === previewArchivedId)?.archived_at)}
+                    {formatDateTime(previewConversation?.archived_at)}
                   </span>
                 </div>
                 <div className="archive-preview-actions">
@@ -97,7 +102,7 @@ export default function SettingsArchiveTab({
                             )}
                           </div>
                         )}
-                        {renderMessageContent(message.content)}
+                        {renderMessageContent(message.content, { attachmentProjectPath })}
                       </div>
                     );
                   })}
