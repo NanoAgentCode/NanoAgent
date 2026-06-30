@@ -12,7 +12,8 @@ import {
   listMessages,
   listProjectFiles,
   listRagFiles,
-  readAbsoluteFile
+  readAbsoluteFile,
+  saveChatImageAttachment
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
 import { isSupportedRagFile, MAX_CONTEXT_TOKENS, estimateTokens } from "../lib/formatters";
@@ -33,7 +34,7 @@ import { useRagFiles } from "./useRagFiles";
 import { useChatInput } from "./useChatInput";
 import type {
   AgentRun, AgentToolCall, ChatMessage, ChatStreamEvent,
-  Conversation, Item, PersistedMessage, ProjectEntry
+  ChatImageAttachment, Conversation, Item, PersistedMessage, ProjectEntry
 } from "../types";
 import type { UseProjectsReturn } from "./useProjects";
 import type { UseModelReturn } from "./useModel";
@@ -77,6 +78,7 @@ export interface UseChatReturn {
   setMessageToolCalls: React.Dispatch<React.SetStateAction<Record<string, AgentToolCall>>>;
   conversationRunIds: Record<string, string>;
   setConversationRunIds: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  uploadingImageAttachment: boolean;
   activeConversation: Conversation | undefined;
   activeConversationProject: ProjectEntry | null;
   loadMessages: (conversationId: string) => Promise<void>;
@@ -97,6 +99,7 @@ export interface UseChatReturn {
   handleRejectTool: (messageId: string, toolCall: ParsedToolCall) => Promise<void>;
   handleCloseConversation: () => void;
   handleRagFiles: (files: FileList | File[]) => Promise<void>;
+  handleImageFiles: (files: FileList | File[]) => Promise<number>;
   handleDroppedFilePaths: (paths: string[]) => Promise<void>;
   handleDeleteRagFile: (id: string) => Promise<void>;
   handleInputChange: (value: string, cursorIndex: number) => Promise<void>;
@@ -104,6 +107,29 @@ export interface UseChatReturn {
   insertPrompt: (item: Item) => void;
   loadArchivedPreview: (conversationId: string) => Promise<void>;
   resolveConversationModelId: (conversationId?: string | null) => string;
+}
+
+const IMAGE_ATTACHMENT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "bmp", "webp", "tif", "tiff"]);
+
+function isSupportedImageAttachment(path: string) {
+  const ext = path.split(".").pop()?.toLowerCase();
+  return ext ? IMAGE_ATTACHMENT_EXTENSIONS.has(ext) : false;
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+      } else {
+        reject(new Error("图片读取失败"));
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error("图片读取失败"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export interface UseChatArgs {
@@ -140,6 +166,7 @@ export function useChat({
   const [executingToolMessageId, setExecutingToolMessageId] = useState<string | null>(null);
   const [messageToolCalls, setMessageToolCalls] = useState<Record<string, AgentToolCall>>({});
   const [conversationRunIds, setConversationRunIds] = useState<Record<string, string>>({});
+  const [uploadingImageAttachment, setUploadingImageAttachment] = useState(false);
 
   // ── Sync activeConversationId ref ──
   useEffect(() => {
@@ -622,11 +649,97 @@ export function useChat({
     setMessages([]);
   }
 
+  function getAttachmentProjectPath() {
+    const projectHint = conv.getConversationProjectHint();
+    const resolvedProject = projects.resolveConversationProject(conv.activeConversationId, projectHint);
+    return resolvedProject?.path || projectHint?.path || skills.tempDir;
+  }
+
+  function appendImageAttachmentPrompt(attachments: ChatImageAttachment[]) {
+    if (attachments.length === 0) return;
+    const lines = [
+      "图片附件：",
+      ...attachments.map((attachment) => `- ${attachment.name}: ${attachment.relative_path}`),
+      "需要识别图片文字时，请调用 ocr_image 工具。"
+    ];
+    input.setChatInput((current) => {
+      const trimmed = current.trimEnd();
+      return trimmed ? `${trimmed}\n\n${lines.join("\n")}` : lines.join("\n");
+    });
+  }
+
+  async function handleImageFiles(files: FileList | File[]) {
+    const selectedFiles = Array.from(files).filter((file) => isSupportedImageAttachment(file.name));
+    if (selectedFiles.length === 0) {
+      setNotice("OCR 图片仅支持 png、jpg、jpeg、bmp、webp、tif、tiff。");
+      return 0;
+    }
+
+    const projectPath = getAttachmentProjectPath();
+    setUploadingImageAttachment(true);
+    try {
+      const attachments: ChatImageAttachment[] = [];
+      for (const file of selectedFiles) {
+        const contentBase64 = await fileToBase64(file);
+        const attachment = await saveChatImageAttachment({
+          project_path: projectPath,
+          file_name: file.name,
+          content_base64: contentBase64,
+          source_path: null
+        });
+        attachments.push(attachment);
+      }
+      appendImageAttachmentPrompt(attachments);
+      setNotice(`已添加 ${attachments.length} 张图片，可直接让助手识别文字。`);
+      return attachments.length;
+    } catch (error) {
+      console.error("Failed to attach image:", error);
+      setNotice(`图片添加失败：${String(error)}`);
+      return 0;
+    } finally {
+      setUploadingImageAttachment(false);
+      rag.setIsRagDragging(false);
+    }
+  }
+
+  async function attachDroppedImagePaths(paths: string[]) {
+    const imagePaths = paths.filter((path) => isSupportedImageAttachment(path));
+    if (imagePaths.length === 0) return 0;
+
+    const projectPath = getAttachmentProjectPath();
+    setUploadingImageAttachment(true);
+    try {
+      const attachments: ChatImageAttachment[] = [];
+      for (const filePath of imagePaths) {
+        const fileName = filePath.split(/[/\\]/).pop() || "image.png";
+        const attachment = await saveChatImageAttachment({
+          project_path: projectPath,
+          file_name: fileName,
+          content_base64: null,
+          source_path: filePath
+        });
+        attachments.push(attachment);
+      }
+      appendImageAttachmentPrompt(attachments);
+      return attachments.length;
+    } finally {
+      setUploadingImageAttachment(false);
+    }
+  }
+
   // ── RAG file handlers (need context from useChat state) ──
   async function handleRagFiles(files: FileList | File[]) {
-    const selectedFiles = Array.from(files).filter((file) => isSupportedRagFile(file.name));
+    const fileList = Array.from(files);
+    const imageFiles = fileList.filter((file) => isSupportedImageAttachment(file.name));
+    const selectedFiles = fileList.filter((file) => isSupportedRagFile(file.name));
+    let imageCount = 0;
+    if (imageFiles.length > 0) {
+      imageCount = await handleImageFiles(imageFiles);
+    }
     if (selectedFiles.length === 0) {
-      setNotice("仅支持文本类文件：txt、md、json、csv、log、代码文件等。");
+      if (imageCount === 0) {
+        setNotice("支持 OCR 图片，或文本类知识文件：txt、md、json、csv、log、代码文件等。");
+      }
       return;
     }
 
@@ -645,7 +758,9 @@ export function useChat({
         });
       }
       await rag.refreshRagFiles(conversationId);
-      setNotice(`已索引 ${selectedFiles.length} 个文件到当前对话。`);
+      setNotice(imageCount > 0
+        ? `已添加 ${imageCount} 张图片，并索引 ${selectedFiles.length} 个文件到当前对话。`
+        : `已索引 ${selectedFiles.length} 个文件到当前对话。`);
     } catch (error) {
       console.error("Failed to index RAG file:", error);
       setNotice(`文件索引失败：${String(error)}`);
@@ -656,9 +771,25 @@ export function useChat({
   }
 
   async function handleDroppedFilePaths(paths: string[]) {
+    let imageCount = 0;
+    let imageFailed = false;
+    try {
+      imageCount = await attachDroppedImagePaths(paths);
+    } catch (error) {
+      imageFailed = true;
+      console.error("Failed to attach dropped images:", error);
+      setNotice(`图片添加失败：${String(error)}`);
+    }
+
     const supportedPaths = paths.filter((p) => isSupportedRagFile(p));
     if (supportedPaths.length === 0) {
-      setNotice("仅支持文本类文件：txt、md、json、csv、log、代码文件等。");
+      if (imageCount > 0) {
+        setNotice(`已添加 ${imageCount} 张图片，可直接让助手识别文字。`);
+      } else if (imageFailed) {
+        return;
+      } else {
+        setNotice("支持 OCR 图片，或文本类知识文件：txt、md、json、csv、log、代码文件等。");
+      }
       return;
     }
 
@@ -679,7 +810,9 @@ export function useChat({
         });
       }
       await rag.refreshRagFiles(conversationId);
-      setNotice(`已索引 ${supportedPaths.length} 个文件到当前对话。`);
+      setNotice(imageCount > 0
+        ? `已添加 ${imageCount} 张图片，并索引 ${supportedPaths.length} 个文件到当前对话。`
+        : `已索引 ${supportedPaths.length} 个文件到当前对话。`);
     } catch (error) {
       console.error("Failed to index dropped files:", error);
       setNotice(`文件索引失败：${String(error)}`);
@@ -751,6 +884,7 @@ export function useChat({
     executingToolMessageId, setExecutingToolMessageId,
     messageToolCalls, setMessageToolCalls,
     conversationRunIds, setConversationRunIds,
+    uploadingImageAttachment,
 
     // Conversation methods
     refreshConversations: conv.refreshConversations,
@@ -777,6 +911,7 @@ export function useChat({
     // RAG handlers
     refreshRagFiles: rag.refreshRagFiles,
     handleRagFiles,
+    handleImageFiles,
     handleDroppedFilePaths,
     handleDeleteRagFile,
 

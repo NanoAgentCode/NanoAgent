@@ -62,24 +62,27 @@ export function useEnv(setNotice: (message: string) => void): UseEnvReturn {
       .then((apiKey) => setTavilyApiKey(apiKey))
       .catch((error) => console.error("Failed to load Tavily API key:", error));
 
-    const isEnvChecked = localStorage.getItem(ENV_CHECKED_KEY) === "true";
+    const timer = window.setTimeout(() => {
+      const isEnvChecked = localStorage.getItem(ENV_CHECKED_KEY) === "true";
 
-    setIsCheckingEnv(true);
-    checkEnv(nodePath, pythonPath)
-      .then((status) => {
-        setEnvStatus(status);
-        if (!isEnvChecked && (!status.node || !status.python)) {
-          setShowEnvPrompt(true);
-        } else if (!isEnvChecked) {
-          localStorage.setItem(ENV_CHECKED_KEY, "true");
-        }
-      })
-      .catch((e) => {
-        console.error("Failed to run startup environment check:", e);
-      })
-      .finally(() => {
-        setIsCheckingEnv(false);
-      });
+      setIsCheckingEnv(true);
+      checkEnv(nodePath, pythonPath)
+        .then((status) => {
+          setEnvStatus(status);
+          if (!isEnvChecked && (!status.node || !status.python)) {
+            setShowEnvPrompt(true);
+          } else if (!isEnvChecked) {
+            localStorage.setItem(ENV_CHECKED_KEY, "true");
+          }
+        })
+        .catch((e) => {
+          console.error("Failed to run startup environment check:", e);
+        })
+        .finally(() => {
+          setIsCheckingEnv(false);
+        });
+    }, 800);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

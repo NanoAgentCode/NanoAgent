@@ -28,9 +28,10 @@
 
 | 工具 | 风险 | 用途 |
 | --- | --- | --- |
-| `read_file` | low | 读取项目内 UTF-8 文本文件 |
-| `write_file` | high | 创建或覆盖项目内 UTF-8 文本文件 |
-| `execute_command` | high | 在项目目录执行命令 |
+| `read_file` | 低 | 读取项目内 UTF-8 文本文件 |
+| `write_file` | 高 | 创建或覆盖项目内 UTF-8 文本文件 |
+| `execute_command` | 高 | 在项目目录执行命令 |
+| `ocr_image` | 中 | 调用本机 PaddleOCR 识别项目内图片文字 |
 | `mcp__server_id__tool_name` | 取决于 MCP server | 调用已连接 MCP 工具 |
 
 所有工具当前都要求用户审批。命令执行还受前端 Skills 中 Bash Tool 启用状态影响。
@@ -84,6 +85,7 @@ RAG 索引流程：
 - 单文件最多约 200 万字符。
 - RAG 数据绑定到会话，不跨会话共享。
 - embedding 使用 OpenAI-compatible `/embeddings`。
+- 图片文件不进入 RAG 索引，而是作为 OCR 附件保存，并通过 `ocr_image` 工具按需识别。
 
 ### 4.2 召回
 
@@ -95,7 +97,32 @@ RAG 索引流程：
 - 使用向量相似度和 FTS 结果形成匹配。
 - 结果以文件名、chunk index、score 和文本形式注入 system message。
 
-## 5. MCP 设计
+## 5. OCR 图片附件设计
+
+OCR 是 Agent 工具能力，不是 RAG 索引能力。用户不需要手写图片路径，前端会把图片转换成项目内相对路径后插入输入框。
+
+图片入口：
+
+1. 聊天输入区图片按钮接收浏览器 `FileList`。
+2. 窗口拖拽接收系统文件路径。
+3. `useChat` 按扩展名把图片和文本类文件分流，混合拖拽时图片进入 OCR 附件，文本进入 RAG。
+
+保存流程：
+
+1. 浏览器图片上传转为 base64，系统拖拽图片保留绝对 `source_path`。
+2. 前端调用 `save_chat_image_attachment`。
+3. Rust 后端通过 `project_path` 解析项目根目录，校验格式、大小和文件名。
+4. 图片写入 `.nano-agent/uploads/images/`，返回项目相对路径。
+5. 前端把 `图片附件：<relative_path>` 追加到输入框，提醒模型需要识别时调用 `ocr_image`。
+
+执行流程：
+
+1. 模型输出 `ocr_image` tool_call，参数是项目相对图片路径。
+2. 用户审批后，后端再次校验路径位于项目内、是普通文件、格式受支持且不超过 8MB。
+3. 后端定位 `paddleocr` CLI，使用 PP-OCRv6 small 检测和识别模型在 CPU 上执行，并用最长边、batch、线程和超时参数限制资源占用。
+4. 识别结果作为工具结果消息回到对话，模型继续整理最终回答。
+
+## 6. MCP 设计
 
 MCP 配置保存在主业务库，运行 session 保存在内存。
 
@@ -121,7 +148,7 @@ MCP 配置保存在主业务库，运行 session 保存在内存。
 4. 调用 MCP `tools/call`。
 5. 返回 `content_json` 和 `is_error`。
 
-## 6. Skills 设计
+## 7. Skills 设计
 
 Skills 管理包含两类来源：
 
@@ -136,7 +163,7 @@ Skills 管理包含两类来源：
 
 无项目上下文时，部分参数回退到 app data 下的 `temp/` 目录。
 
-## 7. 上下文压缩
+## 8. 上下文压缩
 
 `useChat` 会估算当前消息 token。当历史上下文达到阈值且消息数量足够时：
 
@@ -147,10 +174,11 @@ Skills 管理包含两类来源：
 
 这能降低长对话成本，但也意味着早期原文会被摘要替代。重要信息应进入长期记忆或项目文件。
 
-## 8. 风险点
+## 9. 风险点
 
 - XML tool_call 协议依赖模型遵循提示，解析失败时需要用户重新引导。
 - MCP 工具能力由外部 server 决定，风险边界不完全在 NanoAgent 内。
 - 命令执行和文件写入属于高风险能力，必须保留用户可见审批。
 - RAG 召回质量取决于 embedding 模型、chunk 策略和源文档抽取质量。
+- OCR 依赖本机 Python/PaddleOCR 环境，首次运行可能下载模型权重；图片内容会落到项目内 `.nano-agent` 临时目录。即使已加资源限制，超大图仍应先裁剪或压缩。
 

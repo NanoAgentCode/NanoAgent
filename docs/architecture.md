@@ -52,7 +52,7 @@ Tauri command 按领域分组：
 - Skills：`sync_anthropic_skills`、`list_local_skills`
 - 模型调用：`chat`、`chat_stream`
 - Agent 运行时：`create_agent_run`、`record_agent_step`、`execute_agent_tool_call`
-- 项目文件：`list_project_files`、`read_project_file`、`write_project_file`
+- 项目文件与附件：`list_project_files`、`read_project_file`、`write_project_file`、`save_chat_image_attachment`
 - 观测：`list_observability_spans`、`clear_observability_spans`
 - 系统窗口：`minimize_to_tray`、`show_app_window`、`quit_app`
 
@@ -88,7 +88,7 @@ Tauri command 按领域分组：
 主界面由以下部分组成：
 
 - 侧栏：普通会话、项目、项目会话、入口按钮。
-- 聊天区：消息列表、运行时面板、RAG 文件条、模型选择、输入框。
+- 聊天区：消息列表、运行时面板、RAG 文件条、图片附件入口、模型选择、输入框。
 - 工作区：笔记、备忘录、提示词、记忆等本地对象管理。
 - 设置弹窗：主题、记忆、模型、embedding、归档、观测、Skills、MCP、环境。
 - 模态框：新建项目、移除项目确认、环境安装提示、窗口关闭策略。

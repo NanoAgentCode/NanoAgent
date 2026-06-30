@@ -30,6 +30,7 @@ pdf_oxide = "0.3"
 zip = { version = "2.1", default-features = false, features = ["deflate"] }
 calamine = "0.26"
 ssh2 = "0.9"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

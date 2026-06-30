@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { setTheme } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -52,6 +52,20 @@ import type {
 type MainView = "chat" | "ops";
 
 const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
+
+function resolveThemeMode(themeMode: ThemeMode) {
+  if (themeMode === "system") {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return themeMode;
+}
+
+function applyDocumentTheme(themeMode: ThemeMode) {
+  const resolvedTheme = resolveThemeMode(themeMode);
+  document.documentElement.dataset.theme = resolvedTheme;
+  document.documentElement.dataset.themeMode = themeMode;
+  return resolvedTheme;
+}
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -110,6 +124,7 @@ function App() {
     promptSuggestions,
     selectedPromptIndex,
     busy,
+    uploadingImageAttachment,
     executingToolMessageId,
     messageToolCalls,
     activeConversation,
@@ -123,6 +138,7 @@ function App() {
     handleRejectTool,
     handleCloseConversation,
     handleRagFiles,
+    handleImageFiles,
     handleDeleteRagFile,
     handleInputChange,
     handleChatInputKeyDown,
@@ -135,7 +151,9 @@ function App() {
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem("nano-agent-theme");
-    return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+    const initialTheme = saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+    applyDocumentTheme(initialTheme);
+    return initialTheme;
   });
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [closeAction, setCloseAction] = useState<CloseAction>(() => {
@@ -204,15 +222,10 @@ function App() {
     void loadAll();
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
-      let resolvedTheme = themeMode;
-      if (themeMode === "system") {
-        resolvedTheme = media.matches ? "dark" : "light";
-      }
-      document.documentElement.dataset.theme = resolvedTheme;
-      document.documentElement.dataset.themeMode = themeMode;
+      const resolvedTheme = applyDocumentTheme(themeMode);
       localStorage.setItem("nano-agent-theme", themeMode);
       
       const tauriTheme = resolvedTheme === "light" ? "light" : "dark";
@@ -277,7 +290,6 @@ function App() {
     try {
       await chat.refreshConversations();
       void memory.refreshMemories("");
-      void model.refreshModels();
     } catch (error) {
       setNotice(String(error));
     }
@@ -700,6 +712,8 @@ function App() {
           promptSuggestions={promptSuggestions}
           selectedPromptIndex={selectedPromptIndex}
           busy={busy}
+          uploadingImageAttachment={uploadingImageAttachment}
+          isRagDragging={isRagDragging}
           executingToolMessageId={executingToolMessageId}
           messageToolCalls={messageToolCalls}
           notice={notice}
@@ -712,6 +726,7 @@ function App() {
           handleRejectTool={handleRejectTool}
           handleInputChange={handleInputChange}
           handleChatInputKeyDown={handleChatInputKeyDown}
+          handleImageFiles={handleImageFiles}
           insertPrompt={insertPrompt}
           handleDeleteRagFile={handleDeleteRagFile}
           setNotice={setNotice}

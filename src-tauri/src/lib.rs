@@ -18,16 +18,19 @@ use std::time::Duration;
 use agent_runner::{
     AgentModelOutputResolution, AgentToolDefinition, AgentToolExecution, AgentToolExecutionRequest,
 };
+use base64::Engine as _;
+use chrono::Utc;
 use db::Database;
 use error::AppResult;
 use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
 use mcp::{McpClientManager, McpServerView, McpToolCallRequest, McpToolCallResult, McpToolInfo};
 use models::{
-    ChatMessage, ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft,
-    Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch, Message, MessageDraft,
-    McpServerConfig, McpServerDraft, ModelConfig, ModelConfigDraft, ProjectFileContent,
-    ProjectFileEntry, ProjectFileMoveRequest, ProjectFileWriteRequest, OpsAiRequest, OpsServer,
-    OpsServerDraft, OpsUploadRequest, RagChunkMatch, RagFile, RagFileDraft,
+    ChatImageAttachment, ChatImageAttachmentRequest, ChatMessage, ChatRequest, ChatResponse,
+    ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory,
+    MemoryDraft, MemoryPatch, Message, MessageDraft, McpServerConfig, McpServerDraft,
+    ModelConfig, ModelConfigDraft, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
+    ProjectFileWriteRequest, OpsAiRequest, OpsServer, OpsServerDraft, OpsUploadRequest,
+    RagChunkMatch, RagFile, RagFileDraft,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -1890,6 +1893,46 @@ fn check_cmd_with_args(cmd: &str, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+fn resolve_cmd_on_path(cmd: &str) -> bool {
+    let candidate = std::path::Path::new(cmd);
+    if candidate.is_file() {
+        return true;
+    }
+    if candidate.components().count() > 1 {
+        return false;
+    }
+
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let extensions = if cfg!(target_os = "windows") {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+            .split(';')
+            .filter(|ext| !ext.trim().is_empty())
+            .map(|ext| ext.to_string())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    for dir in std::env::split_paths(&paths) {
+        let direct = dir.join(cmd);
+        if direct.is_file() {
+            return true;
+        }
+        if cfg!(target_os = "windows") && std::path::Path::new(cmd).extension().is_none() {
+            for ext in &extensions {
+                if dir.join(format!("{cmd}{ext}")).is_file() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 fn check_python_exists() -> bool {
     check_cmd_exists("python") || check_cmd_exists("py")
 }
@@ -1930,7 +1973,8 @@ fn is_supported_ocr_image(path: &std::path::Path) -> bool {
 }
 
 fn run_paddle_ocr(project_path: &str, relative_path: &str, output_format: &str) -> AppResult<String> {
-    const MAX_OCR_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+    const MAX_OCR_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
+    const OCR_TIMEOUT: Duration = Duration::from_secs(90);
 
     let root = project_root(project_path)?;
     let target_path = resolve_project_relative_path(&root, relative_path)?;
@@ -1942,7 +1986,7 @@ fn run_paddle_ocr(project_path: &str, relative_path: &str, output_format: &str) 
     }
     if metadata.len() > MAX_OCR_IMAGE_BYTES {
         return Err(crate::error::AppError::Message(
-            "OCR 图片超过 25MB，请先压缩或裁剪后再识别".to_string(),
+            "OCR 图片超过 8MB，请先压缩或裁剪后再识别".to_string(),
         ));
     }
     if !is_supported_ocr_image(&target_path) {
@@ -1977,16 +2021,41 @@ fn run_paddle_ocr(project_path: &str, relative_path: &str, output_format: &str) 
         "False",
         "--use_textline_orientation",
         "False",
+        "--text_det_limit_side_len",
+        "960",
+        "--text_det_limit_type",
+        "max",
+        "--text_recognition_batch_size",
+        "1",
+        "--cpu_threads",
+        "2",
+        "--enable_mkldnn",
+        "False",
+        "--mkldnn_cache_capacity",
+        "1",
+        "--enable_hpi",
+        "False",
+        "--enable_cinn",
+        "False",
     ]);
     command.env("PADDLE_PDX_CACHE_HOME", paddle_cache_dir);
+    command.env("OMP_NUM_THREADS", "2");
+    command.env("MKL_NUM_THREADS", "2");
+    command.env("OPENBLAS_NUM_THREADS", "2");
+    command.env("NUMEXPR_NUM_THREADS", "2");
+    command.env("KMP_BLOCKTIME", "0");
+    command.env("FLAGS_allocator_strategy", "auto_growth");
+    command.env("FLAGS_use_mkldnn", "0");
+    // Paddle/PaddleX on some Windows + Python 3.12 setups can fail in the PIR
+    // predictor path with ConvertPirAttribute2RuntimeAttribute. Keep OCR on the
+    // legacy inference path unless the user overrides it in the process env.
+    if std::env::var_os("FLAGS_enable_pir_api").is_none() {
+        command.env("FLAGS_enable_pir_api", "0");
+    }
     #[cfg(target_os = "windows")]
     command.creation_flags(0x08000000);
 
-    let output = command.output().map_err(|err| {
-        crate::error::AppError::Message(format!(
-            "未能启动 PaddleOCR。请先安装：python -m pip install paddleocr paddlepaddle；如 paddleocr 不在 PATH，可设置 NANO_AGENT_PADDLEOCR_BIN。原始错误：{err}"
-        ))
-    })?;
+    let output = run_paddleocr_with_timeout(&mut command, OCR_TIMEOUT)?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -2022,6 +2091,66 @@ fn run_paddle_ocr(project_path: &str, relative_path: &str, output_format: &str) 
         })
     } else {
         Ok(text)
+    }
+}
+
+fn run_paddleocr_with_timeout(
+    command: &mut std::process::Command,
+    timeout: Duration,
+) -> AppResult<std::process::Output> {
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().map_err(|err| {
+        crate::error::AppError::Message(format!(
+            "未能启动 PaddleOCR。请先安装：python -m pip install paddleocr paddlepaddle；如 paddleocr 不在 PATH，可设置 NANO_AGENT_PADDLEOCR_BIN。原始错误：{err}"
+        ))
+    })?;
+
+    let mut stdout = child.stdout.take().ok_or_else(|| {
+        crate::error::AppError::Message("未能读取 PaddleOCR 标准输出".to_string())
+    })?;
+    let mut stderr = child.stderr.take().ok_or_else(|| {
+        crate::error::AppError::Message("未能读取 PaddleOCR 错误输出".to_string())
+    })?;
+    let stdout_handle = thread::spawn(move || {
+        let mut output = Vec::new();
+        let _ = stdout.read_to_end(&mut output);
+        output
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut output = Vec::new();
+        let _ = stderr.read_to_end(&mut output);
+        output
+    });
+
+    let started_at = std::time::Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().map_err(|err| {
+            crate::error::AppError::Message(format!("等待 PaddleOCR 失败：{err}"))
+        })? {
+            let stdout = stdout_handle.join().unwrap_or_default();
+            let stderr = stderr_handle.join().unwrap_or_default();
+            return Ok(std::process::Output { status, stdout, stderr });
+        }
+
+        if started_at.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let stdout = stdout_handle.join().unwrap_or_default();
+            let stderr = stderr_handle.join().unwrap_or_default();
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&stdout).trim(),
+                String::from_utf8_lossy(&stderr).trim()
+            );
+            return Err(crate::error::AppError::Message(format!(
+                "PaddleOCR 执行超过 {} 秒，已自动终止。请裁剪/压缩图片后重试。\n{}",
+                timeout.as_secs(),
+                combined.trim()
+            )));
+        }
+
+        thread::sleep(Duration::from_millis(200));
     }
 }
 
@@ -2271,14 +2400,12 @@ fn paddleocr_from_windows_user_scripts() -> Option<String> {
 fn find_paddleocr_binary(python_path: Option<&str>) -> Option<String> {
     if let Ok(bin) = std::env::var("NANO_AGENT_PADDLEOCR_BIN") {
         let bin = bin.trim();
-        if !bin.is_empty() {
-            if check_cmd_with_args(bin, &["--help"]) || std::path::Path::new(bin).is_file() {
-                return Some(bin.to_string());
-            }
+        if !bin.is_empty() && std::path::Path::new(bin).is_file() {
+            return Some(bin.to_string());
         }
     }
 
-    if check_cmd_with_args("paddleocr", &["--help"]) || check_cmd_exists("paddleocr") {
+    if resolve_cmd_on_path("paddleocr") {
         return Some("paddleocr".to_string());
     }
 
@@ -2389,6 +2516,7 @@ async fn list_project_files(project_path: String) -> AppResult<Vec<ProjectFileEn
         ".next",
         ".nuxt",
         "coverage",
+        ".nano-agent",
     ];
 
     let root = std::path::PathBuf::from(project_path);
@@ -2524,6 +2652,83 @@ async fn rename_project_file(request: ProjectFileMoveRequest) -> AppResult<Proje
         path: to_normalized,
         is_dir: false,
         size: Some(new_metadata.len()),
+    })
+}
+
+#[tauri::command]
+async fn save_chat_image_attachment(
+    request: ChatImageAttachmentRequest,
+) -> AppResult<ChatImageAttachment> {
+    const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
+
+    let root = project_root(&request.project_path)?;
+    let safe_name = sanitize_attachment_file_name(&request.file_name)?;
+    let relative_path = format!(
+        ".nano-agent/uploads/images/{}-{}-{}",
+        Utc::now().format("%Y%m%d%H%M%S%3f"),
+        uuid::Uuid::new_v4(),
+        safe_name
+    );
+    let target_path = resolve_project_relative_path(&root, &relative_path)?;
+
+    if !is_supported_ocr_image(std::path::Path::new(&safe_name)) {
+        return Err(crate::error::AppError::Message(
+            "OCR 图片仅支持 png、jpg、jpeg、bmp、webp、tif、tiff".to_string(),
+        ));
+    }
+
+    let bytes = if let Some(source_path) = request.source_path.as_deref().filter(|value| !value.trim().is_empty()) {
+        let source = std::path::PathBuf::from(source_path);
+        let metadata = std::fs::metadata(&source).map_err(|err| {
+            crate::error::AppError::Message(format!("读取图片文件信息失败: {err}"))
+        })?;
+        if !metadata.is_file() {
+            return Err(crate::error::AppError::Message(
+                "只能上传普通图片文件".to_string(),
+            ));
+        }
+        if metadata.len() > MAX_IMAGE_BYTES as u64 {
+            return Err(crate::error::AppError::Message(
+                "图片超过 25MB，请先压缩或裁剪后再上传".to_string(),
+            ));
+        }
+        if !is_supported_ocr_image(&source) {
+            return Err(crate::error::AppError::Message(
+                "OCR 图片仅支持 png、jpg、jpeg、bmp、webp、tif、tiff".to_string(),
+            ));
+        }
+        std::fs::read(&source)
+            .map_err(|err| crate::error::AppError::Message(format!("读取图片失败: {err}")))?
+    } else {
+        let content_base64 = request.content_base64.as_deref().ok_or_else(|| {
+            crate::error::AppError::Message("图片内容不能为空".to_string())
+        })?;
+        let data = content_base64
+            .split_once(',')
+            .map(|(_, data)| data)
+            .unwrap_or(content_base64);
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|err| crate::error::AppError::Message(format!("解析图片失败: {err}")))?;
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err(crate::error::AppError::Message(
+                "图片超过 25MB，请先压缩或裁剪后再上传".to_string(),
+            ));
+        }
+        bytes
+    };
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| crate::error::AppError::Message(format!("创建图片目录失败: {err}")))?;
+    }
+    std::fs::write(&target_path, &bytes)
+        .map_err(|err| crate::error::AppError::Message(format!("保存图片失败: {err}")))?;
+
+    Ok(ChatImageAttachment {
+        name: safe_name,
+        relative_path,
+        size: bytes.len() as u64,
     })
 }
 
@@ -2708,6 +2913,34 @@ fn normalize_relative_path(relative_path: &str) -> AppResult<String> {
     }
 
     Ok(parts.join("/"))
+}
+
+fn sanitize_attachment_file_name(file_name: &str) -> AppResult<String> {
+    let raw_name = std::path::Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("image.png")
+        .trim();
+    let sanitized = raw_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('.')
+        .to_string();
+
+    if sanitized.is_empty() {
+        return Err(crate::error::AppError::Message(
+            "图片文件名不能为空".to_string(),
+        ));
+    }
+
+    Ok(sanitized)
 }
 
 fn resolve_project_relative_path(
@@ -3521,6 +3754,7 @@ pub fn run() {
             write_project_file,
             delete_project_file,
             rename_project_file,
+            save_chat_image_attachment,
             execute_bash_command,
             write_local_file,
             read_local_file,

@@ -331,6 +331,19 @@ export interface ProjectFileMoveRequest {
   approval_text: string;
 }
 
+export interface ChatImageAttachmentRequest {
+  project_path: string;
+  file_name: string;
+  content_base64?: string | null;
+  source_path?: string | null;
+}
+
+export interface ChatImageAttachment {
+  name: string;
+  relative_path: string;
+  size: number;
+}
+
 export interface ObservabilitySpan {
   id: string;
   trace_id: string;

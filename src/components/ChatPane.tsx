@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Activity, Bot, FileText, Plus, SendHorizontal, X } from "lucide-react";
+import { Activity, Bot, FileText, ImagePlus, Plus, SendHorizontal, X } from "lucide-react";
 import MarkdownMessage from "./MarkdownMessage";
 import AgentRuntimePanel from "./AgentRuntimePanel";
 import { formatWebSearchBadge, renderMessageContent } from "../lib/appHelpers";
@@ -20,6 +20,8 @@ interface ChatPaneProps {
   promptSuggestions: Item[];
   selectedPromptIndex: number;
   busy: boolean;
+  uploadingImageAttachment: boolean;
+  isRagDragging: boolean;
   executingToolMessageId: string | null;
   messageToolCalls: Record<string, AgentToolCall>;
   notice: string;
@@ -32,6 +34,7 @@ interface ChatPaneProps {
   handleRejectTool: (messageId: string, toolCall: ParsedToolCall) => Promise<void>;
   handleInputChange: (value: string, cursorIndex: number) => Promise<void>;
   handleChatInputKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  handleImageFiles: (files: FileList | File[]) => Promise<number>;
   insertPrompt: (item: Item) => void;
   handleDeleteRagFile: (id: string) => Promise<void>;
   setNotice: (message: string) => void;
@@ -48,6 +51,8 @@ export default function ChatPane({
   promptSuggestions,
   selectedPromptIndex,
   busy,
+  uploadingImageAttachment,
+  isRagDragging,
   executingToolMessageId,
   messageToolCalls,
   notice,
@@ -60,12 +65,14 @@ export default function ChatPane({
   handleRejectTool,
   handleInputChange,
   handleChatInputKeyDown,
+  handleImageFiles,
   insertPrompt,
   handleDeleteRagFile,
   setNotice
 }: ChatPaneProps) {
   const runtimePanelRef = useRef<HTMLElement | null>(null);
   const runtimeToggleBtnRef = useRef<HTMLButtonElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   // AgentRuntime 打开时，点击面板和切换按钮之外的任意位置收起
   useEffect(() => {
@@ -88,6 +95,14 @@ export default function ChatPane({
   function handleToggleRuntime() {
     const nextVisible = !obs.showChatRuntime;
     obs.setShowChatRuntime(nextVisible);
+  }
+
+  function handleImageInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const { files } = event.currentTarget;
+    if (files && files.length > 0) {
+      void handleImageFiles(files);
+    }
+    event.currentTarget.value = "";
   }
 
   function getToolDisplayState(messageId: string, toolCall: ParsedToolCall) {
@@ -258,7 +273,7 @@ export default function ChatPane({
         {messages.length === 0 && <div className="empty">在下方输入开始对话，记录将保存在本地</div>}
       </div>
 
-      <div className="chat-input">
+      <div className={`chat-input${isRagDragging ? " rag-dragging" : ""}${uploadingImageAttachment ? " image-uploading" : ""}`}>
         {promptSuggestions.length > 0 && (
           <div className="prompt-suggestions-dropdown">
             {promptSuggestions.map((prompt, index) => (
@@ -305,6 +320,14 @@ export default function ChatPane({
           onKeyDown={handleChatInputKeyDown}
           placeholder="问点什么，或者梳理当前的思绪..."
         />
+        <input
+          ref={imageInputRef}
+          className="chat-image-input"
+          type="file"
+          accept="image/png,image/jpeg,image/bmp,image/webp,image/tiff"
+          multiple
+          onChange={handleImageInputChange}
+        />
         <div className="chat-input-footer">
           <div className="chat-input-left">
             <select value={model.activeModelId} onChange={(event) => void model.handleActiveModelChange(event.target.value)}>
@@ -315,6 +338,16 @@ export default function ChatPane({
             </select>
           </div>
           <div className="chat-input-actions">
+            <button
+              className="chat-header-square ghost"
+              aria-label="添加图片"
+              title={uploadingImageAttachment ? "图片上传中" : "添加图片"}
+              onClick={() => imageInputRef.current?.click()}
+              disabled={busy || uploadingImageAttachment}
+              type="button"
+            >
+              <ImagePlus size={18} />
+            </button>
             <button className="project-add-chat-btn" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
               <Plus size={16} />
             </button>

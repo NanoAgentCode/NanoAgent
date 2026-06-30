@@ -43,6 +43,8 @@ import type {
   RagChunkMatch,
   RagFile,
   RagFileDraft,
+  ChatImageAttachment,
+  ChatImageAttachmentRequest,
 } from "./types";
 
 export function listItems(kind?: string) {
@@ -329,6 +331,10 @@ export function deleteProjectFile(projectPath: string, relativePath: string, app
 
 export function renameProjectFile(request: ProjectFileMoveRequest) {
   return invoke<ProjectFileEntry>("rename_project_file", { request });
+}
+
+export function saveChatImageAttachment(request: ChatImageAttachmentRequest) {
+  return invoke<ChatImageAttachment>("save_chat_image_attachment", { request });
 }
 
 export function executeBashCommand(projectPath: string, command: string) {

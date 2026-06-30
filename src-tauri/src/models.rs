@@ -330,6 +330,21 @@ pub struct ProjectFileMoveRequest {
     pub approval_text: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatImageAttachmentRequest {
+    pub project_path: String,
+    pub file_name: String,
+    pub content_base64: Option<String>,
+    pub source_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatImageAttachment {
+    pub name: String,
+    pub relative_path: String,
+    pub size: u64,
+}
+
 fn default_true() -> bool {
     true
 }

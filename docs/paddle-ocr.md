@@ -1,20 +1,22 @@
-# PaddleOCR OCR Tool
+# PaddleOCR OCR 工具
 
-NanoAgent exposes a local `ocr_image` agent tool for extracting text from project images with PaddleOCR PP-OCRv6 small. The model files are intentionally not bundled into the main app so the installer stays light; PaddleOCR prepares or downloads the model assets in the user's local Python environment.
+NanoAgent 提供本地 `ocr_image` Agent 工具，用于从项目图片中提取文字。默认使用 PaddleOCR PP-OCRv6 small。模型文件不会打包进主程序，避免安装包过大；PaddleOCR 会在用户本机 Python 环境中准备或下载模型资源。
 
-## Runtime Dependency
+## 运行时依赖
 
-Install the local OCR runtime from the environment settings page, or run:
+可以在环境设置页安装本地 OCR 运行时，也可以手动执行：
 
 ```powershell
 python -m pip install --user paddleocr paddlepaddle
 ```
 
-NanoAgent checks `PATH`, the current Python `sysconfig.get_path("scripts")` directory, and `NANO_AGENT_PADDLEOCR_BIN`. If the executable still cannot be found, set `NANO_AGENT_PADDLEOCR_BIN` to the full `paddleocr.exe` path before starting NanoAgent.
+NanoAgent 会检查 `PATH`、当前 Python 的 `sysconfig.get_path("scripts")` 目录，以及 `NANO_AGENT_PADDLEOCR_BIN`。如果仍然找不到可执行文件，可以在启动 NanoAgent 前把 `NANO_AGENT_PADDLEOCR_BIN` 设置为完整的 `paddleocr.exe` 路径。
 
-## Agent Tool
+## Agent 工具
 
-The model can request OCR with:
+用户可以通过聊天输入区的图片按钮添加图片，也可以把图片文件拖拽到 NanoAgent。前端会通过 `save_chat_image_attachment` 把支持的图片保存到当前项目的 `.nano-agent/uploads/images/` 目录，然后把后端返回的项目相对路径插入输入框。模型需要识别图片时，会使用该路径发起 OCR 工具调用。
+
+模型可以这样请求 OCR：
 
 ```xml
 <tool_call name="ocr_image">
@@ -23,20 +25,35 @@ The model can request OCR with:
 </tool_call>
 ```
 
-Arguments:
+参数：
 
-- `path`: required project-relative image path.
-- `output_format`: optional, `text` or `raw`; defaults to `text`.
+- `path`：必填，项目内相对图片路径。
+- `output_format`：可选，`text` 或 `raw`，默认是 `text`。
 
-The backend constrains input to files inside the active project and accepts `png`, `jpg`, `jpeg`, `bmp`, `webp`, `tif`, and `tiff` images up to 25MB.
+后端要求输入文件必须位于当前项目内，支持 `png`、`jpg`、`jpeg`、`bmp`、`webp`、`tif`、`tiff` 图片。聊天附件最多可保存 25MB，但 OCR 执行阶段限制为 8MB，以保护本机内存。
 
-## Model Profile
+## 运行时兼容
 
-The default CLI invocation uses:
+当进程环境中没有显式定义 `FLAGS_enable_pir_api` 时，NanoAgent 会为 PaddleOCR 子进程设置 `FLAGS_enable_pir_api=0`。这会让 PaddleOCR 使用旧推理路径，绕开部分 Windows/Python 环境在加载 PP-OCRv6 small 模型时出现的 `ConvertPirAttribute2RuntimeAttribute` 错误。
+
+如果需要主动测试 Paddle 的 PIR 路径，可以在启动 NanoAgent 前自行定义 `FLAGS_enable_pir_api`。
+
+OCR 子进程还会使用保守默认值：
+
+- 90 秒超时；超过限制会终止子进程。
+- `text_det_limit_side_len=960` 和 `text_det_limit_type=max`。
+- 文本识别 batch size 为 `1`。
+- CPU 线程数限制为 `2`。
+- 默认关闭 MKL-DNN、HPI 和 CINN。
+
+## 模型配置
+
+默认 CLI 调用使用：
 
 - `PP-OCRv6_small_det`
 - `PP-OCRv6_small_rec`
-- CPU execution
-- document orientation, unwarping, and textline orientation disabled for lightweight default behavior
+- CPU 执行
+- 检测模型输入最长边限制为 960px
+- 关闭文档方向分类、文档矫正和文本行方向分类
 
-This keeps the built-in path suitable for local desktop OCR while leaving room to add a high-accuracy optional profile later.
+这个默认路径更偏向本地桌面环境的稳定和资源可控。后续可以再增加一个高精度可选配置。
