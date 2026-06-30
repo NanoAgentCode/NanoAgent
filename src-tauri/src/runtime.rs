@@ -429,6 +429,38 @@ impl RuntimeStore {
         self.get_tool_call(id)
     }
 
+    pub fn start_tool_call(&self, id: &str) -> AppResult<AgentToolCall> {
+        let now = Utc::now();
+        let changed = self.conn.execute(
+            "
+            UPDATE agent_tool_calls
+            SET status = 'running',
+                result_summary = NULL,
+                error = NULL,
+                updated_at = ?2,
+                completed_at = NULL
+            WHERE id = ?1 AND status = 'approved'
+            ",
+            params![id, now.to_rfc3339()],
+        )?;
+
+        if changed == 1 {
+            return self.get_tool_call(id);
+        }
+
+        let tool_call = self.get_tool_call(id)?;
+        let message = match tool_call.status.as_str() {
+            "running" => "tool call is already running; duplicate execution refused".to_string(),
+            "completed" => "tool call already completed; duplicate execution refused".to_string(),
+            "failed" => "tool call already failed; duplicate execution refused".to_string(),
+            "rejected" => "tool call was rejected and cannot be executed".to_string(),
+            status => format!(
+                "tool call must be approved before execution; current status: {status}"
+            ),
+        };
+        Err(AppError::Message(message))
+    }
+
     pub fn approve_tool_call(&self, id: &str) -> AppResult<AgentToolCall> {
         let tool_call = self.get_tool_call(id)?;
         if tool_call.status != "pending_approval" {

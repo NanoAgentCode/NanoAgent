@@ -49,6 +49,10 @@ use tauri::{
     AppHandle, Emitter, Manager, State,
 };
 use tokio::sync::Mutex;
+use tokio::time::timeout;
+
+const AGENT_TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(150);
+const PROJECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct AppState {
     db: Mutex<Database>,
@@ -1609,25 +1613,30 @@ async fn execute_agent_tool_call(
 ) -> AppResult<AgentToolExecution> {
     let running_tool_call = {
         let runtime = state.runtime.lock().await;
-        let tool_call = runtime.get_tool_call(&request.tool_call_id)?;
-        if tool_call.status != "approved" {
-            return Err(crate::error::AppError::Message(format!(
-                "tool call must be approved before execution; current status: {}",
-                tool_call.status
-            )));
-        }
-        runtime.update_tool_call(&tool_call.id, "running", None, None)?
+        runtime.start_tool_call(&request.tool_call_id)?
     };
 
-    let tavily_api_key = load_tavily_api_key(&app)?;
-    let result = execute_registered_tool(
-        &state,
-        &running_tool_call,
-        &request.project_path,
-        request.allow_command,
-        tavily_api_key.as_deref(),
-    )
-    .await;
+    let result = match load_tavily_api_key(&app) {
+        Ok(tavily_api_key) => timeout(
+            AGENT_TOOL_EXECUTION_TIMEOUT,
+            execute_registered_tool(
+                &state,
+                &running_tool_call,
+                &request.project_path,
+                request.allow_command,
+                tavily_api_key.as_deref(),
+            ),
+        )
+        .await
+        .map_err(|_| {
+            crate::error::AppError::Message(format!(
+                "工具执行超过 {} 秒，已中止",
+                AGENT_TOOL_EXECUTION_TIMEOUT.as_secs()
+            ))
+        })
+        .and_then(|result| result),
+        Err(err) => Err(err),
+    };
 
     match result {
         Ok(result_text) => {
@@ -1710,7 +1719,7 @@ async fn execute_registered_tool(
         }
         "execute_command" => {
             let command = required_tool_arg(&args, "command")?;
-            let output = run_project_command(project_path, command, tavily_api_key)?;
+            let output = run_project_command(project_path, command, tavily_api_key).await?;
             Ok(format!(
                 "命令执行成功，输出结果如下：\n\n```\n{output}\n```"
             ))
@@ -1838,7 +1847,7 @@ fn write_project_text(project_path: &str, relative_path: &str, content: &str) ->
     std::fs::write(target_path, content.as_bytes()).map_err(crate::error::AppError::from)
 }
 
-fn run_project_command(
+async fn run_project_command(
     project_path: &str,
     command: &str,
     tavily_api_key: Option<&str>,
@@ -1846,22 +1855,28 @@ fn run_project_command(
     let root = project_root(project_path)?;
     ensure_tavily_cli_if_needed(command)?;
     let mut c = if cfg!(target_os = "windows") {
-        let mut cmd = std::process::Command::new("powershell.exe");
+        let mut cmd = tokio::process::Command::new("powershell.exe");
         cmd.arg("-NoProfile").arg("-Command").arg(command);
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x08000000);
         cmd
     } else {
-        let mut cmd = std::process::Command::new("sh");
+        let mut cmd = tokio::process::Command::new("sh");
         cmd.arg("-c").arg(command);
         cmd
     };
 
     c.current_dir(root);
+    c.kill_on_drop(true);
     if let Some(api_key) = tavily_api_key {
         c.env("TAVILY_API_KEY", api_key);
     }
-    let output = c.output()?;
+    let output = timeout(PROJECT_COMMAND_TIMEOUT, c.output())
+        .await
+        .map_err(|_| {
+            crate::error::AppError::Message(format!(
+                "Command timed out after {} seconds",
+                PROJECT_COMMAND_TIMEOUT.as_secs()
+            ))
+        })??;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
@@ -3100,41 +3115,12 @@ async fn execute_bash_command(
         None,
     )
     .await;
-    let result = (|| -> AppResult<String> {
-        let root = project_root(&project_path)?;
-        ensure_tavily_cli_if_needed(&command)?;
-        let tavily_api_key = load_tavily_api_key(&app)?;
-        let mut c = if cfg!(target_os = "windows") {
-            let mut cmd = std::process::Command::new("powershell.exe");
-            cmd.arg("-NoProfile").arg("-Command").arg(&command);
-            #[cfg(target_os = "windows")]
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            cmd
-        } else {
-            let mut cmd = std::process::Command::new("sh");
-            cmd.arg("-c").arg(&command);
-            cmd
-        };
-
-        c.current_dir(root);
-        if let Some(api_key) = tavily_api_key.as_deref() {
-            c.env("TAVILY_API_KEY", api_key);
+    let result = match load_tavily_api_key(&app) {
+        Ok(tavily_api_key) => {
+            run_project_command(&project_path, &command, tavily_api_key.as_deref()).await
         }
-        let output = c.output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-        if output.status.success() {
-            Ok(stdout)
-        } else {
-            Err(crate::error::AppError::Message(format!(
-                "Command failed with code {:?}\nStdout: {}\nStderr: {}",
-                output.status.code(),
-                stdout,
-                stderr
-            )))
-        }
-    })();
+        Err(err) => Err(err),
+    };
     let summary = result
         .as_ref()
         .ok()
