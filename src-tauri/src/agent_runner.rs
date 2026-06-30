@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::error::{AppError, AppResult};
+use crate::tool_policy;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentToolDefinition {
@@ -41,71 +42,56 @@ pub struct ParsedToolCall {
 }
 
 pub fn tool_definitions() -> Vec<AgentToolDefinition> {
-    vec![
-        AgentToolDefinition {
-            name: "read_file".to_string(),
-            description: "Read a UTF-8 text file inside the active project.".to_string(),
-            risk: "low".to_string(),
-            requires_approval: true,
-            parameters_json: json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": { "type": "string", "description": "Project-relative file path." }
+    tool_policy::built_in_tool_policies()
+        .into_iter()
+        .map(|policy| AgentToolDefinition {
+            name: policy.name.to_string(),
+            description: policy.description.to_string(),
+            risk: policy.risk.to_string(),
+            requires_approval: policy.requires_approval,
+            parameters_json: tool_parameters_json(policy.name).to_string(),
+        })
+        .collect()
+}
+
+fn tool_parameters_json(name: &str) -> Value {
+    match name {
+        "read_file" => json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string", "description": "Project-relative file path." }
+            }
+        }),
+        "write_file" => json!({
+            "type": "object",
+            "required": ["path", "content"],
+            "properties": {
+                "path": { "type": "string", "description": "Project-relative file path." },
+                "content": { "type": "string", "description": "Complete file contents to write." }
+            }
+        }),
+        "execute_command" => json!({
+            "type": "object",
+            "required": ["command"],
+            "properties": {
+                "command": { "type": "string", "description": "Command line to execute." }
+            }
+        }),
+        "ocr_image" => json!({
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+                "path": { "type": "string", "description": "Project-relative image path." },
+                "output_format": {
+                    "type": "string",
+                    "enum": ["text", "raw"],
+                    "description": "Return compact recognized text or raw PaddleOCR output. Defaults to text."
                 }
-            })
-            .to_string(),
-        },
-        AgentToolDefinition {
-            name: "write_file".to_string(),
-            description: "Create or overwrite a UTF-8 text file inside the active project.".to_string(),
-            risk: "high".to_string(),
-            requires_approval: true,
-            parameters_json: json!({
-                "type": "object",
-                "required": ["path", "content"],
-                "properties": {
-                    "path": { "type": "string", "description": "Project-relative file path." },
-                    "content": { "type": "string", "description": "Complete file contents to write." }
-                }
-            })
-            .to_string(),
-        },
-        AgentToolDefinition {
-            name: "execute_command".to_string(),
-            description: "Run a shell command in the active project directory.".to_string(),
-            risk: "high".to_string(),
-            requires_approval: true,
-            parameters_json: json!({
-                "type": "object",
-                "required": ["command"],
-                "properties": {
-                    "command": { "type": "string", "description": "Command line to execute." }
-                }
-            })
-            .to_string(),
-        },
-        AgentToolDefinition {
-            name: "ocr_image".to_string(),
-            description: "Extract text from a project image with local PaddleOCR PP-OCRv6 small."
-                .to_string(),
-            risk: "medium".to_string(),
-            requires_approval: true,
-            parameters_json: json!({
-                "type": "object",
-                "required": ["path"],
-                "properties": {
-                    "path": { "type": "string", "description": "Project-relative image path." },
-                    "output_format": {
-                        "type": "string",
-                        "enum": ["text", "raw"],
-                        "description": "Return compact recognized text or raw PaddleOCR output. Defaults to text."
-                    }
-                }
-            })
-            .to_string(),
-        },
-    ]
+            }
+        }),
+        _ => json!({ "type": "object" }),
+    }
 }
 
 pub fn is_known_tool(name: &str) -> bool {

@@ -7,6 +7,7 @@ mod models;
 mod observability;
 mod runtime;
 mod skills;
+mod tool_policy;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -1684,6 +1685,11 @@ async fn execute_registered_tool(
 ) -> AppResult<String> {
     let args = agent_runner::parse_args_json(&tool_call.args_json)?;
     agent_runner::validate_tool_args(&tool_call.name, &args)?;
+    let _policy_decision = tool_policy::evaluate_tool_call(
+        &tool_call.name,
+        &args,
+        &tool_policy::ToolPolicyContext { allow_command },
+    )?;
 
     match tool_call.name.as_str() {
         "read_file" => {
@@ -1703,11 +1709,6 @@ async fn execute_registered_tool(
             ))
         }
         "execute_command" => {
-            if !allow_command {
-                return Err(crate::error::AppError::Message(
-                    "Bash Tool 技能已被禁用，请在设置中启用后再试。".to_string(),
-                ));
-            }
             let command = required_tool_arg(&args, "command")?;
             let output = run_project_command(project_path, command, tavily_api_key)?;
             Ok(format!(
