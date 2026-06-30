@@ -136,12 +136,20 @@ export function uploadOpsFile(request: OpsUploadRequest) {
   return invoke<string>("upload_ops_file", { request });
 }
 
-export function startOpsSshSession(serverId: string) {
-  return invoke<string>("start_ops_ssh_session", { serverId });
+export function startOpsSshSession(serverId: string, size?: { cols: number; rows: number }) {
+  return invoke<string>("start_ops_ssh_session", {
+    serverId,
+    cols: size?.cols,
+    rows: size?.rows
+  });
 }
 
 export function sendOpsSshInput(sessionId: string, input: string) {
   return invoke<void>("send_ops_ssh_input", { sessionId, input });
+}
+
+export function resizeOpsSshSession(sessionId: string, cols: number, rows: number) {
+  return invoke<void>("resize_ops_ssh_session", { sessionId, cols, rows });
 }
 
 export function stopOpsSshSession(sessionId: string) {

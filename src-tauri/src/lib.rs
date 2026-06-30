@@ -67,6 +67,7 @@ struct OpsSshSessionHandle {
 
 enum OpsSshControl {
     Input(String),
+    Resize { cols: u32, rows: u32 },
     Close,
 }
 
@@ -634,10 +635,18 @@ fn emit_ops_ssh_event(app: &AppHandle, session_id: &str, kind: &str, data: impl 
     );
 }
 
+fn normalize_ops_pty_size(cols: Option<u32>, rows: Option<u32>) -> (u32, u32) {
+    (
+        cols.unwrap_or(120).clamp(20, 500),
+        rows.unwrap_or(32).clamp(6, 200),
+    )
+}
+
 fn spawn_ops_ssh_shell(
     app: AppHandle,
     server: OpsServer,
     session_id: String,
+    initial_size: (u32, u32),
     rx: mpsc::Receiver<OpsSshControl>,
 ) {
     thread::spawn(move || {
@@ -645,7 +654,11 @@ fn spawn_ops_ssh_shell(
             let session = connect_ops_ssh2_session(&server)?;
             let mut channel = session.channel_session().map_err(ssh2_error)?;
             channel
-                .request_pty("xterm-256color", None, Some((120, 32, 0, 0)))
+                .request_pty(
+                    "xterm-256color",
+                    None,
+                    Some((initial_size.0, initial_size.1, 0, 0)),
+                )
                 .map_err(ssh2_error)?;
             channel.shell().map_err(ssh2_error)?;
             session.set_blocking(false);
@@ -679,6 +692,11 @@ fn spawn_ops_ssh_shell(
                     Ok(OpsSshControl::Input(input)) => {
                         channel.write_all(input.as_bytes())?;
                         channel.flush()?;
+                    }
+                    Ok(OpsSshControl::Resize { cols, rows }) => {
+                        channel
+                            .request_pty_size(cols.clamp(20, 500), rows.clamp(6, 200), None, None)
+                            .map_err(ssh2_error)?;
                     }
                     Ok(OpsSshControl::Close) => {
                         let _ = channel.close();
@@ -912,6 +930,8 @@ async fn start_ops_ssh_session(
     app: AppHandle,
     state: State<'_, AppState>,
     server_id: String,
+    cols: Option<u32>,
+    rows: Option<u32>,
 ) -> AppResult<String> {
     {
         let mut sessions = state.ops_ssh_sessions.lock().await;
@@ -950,7 +970,13 @@ async fn start_ops_ssh_session(
     let result = (|| -> AppResult<(String, mpsc::Sender<OpsSshControl>)> {
         let session_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = mpsc::channel();
-        spawn_ops_ssh_shell(app, server.clone(), session_id.clone(), rx);
+        spawn_ops_ssh_shell(
+            app,
+            server.clone(),
+            session_id.clone(),
+            normalize_ops_pty_size(cols, rows),
+            rx,
+        );
         Ok((session_id, tx))
     })();
     let result = match result {
@@ -988,6 +1014,24 @@ async fn send_ops_ssh_input(
         .input
         .send(OpsSshControl::Input(input))
         .map_err(|_| crate::error::AppError::Message("SSH 会话已关闭".to_string()))
+}
+
+#[tauri::command]
+async fn resize_ops_ssh_session(
+    state: State<'_, AppState>,
+    session_id: String,
+    cols: u32,
+    rows: u32,
+) -> AppResult<()> {
+    let sessions = state.ops_ssh_sessions.lock().await;
+    let handle = sessions.get(&session_id).ok_or_else(|| {
+        crate::error::AppError::Message("SSH session does not exist or is closed".to_string())
+    })?;
+    let (cols, rows) = normalize_ops_pty_size(Some(cols), Some(rows));
+    handle
+        .input
+        .send(OpsSshControl::Resize { cols, rows })
+        .map_err(|_| crate::error::AppError::Message("SSH session is closed".to_string()))
 }
 
 #[tauri::command]
@@ -3828,6 +3872,7 @@ pub fn run() {
             upload_ops_file,
             start_ops_ssh_session,
             send_ops_ssh_input,
+            resize_ops_ssh_session,
             stop_ops_ssh_session,
             ask_ops_ai,
             test_llm_connectivity,

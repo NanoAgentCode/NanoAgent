@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { CheckCircle2, Maximize2, Minimize2, Pencil, PlugZap, Plus, Save, Server, Terminal, Trash2, X } from "lucide-react";
 import {
   deleteOpsServer,
   listOpsServers,
+  resizeOpsSshSession,
   saveOpsServer,
   sendOpsSshInput,
   startOpsSshSession,
@@ -28,6 +29,54 @@ const emptyDraft: OpsServerDraft = {
   password: "",
   remote_dir: ""
 };
+
+type TerminalSize = {
+  cols: number;
+  rows: number;
+};
+
+const DEFAULT_TERMINAL_SIZE: TerminalSize = { cols: 120, rows: 32 };
+const TERMINAL_MIN_COLS = 20;
+const TERMINAL_MIN_ROWS = 6;
+const TERMINAL_MAX_COLS = 500;
+const TERMINAL_MAX_ROWS = 200;
+
+function clampTerminalSize(size: TerminalSize): TerminalSize {
+  return {
+    cols: Math.min(TERMINAL_MAX_COLS, Math.max(TERMINAL_MIN_COLS, size.cols)),
+    rows: Math.min(TERMINAL_MAX_ROWS, Math.max(TERMINAL_MIN_ROWS, size.rows))
+  };
+}
+
+function measureTerminalSize(terminal: HTMLElement | null): TerminalSize {
+  if (!terminal) return DEFAULT_TERMINAL_SIZE;
+
+  const style = window.getComputedStyle(terminal);
+  const paddingX = parseFloat(style.paddingLeft || "0") + parseFloat(style.paddingRight || "0");
+  const paddingY = parseFloat(style.paddingTop || "0") + parseFloat(style.paddingBottom || "0");
+  const contentWidth = Math.max(0, terminal.clientWidth - paddingX);
+  const contentHeight = Math.max(0, terminal.clientHeight - paddingY);
+  const fontSize = parseFloat(style.fontSize || "13") || 13;
+  const lineHeight = parseFloat(style.lineHeight || "") || fontSize * 1.5;
+
+  const probe = document.createElement("span");
+  probe.textContent = "mmmmmmmmmm";
+  probe.style.position = "absolute";
+  probe.style.visibility = "hidden";
+  probe.style.whiteSpace = "pre";
+  probe.style.fontFamily = style.fontFamily;
+  probe.style.fontSize = style.fontSize;
+  probe.style.fontWeight = style.fontWeight;
+  probe.style.letterSpacing = style.letterSpacing;
+  terminal.appendChild(probe);
+  const charWidth = Math.max(1, probe.getBoundingClientRect().width / 10);
+  terminal.removeChild(probe);
+
+  return clampTerminalSize({
+    cols: Math.floor(contentWidth / charWidth),
+    rows: Math.floor(contentHeight / lineHeight)
+  });
+}
 
 function applyTerminalBackspaces(value: string) {
   const output: string[] = [];
@@ -158,6 +207,7 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
   const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const sshSessionIdRef = useRef("");
   const terminalRef = useRef<HTMLPreElement | null>(null);
+  const terminalSizeRef = useRef<TerminalSize>(DEFAULT_TERMINAL_SIZE);
 
   const selectedServer = useMemo(
     () => servers.find((server) => server.id === selectedServerId) || null,
@@ -165,9 +215,45 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
   );
   const renderedSshOutput = useMemo(() => renderTerminalOutput(sshOutput), [sshOutput]);
 
+  const syncTerminalSize = useCallback((force = false) => {
+    const nextSize = measureTerminalSize(terminalRef.current);
+    const previousSize = terminalSizeRef.current;
+    const changed = nextSize.cols !== previousSize.cols || nextSize.rows !== previousSize.rows;
+    terminalSizeRef.current = nextSize;
+
+    if (!sshSessionIdRef.current || (!force && !changed)) {
+      return;
+    }
+
+    void resizeOpsSshSession(sshSessionIdRef.current, nextSize.cols, nextSize.rows).catch((error) => {
+      setNotice(`SSH PTY resize failed: ${String(error)}`);
+    });
+  }, [setNotice]);
+
   useEffect(() => {
     void refreshServers();
   }, []);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) {
+      return;
+    }
+
+    syncTerminalSize(true);
+    const resizeObserver = new ResizeObserver(() => syncTerminalSize());
+    const handleWindowResize = () => syncTerminalSize();
+    resizeObserver.observe(terminal);
+    window.addEventListener("resize", handleWindowResize);
+    const handleViewportResize = () => syncTerminalSize();
+    window.visualViewport?.addEventListener("resize", handleViewportResize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", handleWindowResize);
+      window.visualViewport?.removeEventListener("resize", handleViewportResize);
+    };
+  }, [syncTerminalSize]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -308,10 +394,15 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
         await stopOpsSshSession(sshSessionIdRef.current);
       }
       setSshOutput("");
-      const sessionId = await startOpsSshSession(selectedServer.id);
+      const terminalSize = measureTerminalSize(terminalRef.current);
+      terminalSizeRef.current = terminalSize;
+      const sessionId = await startOpsSshSession(selectedServer.id, terminalSize);
       sshSessionIdRef.current = sessionId;
       setSshSessionId(sessionId);
-      window.setTimeout(() => terminalRef.current?.focus(), 0);
+      window.setTimeout(() => {
+        terminalRef.current?.focus();
+        syncTerminalSize(true);
+      }, 0);
     } catch (error) {
       const message = String(error);
       setSshOutput(message);
@@ -433,7 +524,10 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
 
   function toggleTerminalFullscreen() {
     setTerminalFullscreen((current) => !current);
-    window.setTimeout(() => terminalRef.current?.focus(), 0);
+    window.setTimeout(() => {
+      terminalRef.current?.focus();
+      syncTerminalSize(true);
+    }, 0);
   }
 
   return (
