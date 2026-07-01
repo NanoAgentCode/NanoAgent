@@ -43,7 +43,7 @@ use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
 };
 use project_files::{
-    content_hash, normalize_relative_path, project_root, resolve_project_relative_path,
+    normalize_relative_path, project_root, resolve_project_relative_path,
     sanitize_attachment_file_name,
 };
 use runtime::{
