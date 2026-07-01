@@ -1,8 +1,9 @@
 /* NanoAgent Global Styles */
-/* Order matters: variables → base → shared → components */
+/* Order matters: variables → base → buttons → shared → components */
 
 @import "./_variables.css";
 @import "./_base.css";
+@import "./_buttons.css";
 @import "./_shared.css";
 @import "./_animations.css";
 

@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { setTheme } from "@tauri-apps/api/app";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
@@ -26,6 +25,7 @@ import { useModel } from "./hooks/useModel";
 import { useSkills } from "./hooks/useSkills";
 import { useObservability } from "./hooks/useObservability";
 import { useProjects } from "./hooks/useProjects";
+import { useThemeMode } from "./hooks/useThemeMode";
 import { useWorkspace } from "./hooks/useWorkspace";
 import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
@@ -45,27 +45,12 @@ import {
 import type {
   Conversation,
   ProjectEntry,
-  ThemeMode,
   SettingsTab
 } from "./types";
 
 type MainView = "chat" | "ops";
 
 const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
-
-function resolveThemeMode(themeMode: ThemeMode) {
-  if (themeMode === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  }
-  return themeMode;
-}
-
-function applyDocumentTheme(themeMode: ThemeMode) {
-  const resolvedTheme = resolveThemeMode(themeMode);
-  document.documentElement.dataset.theme = resolvedTheme;
-  document.documentElement.dataset.themeMode = themeMode;
-  return resolvedTheme;
-}
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -153,12 +138,7 @@ function App() {
   const obs = useObservability(setNotice, activeConversationId, showModelConfig, activeSettingsTab);
   const workspace = useWorkspace(setNotice, memory);
   const [workspaceListRatio, setWorkspaceListRatio] = useState(38);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem("nano-agent-theme");
-    const initialTheme = saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
-    applyDocumentTheme(initialTheme);
-    return initialTheme;
-  });
+  const { themeMode, setThemeMode } = useThemeMode();
   const [closePromptOpen, setClosePromptOpen] = useState(false);
   const [closeAction, setCloseAction] = useState<CloseAction>(() => {
     return getStoredCloseAction();
@@ -225,21 +205,6 @@ function App() {
   useEffect(() => {
     void loadAll();
   }, []);
-
-  useLayoutEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const applyTheme = () => {
-      const resolvedTheme = applyDocumentTheme(themeMode);
-      localStorage.setItem("nano-agent-theme", themeMode);
-      
-      const tauriTheme = resolvedTheme === "light" ? "light" : "dark";
-      void setTheme(tauriTheme);
-    };
-
-    applyTheme();
-    media.addEventListener("change", applyTheme);
-    return () => media.removeEventListener("change", applyTheme);
-  }, [themeMode]);
 
   useEffect(() => {
     const appWindow = getCurrentWindow();

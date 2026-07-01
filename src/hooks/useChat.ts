@@ -17,6 +17,11 @@ import {
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
 import { isSupportedRagFile, MAX_CONTEXT_TOKENS, estimateTokens } from "../lib/formatters";
+import {
+  fileToBase64,
+  isSupportedImageAttachment,
+  isSupportedImageAttachmentFile
+} from "../lib/imageAttachments";
 import { extractMemoryDraft, parseToolCall, type ParsedToolCall } from "../lib/messageHelpers";
 import {
   safeApproveAgentToolCall,
@@ -111,36 +116,6 @@ export interface UseChatReturn {
   insertPrompt: (item: Item) => void;
   loadArchivedPreview: (conversationId: string) => Promise<void>;
   resolveConversationModelId: (conversationId?: string | null) => string;
-}
-
-const IMAGE_ATTACHMENT_EXTENSIONS = new Set(["png", "jpg", "jpeg", "bmp", "webp", "tif", "tiff"]);
-
-function isSupportedImageAttachment(path: string) {
-  const ext = path.split(".").pop()?.toLowerCase();
-  return ext ? IMAGE_ATTACHMENT_EXTENSIONS.has(ext) : false;
-}
-
-function isSupportedImageAttachmentFile(file: File) {
-  if (isSupportedImageAttachment(file.name)) return true;
-  if (!file.type.startsWith("image/")) return false;
-  const subtype = file.type.slice("image/".length).toLowerCase();
-  return IMAGE_ATTACHMENT_EXTENSIONS.has(subtype);
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        resolve(result);
-      } else {
-        reject(new Error("图片读取失败"));
-      }
-    };
-    reader.onerror = () => reject(reader.error || new Error("图片读取失败"));
-    reader.readAsDataURL(file);
-  });
 }
 
 export interface UseChatArgs {

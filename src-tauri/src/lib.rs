@@ -7,6 +7,7 @@ mod models;
 mod observability;
 mod project_files;
 mod runtime;
+mod settings;
 mod shell;
 mod skills;
 mod tool_policy;
@@ -47,6 +48,7 @@ use runtime::{
     AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
     AgentToolCallDraft, RuntimeStore,
 };
+use settings::load_tavily_api_key;
 use shell::{check_cmd_exists, check_python_exists, resolve_cmd_on_path};
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{
@@ -83,12 +85,6 @@ struct OpsSshEvent {
     session_id: String,
     kind: String,
     data: String,
-}
-
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-struct AppSettings {
-    tavily_api_key: String,
 }
 
 async fn start_observation(
@@ -1460,18 +1456,6 @@ async fn list_local_skills(app: AppHandle) -> AppResult<(String, Vec<GitHubSkill
 }
 
 #[tauri::command]
-async fn get_tavily_api_key(app: AppHandle) -> AppResult<String> {
-    Ok(load_app_settings(&app)?.tavily_api_key)
-}
-
-#[tauri::command]
-async fn save_tavily_api_key(app: AppHandle, api_key: String) -> AppResult<()> {
-    let mut settings = load_app_settings(&app)?;
-    settings.tavily_api_key = api_key.trim().to_string();
-    save_app_settings(&app, &settings)
-}
-
-#[tauri::command]
 async fn chat(state: State<'_, AppState>, request: ChatRequest) -> AppResult<ChatResponse> {
     let model_config_id = request.model_config_id.clone();
     let trace_id = request.trace_id.clone();
@@ -2630,42 +2614,6 @@ fn rag_content_hash(name: &str, content: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-fn app_settings_path(app: &AppHandle) -> AppResult<std::path::PathBuf> {
-    let data_dir = app.path().app_data_dir().map_err(|err| {
-        crate::error::AppError::Message(format!("failed to resolve app data directory: {err}"))
-    })?;
-    std::fs::create_dir_all(&data_dir)?;
-    Ok(data_dir.join("settings.json"))
-}
-
-fn load_app_settings(app: &AppHandle) -> AppResult<AppSettings> {
-    let path = app_settings_path(app)?;
-    if !path.exists() {
-        return Ok(AppSettings::default());
-    }
-
-    let content = std::fs::read_to_string(path)?;
-    if content.trim().is_empty() {
-        return Ok(AppSettings::default());
-    }
-
-    serde_json::from_str(&content)
-        .map_err(|err| crate::error::AppError::Message(format!("读取应用设置失败: {err}")))
-}
-
-fn save_app_settings(app: &AppHandle, settings: &AppSettings) -> AppResult<()> {
-    let path = app_settings_path(app)?;
-    let content = serde_json::to_string_pretty(settings)
-        .map_err(|err| crate::error::AppError::Message(format!("序列化应用设置失败: {err}")))?;
-    std::fs::write(path, content.as_bytes())?;
-    Ok(())
-}
-
-fn load_tavily_api_key(app: &AppHandle) -> AppResult<Option<String>> {
-    let key = load_app_settings(app)?.tavily_api_key.trim().to_string();
-    Ok(if key.is_empty() { None } else { Some(key) })
-}
-
 fn normalize_rag_text(content: &str) -> String {
     content
         .replace("\r\n", "\n")
@@ -3356,8 +3304,8 @@ pub fn run() {
             sync_anthropic_skills,
             sync_github_skills,
             list_local_skills,
-            get_tavily_api_key,
-            save_tavily_api_key,
+            settings::get_tavily_api_key,
+            settings::save_tavily_api_key,
             chat,
             chat_stream,
             create_agent_run,
