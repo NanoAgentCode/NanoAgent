@@ -75,7 +75,10 @@ fn tool_parameters_json(name: &str) -> Value {
             "type": "object",
             "required": ["command"],
             "properties": {
-                "command": { "type": "string", "description": "Command line to execute." }
+                "command": {
+                    "type": "string",
+                    "description": "Command line to execute. On Windows, NanoAgent automatically runs obvious PowerShell syntax with PowerShell and obvious cmd syntax with cmd.exe."
+                }
             }
         }),
         "ocr_image" => json!({

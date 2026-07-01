@@ -39,6 +39,7 @@ export function buildSystemMessage(
         `- 项目显示名称：${activeProject.name}（仅用于应用界面展示，不代表目录名，也不要用于拼接路径）`,
         `- 真实工作目录：${activeProject.path}`,
         "- 所有文件、命令、读写操作必须以真实工作目录为准；不要根据项目显示名称推断或追加子目录。",
+        "- 如果你生成、编辑或展示图片、HTML、PDF、表格、文档等静态资源，请在回答中使用 Markdown 链接指向项目内真实相对路径（如 [预览图](screenshots/page.png)）；可以预览的文件仍要保留预览入口或预览说明。",
         projectFiles.length > 0
           ? `- 当前项目文件列表（最多 300 项，已跳过 node_modules、.git、target、dist 等大目录）：\n${formatProjectFileTree(projectFiles)}`
           : "- 当前项目文件列表为空，或暂时无法读取。"
@@ -111,9 +112,9 @@ export function buildSystemMessage(
   <path>文件名或路径</path>
 </tool_call>
 
-3. 执行命令（对应 Bash Tool，仅在已启用 Bash Tool 时可用）：
+3. 执行命令（对应 Bash Tool，仅在已启用 Bash Tool 时可用；Windows 下会根据命令语法自动识别 PowerShell 或 cmd 执行）：
 <tool_call name="execute_command">
-  <command>具体的终端命令行</command>
+  <command>具体的终端命令行，例如 PowerShell: Get-ChildItem 或 cmd: dir /b</command>
 </tool_call>
 
 4. 图片 OCR（对应 PaddleOCR PP-OCRv6 Small，仅处理当前项目内图片路径）：

@@ -348,6 +348,7 @@ pub struct ChatImageAttachment {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatImageAttachmentPreview {
     pub relative_path: String,
+    pub absolute_path: String,
     pub data_url: String,
 }
 

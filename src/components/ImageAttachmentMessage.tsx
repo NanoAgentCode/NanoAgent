@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { FolderOpen, X } from "lucide-react";
 import MarkdownMessage from "./MarkdownMessage";
-import { readChatImageAttachment } from "../api";
+import { openProjectFileLocation, readChatImageAttachment } from "../api";
 
 interface ImageAttachmentMessageProps {
   content: string;
@@ -15,6 +15,7 @@ interface ParsedImageAttachment {
 
 interface LoadedImageAttachment extends ParsedImageAttachment {
   url: string | null;
+  absolutePath?: string;
   error?: string;
 }
 
@@ -74,7 +75,7 @@ export default function ImageAttachmentMessage({ content, projectPath }: ImageAt
       const nextAttachments = await Promise.all(parsed.attachments.map(async (attachment) => {
         try {
           const previewImage = await readChatImageAttachment(projectPath, attachment.relativePath);
-          return { ...attachment, url: previewImage.data_url };
+          return { ...attachment, url: previewImage.data_url, absolutePath: previewImage.absolute_path };
         } catch (error) {
           console.error("Failed to preview image attachment:", error);
           return { ...attachment, url: null, error: String(error) };
@@ -92,29 +93,52 @@ export default function ImageAttachmentMessage({ content, projectPath }: ImageAt
   }, [parsed.attachments, projectPath]);
 
   if (parsed.attachments.length === 0) {
-    return <MarkdownMessage content={content} />;
+    return <MarkdownMessage content={content} projectPath={projectPath} />;
   }
 
   return (
     <>
-      {parsed.displayContent && <MarkdownMessage content={parsed.displayContent} />}
+      {parsed.displayContent && <MarkdownMessage content={parsed.displayContent} projectPath={projectPath} />}
       <div className="image-attachment-grid">
         {loadedAttachments.map((attachment) => (
-          <button
+          <div
             key={`${attachment.relativePath}-${attachment.name}`}
-            className="image-attachment-thumb"
-            type="button"
-            onClick={() => attachment.url && setPreview(attachment)}
-            disabled={!attachment.url}
-            title={attachment.name}
-            aria-label={`预览图片 ${attachment.name}`}
+            className="image-attachment-card"
+            title={attachment.absolutePath || attachment.relativePath}
           >
-            {attachment.url ? (
-              <img src={attachment.url} alt={attachment.name} loading="lazy" />
-            ) : (
-              <span>{attachment.error ? "预览失败" : attachment.name}</span>
-            )}
-          </button>
+            <button
+              className="image-attachment-thumb"
+              type="button"
+              onClick={() => attachment.url && setPreview(attachment)}
+              disabled={!attachment.url}
+              aria-label={`预览图片 ${attachment.name}`}
+            >
+              {attachment.url ? (
+                <img src={attachment.url} alt={attachment.name} loading="lazy" />
+              ) : (
+                <span>{attachment.error ? "预览失败" : attachment.name}</span>
+              )}
+            </button>
+            <div className="image-attachment-meta">
+              <span>{attachment.name}</span>
+              <code>{attachment.absolutePath || attachment.relativePath}</code>
+            </div>
+            <button
+              className="image-attachment-open"
+              type="button"
+              disabled={!projectPath || Boolean(attachment.error)}
+              onClick={() => {
+                if (!projectPath) return;
+                void openProjectFileLocation(projectPath, attachment.relativePath).catch((error) => {
+                  console.error("Failed to open image attachment location:", error);
+                });
+              }}
+              aria-label={`在资源管理器中打开 ${attachment.name} 所在文件夹`}
+              title="打开所在文件夹"
+            >
+              <FolderOpen size={15} />
+            </button>
+          </div>
         ))}
       </div>
       {preview?.url && (
@@ -130,6 +154,22 @@ export default function ImageAttachmentMessage({ content, projectPath }: ImageAt
               <X size={18} />
             </button>
             <img src={preview.url} alt={preview.name} />
+            <div className="image-preview-footer">
+              <code>{preview.absolutePath || preview.relativePath}</code>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!projectPath) return;
+                  void openProjectFileLocation(projectPath, preview.relativePath).catch((error) => {
+                    console.error("Failed to open image attachment location:", error);
+                  });
+                }}
+                disabled={!projectPath}
+              >
+                <FolderOpen size={15} />
+                打开所在文件夹
+              </button>
+            </div>
           </div>
         </div>
       )}

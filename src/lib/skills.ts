@@ -24,10 +24,10 @@ export const defaultSkills: Skill[] = [
     id: "bash_tool",
     name: "Bash Tool",
     provider: "Anthropic",
-    description: "允许 AI 助手在本地受控制的安全终端中执行 shell 命令行与自动化脚本。",
+    description: "允许 AI 助手在本地受控制的安全终端中执行 shell 命令行与自动化脚本，Windows 下自动识别 PowerShell 与 cmd。",
     enabled: true,
     parameters: {
-      shell_path: "powershell.exe",
+      shell_path: "auto: powershell.exe 或 cmd.exe",
       allowed_prefixes: "git,npm,node,cargo,tsc"
     },
     docUrl: "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use"

@@ -1949,8 +1949,9 @@ async fn run_project_command(
     let root = project_root(project_path)?;
     ensure_tavily_cli_if_needed(command)?;
     let mut c = if cfg!(target_os = "windows") {
-        let mut cmd = tokio::process::Command::new("powershell.exe");
-        cmd.arg("-NoProfile").arg("-Command").arg(command);
+        let shell = detect_windows_command_shell(command);
+        let mut cmd = tokio::process::Command::new(shell.program());
+        cmd.args(shell.args(command));
         #[cfg(target_os = "windows")]
         cmd.creation_flags(0x08000000);
         cmd
@@ -1986,6 +1987,156 @@ async fn run_project_command(
             stderr
         )))
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsCommandShell {
+    PowerShell,
+    Cmd,
+}
+
+impl WindowsCommandShell {
+    fn program(self) -> &'static str {
+        match self {
+            Self::PowerShell => "powershell.exe",
+            Self::Cmd => "cmd.exe",
+        }
+    }
+
+    fn args(self, command: &str) -> Vec<&str> {
+        match self {
+            Self::PowerShell => vec!["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            Self::Cmd => vec!["/D", "/S", "/C", command],
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn detect_windows_command_shell(command: &str) -> WindowsCommandShell {
+    let trimmed = command.trim_start();
+    let lower = trimmed.to_ascii_lowercase();
+    let first = lower
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_matches('"');
+
+    if matches!(first, "cmd" | "cmd.exe") {
+        return WindowsCommandShell::Cmd;
+    }
+    if matches!(first, "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe") {
+        return WindowsCommandShell::PowerShell;
+    }
+    if looks_like_powershell_command(&lower) {
+        return WindowsCommandShell::PowerShell;
+    }
+    if looks_like_cmd_command(&lower) {
+        return WindowsCommandShell::Cmd;
+    }
+
+    WindowsCommandShell::PowerShell
+}
+
+#[cfg(target_os = "windows")]
+fn looks_like_powershell_command(lower: &str) -> bool {
+    const POWERSHELL_MARKERS: &[&str] = &[
+        "$env:",
+        "$_",
+        "@(",
+        "| where-object",
+        "| foreach-object",
+        "get-",
+        "set-",
+        "new-",
+        "remove-",
+        "copy-item",
+        "move-item",
+        "get-content",
+        "set-content",
+        "add-content",
+        "test-path",
+        "join-path",
+        "split-path",
+        "resolve-path",
+        "select-object",
+        "start-process",
+        "invoke-",
+        " -literalpath",
+    ];
+
+    POWERSHELL_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
+}
+
+#[cfg(target_os = "windows")]
+fn looks_like_cmd_command(lower: &str) -> bool {
+    let compact = lower
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let first = compact
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim_matches('"');
+
+    if lower.contains('%')
+        || lower.contains("&&")
+        || lower.contains("||")
+        || lower.contains(">nul")
+        || lower.contains("2>nul")
+        || lower.contains(" /?")
+    {
+        return true;
+    }
+
+    if matches!(
+        first,
+        "assoc"
+            | "attrib"
+            | "call"
+            | "chcp"
+            | "cls"
+            | "color"
+            | "copy"
+            | "del"
+            | "dir"
+            | "erase"
+            | "ftype"
+            | "if"
+            | "md"
+            | "mkdir"
+            | "mklink"
+            | "move"
+            | "rd"
+            | "ren"
+            | "rename"
+            | "rmdir"
+            | "set"
+            | "start"
+            | "taskkill"
+            | "tasklist"
+            | "title"
+            | "tree"
+            | "type"
+            | "ver"
+            | "where"
+            | "xcopy"
+    ) {
+        return true;
+    }
+
+    compact.starts_with("cd /d ")
+        || compact.starts_with("for ")
+        || compact.starts_with("for /")
+        || compact.starts_with("if exist ")
+        || compact.starts_with("if not exist ")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_windows_command_shell(_command: &str) -> WindowsCommandShell {
+    WindowsCommandShell::PowerShell
 }
 
 #[cfg(target_os = "windows")]
@@ -2924,12 +3075,66 @@ async fn read_chat_image_attachment(
     let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(ChatImageAttachmentPreview {
         relative_path: normalized,
+        absolute_path: file_path.to_string_lossy().to_string(),
         data_url: format!(
             "data:{};base64,{}",
             image_mime_from_path(&file_path),
             encoded
         ),
     })
+}
+
+#[tauri::command]
+async fn open_project_file_location(
+    project_path: String,
+    relative_path: String,
+) -> AppResult<String> {
+    let normalized = normalize_relative_path(&relative_path)?;
+    let root = project_root(&project_path)?;
+    let file_path = resolve_project_relative_path(&root, &normalized)?;
+    let metadata = std::fs::metadata(&file_path)
+        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
+    if !metadata.is_file() {
+        return Err(crate::error::AppError::Message(
+            "只能打开普通文件所在目录".to_string(),
+        ));
+    }
+    let folder = file_path
+        .parent()
+        .ok_or_else(|| crate::error::AppError::Message("无法解析文件所在目录".to_string()))?;
+
+    open_folder_in_file_manager(folder)?;
+    Ok(folder.to_string_lossy().to_string())
+}
+
+fn open_folder_in_file_manager(folder: &std::path::Path) -> AppResult<()> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(folder);
+        command
+            .spawn()
+            .map_err(|err| crate::error::AppError::Message(format!("打开资源管理器失败: {err}")))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(folder)
+            .spawn()
+            .map_err(|err| crate::error::AppError::Message(format!("打开访达失败: {err}")))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(folder)
+            .spawn()
+            .map_err(|err| crate::error::AppError::Message(format!("打开文件管理器失败: {err}")))?;
+        Ok(())
+    }
 }
 
 fn write_project_file_inner(
@@ -3937,6 +4142,7 @@ pub fn run() {
             rename_project_file,
             save_chat_image_attachment,
             read_chat_image_attachment,
+            open_project_file_location,
             execute_bash_command,
             write_local_file,
             read_local_file,

@@ -347,6 +347,7 @@ export interface ChatImageAttachment {
 
 export interface ChatImageAttachmentPreview {
   relative_path: string;
+  absolute_path: string;
   data_url: string;
 }
 

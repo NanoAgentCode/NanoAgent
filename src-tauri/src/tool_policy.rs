@@ -41,7 +41,7 @@ pub fn built_in_tool_policies() -> Vec<ToolPolicyDescriptor> {
         },
         ToolPolicyDescriptor {
             name: "execute_command",
-            description: "Run a shell command in the active project directory.",
+            description: "Run a PowerShell or cmd command in the active project directory.",
             risk: "high",
             requires_approval: true,
         },

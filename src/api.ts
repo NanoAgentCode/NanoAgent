@@ -370,6 +370,10 @@ export function readChatImageAttachment(projectPath: string, relativePath: strin
   return invoke<ChatImageAttachmentPreview>("read_chat_image_attachment", { projectPath, relativePath });
 }
 
+export function openProjectFileLocation(projectPath: string, relativePath: string) {
+  return invoke<string>("open_project_file_location", { projectPath, relativePath });
+}
+
 export function executeBashCommand(projectPath: string, command: string) {
   return invoke<string>("execute_bash_command", { projectPath, command });
 }
