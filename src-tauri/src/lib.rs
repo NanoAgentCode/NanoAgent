@@ -5,13 +5,17 @@ mod llm;
 mod mcp;
 mod models;
 mod observability;
+mod project_files;
 mod runtime;
+mod shell;
 mod skills;
 mod tool_policy;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -30,16 +34,20 @@ use models::{
     ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
     ItemPatch, McpServerConfig, McpServerDraft, Memory, MemoryDraft, MemoryPatch, Message,
     MessageDraft, ModelConfig, ModelConfigDraft, OpsAiRequest, OpsServer, OpsServerDraft,
-    OpsUploadRequest, ProjectFileContent, ProjectFileEntry, ProjectFileMoveRequest,
-    ProjectFileWriteRequest, RagChunkMatch, RagFile, RagFileDraft,
+    OpsUploadRequest, RagChunkMatch, RagFile, RagFileDraft,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
+};
+use project_files::{
+    content_hash, normalize_relative_path, project_root, resolve_project_relative_path,
+    sanitize_attachment_file_name,
 };
 use runtime::{
     AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
     AgentToolCallDraft, RuntimeStore,
 };
+use shell::{check_cmd_exists, check_python_exists, resolve_cmd_on_path};
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -50,7 +58,6 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 const AGENT_TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(150);
-const PROJECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 
 struct AppState {
     db: Mutex<Database>,
@@ -1812,7 +1819,8 @@ async fn execute_registered_tool(
         }
         "execute_command" => {
             let command = required_tool_arg(&args, "command")?;
-            let output = run_project_command(project_path, command, tavily_api_key).await?;
+            let root = project_root(project_path)?;
+            let output = shell::run_project_command(&root, command, tavily_api_key).await?;
             Ok(format!(
                 "命令执行成功，输出结果如下：\n\n```\n{output}\n```"
             ))
@@ -1939,288 +1947,6 @@ fn write_project_text(project_path: &str, relative_path: &str, content: &str) ->
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(target_path, content.as_bytes()).map_err(crate::error::AppError::from)
-}
-
-async fn run_project_command(
-    project_path: &str,
-    command: &str,
-    tavily_api_key: Option<&str>,
-) -> AppResult<String> {
-    let root = project_root(project_path)?;
-    ensure_tavily_cli_if_needed(command)?;
-    let mut c = if cfg!(target_os = "windows") {
-        let shell = detect_windows_command_shell(command);
-        let mut cmd = tokio::process::Command::new(shell.program());
-        cmd.args(shell.args(command));
-        #[cfg(target_os = "windows")]
-        cmd.creation_flags(0x08000000);
-        cmd
-    } else {
-        let mut cmd = tokio::process::Command::new("sh");
-        cmd.arg("-c").arg(command);
-        cmd
-    };
-
-    c.current_dir(root);
-    c.kill_on_drop(true);
-    if let Some(api_key) = tavily_api_key {
-        c.env("TAVILY_API_KEY", api_key);
-    }
-    let output = timeout(PROJECT_COMMAND_TIMEOUT, c.output())
-        .await
-        .map_err(|_| {
-            crate::error::AppError::Message(format!(
-                "Command timed out after {} seconds",
-                PROJECT_COMMAND_TIMEOUT.as_secs()
-            ))
-        })??;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        Ok(stdout)
-    } else {
-        Err(crate::error::AppError::Message(format!(
-            "Command failed with code {:?}\nStdout: {}\nStderr: {}",
-            output.status.code(),
-            stdout,
-            stderr
-        )))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum WindowsCommandShell {
-    PowerShell,
-    Cmd,
-}
-
-impl WindowsCommandShell {
-    fn program(self) -> &'static str {
-        match self {
-            Self::PowerShell => "powershell.exe",
-            Self::Cmd => "cmd.exe",
-        }
-    }
-
-    fn args(self, command: &str) -> Vec<&str> {
-        match self {
-            Self::PowerShell => vec!["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-            Self::Cmd => vec!["/D", "/S", "/C", command],
-        }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn detect_windows_command_shell(command: &str) -> WindowsCommandShell {
-    let trimmed = command.trim_start();
-    let lower = trimmed.to_ascii_lowercase();
-    let first = lower
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim_matches('"');
-
-    if matches!(first, "cmd" | "cmd.exe") {
-        return WindowsCommandShell::Cmd;
-    }
-    if matches!(first, "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe") {
-        return WindowsCommandShell::PowerShell;
-    }
-    if looks_like_powershell_command(&lower) {
-        return WindowsCommandShell::PowerShell;
-    }
-    if looks_like_cmd_command(&lower) {
-        return WindowsCommandShell::Cmd;
-    }
-
-    WindowsCommandShell::PowerShell
-}
-
-#[cfg(target_os = "windows")]
-fn looks_like_powershell_command(lower: &str) -> bool {
-    const POWERSHELL_MARKERS: &[&str] = &[
-        "$env:",
-        "$_",
-        "@(",
-        "| where-object",
-        "| foreach-object",
-        "get-",
-        "set-",
-        "new-",
-        "remove-",
-        "copy-item",
-        "move-item",
-        "get-content",
-        "set-content",
-        "add-content",
-        "test-path",
-        "join-path",
-        "split-path",
-        "resolve-path",
-        "select-object",
-        "start-process",
-        "invoke-",
-        " -literalpath",
-    ];
-
-    POWERSHELL_MARKERS
-        .iter()
-        .any(|marker| lower.contains(marker))
-}
-
-#[cfg(target_os = "windows")]
-fn looks_like_cmd_command(lower: &str) -> bool {
-    let compact = lower
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let first = compact
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .trim_matches('"');
-
-    if lower.contains('%')
-        || lower.contains("&&")
-        || lower.contains("||")
-        || lower.contains(">nul")
-        || lower.contains("2>nul")
-        || lower.contains(" /?")
-    {
-        return true;
-    }
-
-    if matches!(
-        first,
-        "assoc"
-            | "attrib"
-            | "call"
-            | "chcp"
-            | "cls"
-            | "color"
-            | "copy"
-            | "del"
-            | "dir"
-            | "erase"
-            | "ftype"
-            | "if"
-            | "md"
-            | "mkdir"
-            | "mklink"
-            | "move"
-            | "rd"
-            | "ren"
-            | "rename"
-            | "rmdir"
-            | "set"
-            | "start"
-            | "taskkill"
-            | "tasklist"
-            | "title"
-            | "tree"
-            | "type"
-            | "ver"
-            | "where"
-            | "xcopy"
-    ) {
-        return true;
-    }
-
-    compact.starts_with("cd /d ")
-        || compact.starts_with("for ")
-        || compact.starts_with("for /")
-        || compact.starts_with("if exist ")
-        || compact.starts_with("if not exist ")
-}
-
-#[cfg(not(target_os = "windows"))]
-fn detect_windows_command_shell(_command: &str) -> WindowsCommandShell {
-    WindowsCommandShell::PowerShell
-}
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-fn check_cmd_exists(cmd: &str) -> bool {
-    check_cmd_with_args(cmd, &["--version"])
-}
-
-fn check_cmd_with_args(cmd: &str, args: &[&str]) -> bool {
-    let mut c = std::process::Command::new(cmd);
-    c.args(args);
-    #[cfg(target_os = "windows")]
-    c.creation_flags(0x08000000);
-    c.output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
-fn resolve_cmd_on_path(cmd: &str) -> bool {
-    let candidate = std::path::Path::new(cmd);
-    if candidate.is_file() {
-        return true;
-    }
-    if candidate.components().count() > 1 {
-        return false;
-    }
-
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    let extensions = if cfg!(target_os = "windows") {
-        std::env::var("PATHEXT")
-            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
-            .split(';')
-            .filter(|ext| !ext.trim().is_empty())
-            .map(|ext| ext.to_string())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-
-    for dir in std::env::split_paths(&paths) {
-        let direct = dir.join(cmd);
-        if direct.is_file() {
-            return true;
-        }
-        if cfg!(target_os = "windows") && std::path::Path::new(cmd).extension().is_none() {
-            for ext in &extensions {
-                if dir.join(format!("{cmd}{ext}")).is_file() {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
-
-fn check_python_exists() -> bool {
-    check_cmd_exists("python") || check_cmd_exists("py")
-}
-
-fn command_invokes_tavily(command: &str) -> bool {
-    let normalized = command
-        .trim_start()
-        .trim_start_matches('&')
-        .trim_start()
-        .to_ascii_lowercase();
-    normalized == "tvly"
-        || normalized.starts_with("tvly ")
-        || normalized.starts_with("tvly.exe ")
-        || normalized.contains("; tvly ")
-        || normalized.contains("&& tvly ")
-        || normalized.contains("|| tvly ")
-}
-
-fn ensure_tavily_cli_if_needed(command: &str) -> AppResult<()> {
-    if command_invokes_tavily(command) && !check_cmd_exists("tvly") {
-        return Err(crate::error::AppError::Message(
-            "未检测到 Tavily CLI。请先安装：uv tool install tavily-cli 或 pip install tavily-cli；安装后重新检测环境再执行搜索。".to_string(),
-        ));
-    }
-    Ok(())
 }
 
 fn is_supported_ocr_image(path: &std::path::Path) -> bool {
@@ -2752,174 +2478,6 @@ fn run_install_command(cmd: &str, args: &[&str]) -> AppResult<bool> {
 }
 
 #[tauri::command]
-async fn is_directory_empty(path: String) -> AppResult<bool> {
-    let directory = std::path::PathBuf::from(path);
-    if !directory.is_dir() {
-        return Err(crate::error::AppError::Message(
-            "请选择有效的工作目录".to_string(),
-        ));
-    }
-
-    let mut entries = std::fs::read_dir(&directory)
-        .map_err(|err| crate::error::AppError::Message(format!("读取工作目录失败: {err}")))?;
-    Ok(entries.next().is_none())
-}
-
-#[tauri::command]
-async fn list_project_files(project_path: String) -> AppResult<Vec<ProjectFileEntry>> {
-    const MAX_ENTRIES: usize = 300;
-    const MAX_DEPTH: usize = 5;
-    const SKIP_DIRS: &[&str] = &[
-        ".git",
-        ".idea",
-        ".vscode",
-        "node_modules",
-        "target",
-        "dist",
-        "build",
-        ".next",
-        ".nuxt",
-        "coverage",
-        ".nano-agent",
-    ];
-
-    let root = std::path::PathBuf::from(project_path);
-    if !root.is_dir() {
-        return Err(crate::error::AppError::Message(
-            "当前项目目录不可访问".to_string(),
-        ));
-    }
-
-    let mut entries = Vec::new();
-    collect_project_files(
-        &root,
-        &root,
-        0,
-        MAX_DEPTH,
-        MAX_ENTRIES,
-        SKIP_DIRS,
-        &mut entries,
-    )?;
-    Ok(entries)
-}
-
-#[tauri::command]
-async fn read_project_file(
-    project_path: String,
-    relative_path: String,
-) -> AppResult<ProjectFileContent> {
-    const MAX_TEXT_FILE_BYTES: u64 = 1024 * 1024;
-
-    let root = project_root(&project_path)?;
-    let file_path = resolve_project_relative_path(&root, &relative_path)?;
-    let metadata = std::fs::metadata(&file_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-
-    if !metadata.is_file() {
-        return Err(crate::error::AppError::Message(
-            "只能读取普通文件".to_string(),
-        ));
-    }
-    if metadata.len() > MAX_TEXT_FILE_BYTES {
-        return Err(crate::error::AppError::Message(
-            "文件超过 1MB，请交给对应 skill 处理".to_string(),
-        ));
-    }
-
-    let content = std::fs::read_to_string(&file_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文本文件失败: {err}")))?;
-
-    Ok(ProjectFileContent {
-        path: normalize_relative_path(&relative_path)?,
-        hash: content_hash(&content),
-        size: metadata.len(),
-        content,
-    })
-}
-
-#[tauri::command]
-async fn create_project_file(request: ProjectFileWriteRequest) -> AppResult<ProjectFileContent> {
-    write_project_file_inner(request, false)
-}
-
-#[tauri::command]
-async fn write_project_file(request: ProjectFileWriteRequest) -> AppResult<ProjectFileContent> {
-    write_project_file_inner(request, true)
-}
-
-#[tauri::command]
-async fn delete_project_file(
-    project_path: String,
-    relative_path: String,
-    approval_text: String,
-) -> AppResult<()> {
-    let normalized = normalize_relative_path(&relative_path)?;
-    if approval_text.trim() != normalized {
-        return Err(crate::error::AppError::Message(
-            "删除文件需要输入完整相对路径作为审批确认".to_string(),
-        ));
-    }
-
-    let root = project_root(&project_path)?;
-    let file_path = resolve_project_relative_path(&root, &normalized)?;
-    let metadata = std::fs::metadata(&file_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-
-    if !metadata.is_file() {
-        return Err(crate::error::AppError::Message(
-            "当前仅允许删除普通文件，目录删除后续单独审批".to_string(),
-        ));
-    }
-
-    std::fs::remove_file(&file_path)
-        .map_err(|err| crate::error::AppError::Message(format!("删除文件失败: {err}")))?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn rename_project_file(request: ProjectFileMoveRequest) -> AppResult<ProjectFileEntry> {
-    let from_normalized = normalize_relative_path(&request.from_relative_path)?;
-    let to_normalized = normalize_relative_path(&request.to_relative_path)?;
-    if request.approval_text.trim() != from_normalized {
-        return Err(crate::error::AppError::Message(
-            "重命名文件需要输入原完整相对路径作为审批确认".to_string(),
-        ));
-    }
-
-    let root = project_root(&request.project_path)?;
-    let from_path = resolve_project_relative_path(&root, &from_normalized)?;
-    let to_path = resolve_project_relative_path(&root, &to_normalized)?;
-    let metadata = std::fs::metadata(&from_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-
-    if !metadata.is_file() {
-        return Err(crate::error::AppError::Message(
-            "当前仅允许重命名普通文件".to_string(),
-        ));
-    }
-    if to_path.exists() {
-        return Err(crate::error::AppError::Message(
-            "目标路径已存在".to_string(),
-        ));
-    }
-    if let Some(parent) = to_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| crate::error::AppError::Message(format!("创建父目录失败: {err}")))?;
-    }
-
-    std::fs::rename(&from_path, &to_path)
-        .map_err(|err| crate::error::AppError::Message(format!("重命名文件失败: {err}")))?;
-
-    let new_metadata = std::fs::metadata(&to_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-    Ok(ProjectFileEntry {
-        path: to_normalized,
-        is_dir: false,
-        size: Some(new_metadata.len()),
-    })
-}
-
-#[tauri::command]
 async fn save_chat_image_attachment(
     request: ChatImageAttachmentRequest,
 ) -> AppResult<ChatImageAttachment> {
@@ -3063,305 +2621,6 @@ async fn read_chat_image_attachment(
     })
 }
 
-#[tauri::command]
-async fn open_project_file_location(
-    project_path: String,
-    relative_path: String,
-) -> AppResult<String> {
-    let normalized = normalize_relative_path(&relative_path)?;
-    let root = project_root(&project_path)?;
-    let file_path = resolve_project_relative_path(&root, &normalized)?;
-    let metadata = std::fs::metadata(&file_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-    if !metadata.is_file() {
-        return Err(crate::error::AppError::Message(
-            "只能打开普通文件所在目录".to_string(),
-        ));
-    }
-    let folder = file_path
-        .parent()
-        .ok_or_else(|| crate::error::AppError::Message("无法解析文件所在目录".to_string()))?;
-
-    open_folder_in_file_manager(folder)?;
-    Ok(folder.to_string_lossy().to_string())
-}
-
-fn open_folder_in_file_manager(folder: &std::path::Path) -> AppResult<()> {
-    #[cfg(target_os = "windows")]
-    {
-        let mut command = std::process::Command::new("explorer.exe");
-        command.arg(folder);
-        command
-            .spawn()
-            .map_err(|err| crate::error::AppError::Message(format!("打开资源管理器失败: {err}")))?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(folder)
-            .spawn()
-            .map_err(|err| crate::error::AppError::Message(format!("打开访达失败: {err}")))?;
-        return Ok(());
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(folder)
-            .spawn()
-            .map_err(|err| crate::error::AppError::Message(format!("打开文件管理器失败: {err}")))?;
-        Ok(())
-    }
-}
-
-fn write_project_file_inner(
-    request: ProjectFileWriteRequest,
-    allow_overwrite: bool,
-) -> AppResult<ProjectFileContent> {
-    let normalized = normalize_relative_path(&request.relative_path)?;
-    let root = project_root(&request.project_path)?;
-    let file_path = resolve_project_relative_path(&root, &normalized)?;
-    let exists = file_path.exists();
-
-    if exists && !allow_overwrite {
-        return Err(crate::error::AppError::Message("文件已存在".to_string()));
-    }
-    if !exists && allow_overwrite {
-        return Err(crate::error::AppError::Message(
-            "文件不存在，请先新建文件".to_string(),
-        ));
-    }
-    if exists {
-        let metadata = std::fs::metadata(&file_path)
-            .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-        if !metadata.is_file() {
-            return Err(crate::error::AppError::Message(
-                "只能写入普通文件".to_string(),
-            ));
-        }
-        if let Some(expected_hash) = request.expected_hash.as_deref() {
-            let current_content = std::fs::read_to_string(&file_path).map_err(|err| {
-                crate::error::AppError::Message(format!("读取当前文件失败: {err}"))
-            })?;
-            if content_hash(&current_content) != expected_hash {
-                return Err(crate::error::AppError::Message(
-                    "文件已发生变化，请重新读取后再保存".to_string(),
-                ));
-            }
-        }
-    }
-
-    if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| crate::error::AppError::Message(format!("创建父目录失败: {err}")))?;
-    }
-
-    std::fs::write(&file_path, request.content.as_bytes())
-        .map_err(|err| crate::error::AppError::Message(format!("写入文件失败: {err}")))?;
-
-    let metadata = std::fs::metadata(&file_path)
-        .map_err(|err| crate::error::AppError::Message(format!("读取文件信息失败: {err}")))?;
-
-    Ok(ProjectFileContent {
-        path: normalized,
-        hash: content_hash(&request.content),
-        size: metadata.len(),
-        content: request.content,
-    })
-}
-
-fn collect_project_files(
-    root: &std::path::Path,
-    dir: &std::path::Path,
-    depth: usize,
-    max_depth: usize,
-    max_entries: usize,
-    skip_dirs: &[&str],
-    entries: &mut Vec<ProjectFileEntry>,
-) -> AppResult<()> {
-    if depth > max_depth || entries.len() >= max_entries {
-        return Ok(());
-    }
-
-    let mut children = std::fs::read_dir(dir)
-        .map_err(|err| crate::error::AppError::Message(format!("读取项目目录失败: {err}")))?
-        .filter_map(Result::ok)
-        .collect::<Vec<_>>();
-
-    children.sort_by_key(|entry| {
-        let is_file = entry
-            .file_type()
-            .map(|file_type| file_type.is_file())
-            .unwrap_or(false);
-        (is_file, entry.file_name())
-    });
-
-    for child in children {
-        if entries.len() >= max_entries {
-            break;
-        }
-
-        let path = child.path();
-        let file_type = match child.file_type() {
-            Ok(file_type) => file_type,
-            Err(_) => continue,
-        };
-        let name = child.file_name().to_string_lossy().to_string();
-
-        if file_type.is_dir()
-            && skip_dirs
-                .iter()
-                .any(|skip| skip.eq_ignore_ascii_case(&name))
-        {
-            continue;
-        }
-
-        let relative = path
-            .strip_prefix(root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        let size = if file_type.is_file() {
-            child.metadata().ok().map(|metadata| metadata.len())
-        } else {
-            None
-        };
-
-        entries.push(ProjectFileEntry {
-            path: relative,
-            is_dir: file_type.is_dir(),
-            size,
-        });
-
-        if file_type.is_dir() {
-            collect_project_files(
-                root,
-                &path,
-                depth + 1,
-                max_depth,
-                max_entries,
-                skip_dirs,
-                entries,
-            )?;
-        }
-    }
-
-    Ok(())
-}
-
-fn project_root(project_path: &str) -> AppResult<std::path::PathBuf> {
-    let root = std::path::PathBuf::from(project_path);
-    let canonical = root
-        .canonicalize()
-        .map_err(|err| crate::error::AppError::Message(format!("当前项目目录不可访问: {err}")))?;
-    if !canonical.is_dir() {
-        return Err(crate::error::AppError::Message(
-            "当前项目目录不可访问".to_string(),
-        ));
-    }
-    Ok(canonical)
-}
-
-fn normalize_relative_path(relative_path: &str) -> AppResult<String> {
-    let trimmed = relative_path.trim().replace('\\', "/");
-    if trimmed.is_empty() {
-        return Err(crate::error::AppError::Message(
-            "文件路径不能为空".to_string(),
-        ));
-    }
-    if trimmed.starts_with('/') || trimmed.contains(':') {
-        return Err(crate::error::AppError::Message(
-            "请使用项目内相对路径".to_string(),
-        ));
-    }
-
-    let mut parts = Vec::new();
-    for part in trimmed.split('/') {
-        if part.is_empty() || part == "." {
-            continue;
-        }
-        if part == ".." {
-            return Err(crate::error::AppError::Message(
-                "文件路径不能包含 ..".to_string(),
-            ));
-        }
-        parts.push(part);
-    }
-
-    if parts.is_empty() {
-        return Err(crate::error::AppError::Message(
-            "文件路径不能为空".to_string(),
-        ));
-    }
-
-    Ok(parts.join("/"))
-}
-
-fn sanitize_attachment_file_name(file_name: &str) -> AppResult<String> {
-    let raw_name = std::path::Path::new(file_name)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("image.png")
-        .trim();
-    let sanitized = raw_name
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim_matches('.')
-        .to_string();
-
-    if sanitized.is_empty() {
-        return Err(crate::error::AppError::Message(
-            "图片文件名不能为空".to_string(),
-        ));
-    }
-
-    Ok(sanitized)
-}
-
-fn resolve_project_relative_path(
-    root: &std::path::Path,
-    relative_path: &str,
-) -> AppResult<std::path::PathBuf> {
-    let normalized = normalize_relative_path(relative_path)?;
-    let full_path = root.join(normalized.replace('/', std::path::MAIN_SEPARATOR_STR));
-    let mut existing_ancestor = full_path.parent().unwrap_or(root).to_path_buf();
-    while !existing_ancestor.exists() {
-        let Some(parent) = existing_ancestor.parent() else {
-            break;
-        };
-        existing_ancestor = parent.to_path_buf();
-    }
-
-    let canonical_parent = existing_ancestor
-        .canonicalize()
-        .map_err(|err| crate::error::AppError::Message(format!("解析文件路径失败: {err}")))?;
-
-    if !canonical_parent.starts_with(root) {
-        return Err(crate::error::AppError::Message(
-            "文件路径必须位于当前项目内".to_string(),
-        ));
-    }
-
-    Ok(full_path)
-}
-
-fn content_hash(content: &str) -> String {
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    content.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
-}
-
 fn rag_content_hash(name: &str, content: &str) -> String {
     use std::hash::{Hash, Hasher};
 
@@ -3483,9 +2742,12 @@ async fn execute_bash_command(
     )
     .await;
     let result = match load_tavily_api_key(&app) {
-        Ok(tavily_api_key) => {
-            run_project_command(&project_path, &command, tavily_api_key.as_deref()).await
-        }
+        Ok(tavily_api_key) => match project_root(&project_path) {
+            Ok(root) => {
+                shell::run_project_command(&root, &command, tavily_api_key.as_deref()).await
+            }
+            Err(err) => Err(err),
+        },
         Err(err) => Err(err),
     };
     let summary = result
@@ -4112,16 +3374,16 @@ pub fn run() {
             execute_agent_tool_call,
             check_env,
             install_env,
-            is_directory_empty,
-            list_project_files,
-            read_project_file,
-            create_project_file,
-            write_project_file,
-            delete_project_file,
-            rename_project_file,
+            project_files::is_directory_empty,
+            project_files::list_project_files,
+            project_files::read_project_file,
+            project_files::create_project_file,
+            project_files::write_project_file,
+            project_files::delete_project_file,
+            project_files::rename_project_file,
             save_chat_image_attachment,
             read_chat_image_attachment,
-            open_project_file_location,
+            project_files::open_project_file_location,
             execute_bash_command,
             write_local_file,
             read_local_file,
