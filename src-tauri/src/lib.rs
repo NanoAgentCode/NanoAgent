@@ -1,11 +1,13 @@
 mod agent_runner;
 mod db;
 mod error;
+mod file_content;
 mod llm;
 mod mcp;
 mod models;
 mod observability;
 mod project_files;
+mod rag;
 mod runtime;
 mod settings;
 mod shell;
@@ -28,14 +30,14 @@ use base64::Engine as _;
 use chrono::Utc;
 use db::Database;
 use error::AppResult;
-use llm::{create_embeddings, send_chat_completion, send_chat_completion_stream};
+use llm::{send_chat_completion, send_chat_completion_stream};
 use mcp::{McpClientManager, McpServerView, McpToolCallRequest, McpToolCallResult, McpToolInfo};
 use models::{
     ChatImageAttachment, ChatImageAttachmentPreview, ChatImageAttachmentRequest, ChatMessage,
     ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
     ItemPatch, McpServerConfig, McpServerDraft, Memory, MemoryDraft, MemoryPatch, Message,
     MessageDraft, ModelConfig, ModelConfigDraft, OpsAiRequest, OpsServer, OpsServerDraft,
-    OpsUploadRequest, RagChunkMatch, RagFile, RagFileDraft,
+    OpsUploadRequest,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -61,7 +63,7 @@ use tokio::time::timeout;
 
 const AGENT_TOOL_EXECUTION_TIMEOUT: Duration = Duration::from_secs(150);
 
-struct AppState {
+pub(crate) struct AppState {
     db: Mutex<Database>,
     observability: Mutex<ObservabilityPipeline>,
     runtime: Mutex<RuntimeStore>,
@@ -1289,112 +1291,6 @@ async fn append_message(state: State<'_, AppState>, draft: MessageDraft) -> AppR
 }
 
 #[tauri::command]
-async fn list_rag_files(
-    state: State<'_, AppState>,
-    conversation_id: String,
-) -> AppResult<Vec<RagFile>> {
-    state.db.lock().await.list_rag_files(&conversation_id)
-}
-
-#[tauri::command]
-async fn delete_rag_file(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.db.lock().await.delete_rag_file(&id)
-}
-
-#[tauri::command]
-async fn index_rag_file(state: State<'_, AppState>, draft: RagFileDraft) -> AppResult<RagFile> {
-    const MAX_RAG_FILE_CHARS: usize = 2_000_000;
-
-    let content = normalize_rag_text(&draft.content);
-    if content.is_empty() {
-        return Err(crate::error::AppError::Message(
-            "文件没有可索引文本".to_string(),
-        ));
-    }
-    if content.chars().count() > MAX_RAG_FILE_CHARS {
-        return Err(crate::error::AppError::Message(
-            "文件过大，当前轻量 RAG 单文件最多支持约 200 万字符".to_string(),
-        ));
-    }
-
-    let chunks = chunk_rag_text(&content);
-    if chunks.is_empty() {
-        return Err(crate::error::AppError::Message(
-            "文件没有可索引文本".to_string(),
-        ));
-    }
-
-    let config = {
-        let db = state.db.lock().await;
-        db.get_model_config("embedding-config")
-            .or_else(|_| db.get_model_config(&draft.model_config_id))?
-    };
-    let embedding_model = if config.embedding_model.trim().is_empty() {
-        "text-embedding-3-small".to_string()
-    } else {
-        config.embedding_model.trim().to_string()
-    };
-    let embeddings = create_embeddings(&config, chunks.clone()).await?;
-    if embeddings.len() != chunks.len() {
-        return Err(crate::error::AppError::Message(
-            "embeddings 返回数量与文本分块不一致".to_string(),
-        ));
-    }
-
-    let content_hash = rag_content_hash(&draft.name, &content);
-    state.db.lock().await.replace_rag_file(
-        &draft.conversation_id,
-        &draft.name,
-        &draft.mime,
-        draft.size,
-        &content_hash,
-        &chunks,
-        &embeddings,
-        &embedding_model,
-    )
-}
-
-#[tauri::command]
-async fn search_rag_context(
-    state: State<'_, AppState>,
-    conversation_id: String,
-    query: String,
-    model_config_id: String,
-    limit: Option<i64>,
-) -> AppResult<Vec<RagChunkMatch>> {
-    let query = query.trim().to_string();
-    if query.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let has_files = !state
-        .db
-        .lock()
-        .await
-        .list_rag_files(&conversation_id)?
-        .is_empty();
-    if !has_files {
-        return Ok(Vec::new());
-    }
-
-    let config = {
-        let db = state.db.lock().await;
-        db.get_model_config("embedding-config")
-            .or_else(|_| db.get_model_config(&model_config_id))?
-    };
-    let embeddings = create_embeddings(&config, vec![query]).await?;
-    let Some(query_embedding) = embeddings.first() else {
-        return Ok(Vec::new());
-    };
-
-    state
-        .db
-        .lock()
-        .await
-        .search_rag_chunks(&conversation_id, query_embedding, limit.unwrap_or(6))
-}
-
-#[tauri::command]
 async fn list_memories(state: State<'_, AppState>) -> AppResult<Vec<Memory>> {
     state.db.lock().await.list_memories()
 }
@@ -2605,72 +2501,6 @@ async fn read_chat_image_attachment(
     })
 }
 
-fn rag_content_hash(name: &str, content: &str) -> String {
-    use std::hash::{Hash, Hasher};
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    name.hash(&mut hasher);
-    content.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
-}
-
-fn normalize_rag_text(content: &str) -> String {
-    content
-        .replace("\r\n", "\n")
-        .replace('\r', "\n")
-        .lines()
-        .map(str::trim_end)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
-
-fn chunk_rag_text(content: &str) -> Vec<String> {
-    const TARGET_CHARS: usize = 1_600;
-    const OVERLAP_CHARS: usize = 180;
-    const MAX_CHUNKS: usize = 120;
-
-    let chars = content.chars().collect::<Vec<_>>();
-    if chars.is_empty() {
-        return Vec::new();
-    }
-
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    while start < chars.len() && chunks.len() < MAX_CHUNKS {
-        let mut end = (start + TARGET_CHARS).min(chars.len());
-        if end < chars.len() {
-            let search_start = start + TARGET_CHARS.saturating_sub(400);
-            if let Some(boundary) = (search_start..end)
-                .rev()
-                .find(|idx| matches!(chars[*idx], '\n' | '。' | '！' | '？' | '.' | '!' | '?'))
-            {
-                end = boundary + 1;
-            }
-        }
-
-        let text = chars[start..end]
-            .iter()
-            .collect::<String>()
-            .trim()
-            .to_string();
-        if !text.is_empty() {
-            chunks.push(text);
-        }
-
-        if end >= chars.len() {
-            break;
-        }
-        start = end.saturating_sub(OVERLAP_CHARS);
-        if start >= end {
-            start = end;
-        }
-    }
-
-    chunks
-}
-
 #[tauri::command]
 async fn execute_bash_command(
     app: AppHandle,
@@ -2777,292 +2607,6 @@ async fn read_local_file(
         .as_ref()
         .ok()
         .map(|content| format!("content_chars={}", content.chars().count()));
-    finish_observation(&state, span, &result, summary).await;
-    result
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct AbsoluteFileContent {
-    name: String,
-    size: u64,
-    content: String,
-}
-
-fn extract_doc_binary_text(data: &[u8]) -> String {
-    let mut text = String::new();
-    let mut i = 0;
-
-    while i < data.len() {
-        // Try UTF-16 LE sequence (Common in Windows legacy Word files)
-        let mut utf16_chars = Vec::new();
-        let mut j = i;
-        while j + 1 < data.len() {
-            let u = u16::from_le_bytes([data[j], data[j + 1]]);
-            if (u >= 0x20 && u <= 0x7E)
-                || u == 0x0A
-                || u == 0x0D
-                || u == 0x09
-                || (u >= 0x4E00 && u <= 0x9FFF)
-            {
-                utf16_chars.push(u);
-                j += 2;
-            } else {
-                break;
-            }
-        }
-        if utf16_chars.len() >= 4 {
-            if let Ok(s) = String::from_utf16(&utf16_chars) {
-                text.push_str(&s);
-                text.push(' ');
-                i = j;
-                continue;
-            }
-        }
-
-        // Try ASCII sequence
-        let mut ascii_chars = Vec::new();
-        let mut j = i;
-        while j < data.len() {
-            let c = data[j];
-            if (c >= 0x20 && c <= 0x7E) || c == 0x0A || c == 0x0D || c == 0x09 {
-                ascii_chars.push(c);
-                j += 1;
-            } else {
-                break;
-            }
-        }
-        if ascii_chars.len() >= 4 {
-            if let Ok(s) = String::from_utf8(ascii_chars) {
-                text.push_str(&s);
-                text.push(' ');
-                i = j;
-                continue;
-            }
-        }
-
-        i += 1;
-    }
-
-    // Clean up multiple spaces/newlines
-    let mut cleaned = String::new();
-    let mut prev_space = false;
-    for c in text.chars() {
-        if c.is_whitespace() {
-            if !prev_space {
-                cleaned.push(' ');
-                prev_space = true;
-            }
-        } else {
-            cleaned.push(c);
-            prev_space = false;
-        }
-    }
-    cleaned.trim().to_string()
-}
-
-fn extract_text_from_file(path: &str) -> AppResult<String> {
-    let path_buf = std::path::Path::new(path);
-    let extension = path_buf
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    match extension.as_str() {
-        "doc" => {
-            let data = std::fs::read(path)?;
-            Ok(extract_doc_binary_text(&data))
-        }
-        "pdf" => {
-            let doc = pdf_oxide::PdfDocument::open(path)
-                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            let mut text = String::new();
-            let num_pages = doc
-                .page_count()
-                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            for i in 0..num_pages {
-                if let Ok(page_text) = doc.extract_text(i) {
-                    text.push_str(&page_text);
-                    text.push('\n');
-                }
-            }
-            Ok(text)
-        }
-        "docx" => {
-            let file = std::fs::File::open(path)?;
-            let mut archive = zip::ZipArchive::new(file)
-                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            let mut doc_file = archive
-                .by_name("word/document.xml")
-                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            let mut xml_content = String::new();
-            use std::io::Read;
-            doc_file.read_to_string(&mut xml_content)?;
-
-            let mut text = String::new();
-            let mut pos = 0;
-            while let Some(start) = xml_content[pos..].find("<w:t") {
-                let absolute_start = pos + start;
-                if let Some(close_tag_end) = xml_content[absolute_start..].find('>') {
-                    let text_start = absolute_start + close_tag_end + 1;
-                    if let Some(end) = xml_content[text_start..].find("</w:t>") {
-                        let absolute_end = text_start + end;
-                        text.push_str(&xml_content[text_start..absolute_end]);
-                        text.push(' ');
-                        pos = absolute_end + 6;
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-            Ok(text.trim().to_string())
-        }
-        "pptx" => {
-            let file = std::fs::File::open(path)?;
-            let mut archive = zip::ZipArchive::new(file)
-                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            let mut text = String::new();
-
-            let mut slide_names = Vec::new();
-            for i in 0..archive.len() {
-                if let Ok(archive_file) = archive.by_index(i) {
-                    let name = archive_file.name();
-                    if name.starts_with("ppt/slides/slide") && name.ends_with(".xml") {
-                        slide_names.push(name.to_string());
-                    }
-                }
-            }
-            slide_names.sort_by_key(|name| {
-                name.strip_prefix("ppt/slides/slide")
-                    .and_then(|s| s.strip_suffix(".xml"))
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(0)
-            });
-
-            for name in slide_names {
-                if let Ok(mut slide_file) = archive.by_name(&name) {
-                    let mut xml_content = String::new();
-                    use std::io::Read;
-                    if slide_file.read_to_string(&mut xml_content).is_ok() {
-                        let mut pos = 0;
-                        while let Some(start) = xml_content[pos..].find("<a:t") {
-                            let absolute_start = pos + start;
-                            if let Some(close_tag_end) = xml_content[absolute_start..].find('>') {
-                                let text_start = absolute_start + close_tag_end + 1;
-                                if let Some(end) = xml_content[text_start..].find("</a:t>") {
-                                    let absolute_end = text_start + end;
-                                    text.push_str(&xml_content[text_start..absolute_end]);
-                                    text.push(' ');
-                                    pos = absolute_end + 6;
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(text.trim().to_string())
-        }
-        "xlsx" => {
-            use calamine::{Data, Reader};
-            let mut excel = calamine::open_workbook_auto(path)
-                .map_err(|e| crate::error::AppError::Message(e.to_string()))?;
-            let mut markdown = String::new();
-
-            for sheet_name in excel.sheet_names().to_owned() {
-                if let Ok(range) = excel.worksheet_range(&sheet_name) {
-                    markdown.push_str(&format!("## Sheet: {}\n\n", sheet_name));
-
-                    for (row_idx, row) in range.rows().enumerate() {
-                        markdown.push('|');
-                        for cell in row {
-                            let val = match cell {
-                                Data::Empty => "".to_string(),
-                                Data::String(s) => s.clone(),
-                                Data::Int(i) => i.to_string(),
-                                Data::Float(f) => f.to_string(),
-                                Data::Bool(b) => b.to_string(),
-                                Data::Error(e) => format!("Error({:?})", e),
-                                Data::DateTime(d) => d.to_string(),
-                                _ => format!("{:?}", cell),
-                            };
-                            let escaped = val.replace('|', "\\|");
-                            markdown.push_str(&format!(" {} |", escaped));
-                        }
-                        markdown.push('\n');
-
-                        if row_idx == 0 {
-                            markdown.push('|');
-                            for _ in row {
-                                markdown.push_str(" --- |");
-                            }
-                            markdown.push('\n');
-                        }
-                    }
-                    markdown.push('\n');
-                }
-            }
-            Ok(markdown.trim().to_string())
-        }
-        _ => Ok(std::fs::read_to_string(path)?),
-    }
-}
-
-#[tauri::command]
-async fn read_absolute_file(
-    state: State<'_, AppState>,
-    path: String,
-) -> AppResult<AbsoluteFileContent> {
-    let span = start_observation(
-        &state,
-        "read_absolute_file",
-        "tool",
-        Some("file"),
-        Some(path.clone()),
-        None,
-        serde_json::json!({}),
-        None,
-    )
-    .await;
-    let result = (|| -> AppResult<AbsoluteFileContent> {
-        const MAX_TEXT_FILE_BYTES: u64 = 10 * 1024 * 1024; // 10MB limit
-
-        let target_path = std::path::Path::new(&path);
-        let metadata = std::fs::metadata(&target_path)?;
-        if !metadata.is_file() {
-            return Err(crate::error::AppError::Message(
-                "只能读取普通文件".to_string(),
-            ));
-        }
-        if metadata.len() > MAX_TEXT_FILE_BYTES {
-            return Err(crate::error::AppError::Message(
-                "文件超过 10MB 限制".to_string(),
-            ));
-        }
-
-        let name = target_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let size = metadata.len();
-        let content = extract_text_from_file(&path)?;
-
-        Ok(AbsoluteFileContent {
-            name,
-            size,
-            content,
-        })
-    })();
-    let summary = result
-        .as_ref()
-        .ok()
-        .map(|res| format!("content_chars={}", res.content.chars().count()));
     finish_observation(&state, span, &result, summary).await;
     result
 }
@@ -3290,10 +2834,10 @@ pub fn run() {
             list_messages,
             append_message,
             delete_messages,
-            list_rag_files,
-            index_rag_file,
-            delete_rag_file,
-            search_rag_context,
+            rag::list_rag_files,
+            rag::index_rag_file,
+            rag::delete_rag_file,
+            rag::search_rag_context,
             list_memories,
             list_enabled_memories,
             list_relevant_memories,
@@ -3335,7 +2879,7 @@ pub fn run() {
             execute_bash_command,
             write_local_file,
             read_local_file,
-            read_absolute_file,
+            file_content::read_absolute_file,
             list_observability_spans,
             clear_observability_spans,
             show_app_window,
