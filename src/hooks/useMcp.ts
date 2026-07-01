@@ -9,10 +9,7 @@ import {
 } from "../api";
 import type { McpServerDraft, McpServerView } from "../types";
 import { formatStdioCommandLine, parseJsonStringArray, parseStdioCommandLine } from "../lib/stdioCommand";
-import { formatMcpConfigJson, parseMcpConfigJson } from "../lib/mcpConfigJson";
 import { confirmAction } from "../lib/dialogs";
-
-export { formatMcpConfigJson, parseMcpConfigJson } from "../lib/mcpConfigJson";
 
 export const emptyMcpDraft: McpServerDraft = {
   name: "filesystem-server",
@@ -35,16 +32,12 @@ export interface UseMcpReturn {
   setMcpDraft: React.Dispatch<React.SetStateAction<McpServerDraft>>;
   stdioCommandLine: string;
   setStdioCommandLine: React.Dispatch<React.SetStateAction<string>>;
-  mcpConfigJson: string;
-  setMcpConfigJson: React.Dispatch<React.SetStateAction<string>>;
   mcpBusyId: string;
   setMcpBusyId: React.Dispatch<React.SetStateAction<string>>;
   selectedMcpServer: McpServerView | null;
   refreshMcpServers: (selectId?: string) => Promise<void>;
   updateMcpServerView: (view: McpServerView) => void;
   handleNewMcpServer: () => void;
-  handleApplyMcpConfigJson: () => void;
-  handleFormatMcpConfigJson: () => void;
   handleSaveMcpServer: () => Promise<void>;
   handleDeleteMcpServer: () => Promise<void>;
   handleConnectMcpServer: (id: string) => Promise<void>;
@@ -56,7 +49,6 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
   const [mcpServers, setMcpServers] = useState<McpServerView[]>([]);
   const [mcpDraft, setMcpDraft] = useState<McpServerDraft>(emptyMcpDraft);
   const [stdioCommandLine, setStdioCommandLine] = useState(formatStdioCommandLine(emptyMcpDraft));
-  const [mcpConfigJson, setMcpConfigJson] = useState(formatMcpConfigJson(emptyMcpDraft));
   const [selectedMcpServerId, setSelectedMcpServerId] = useState("");
   const [mcpBusyId, setMcpBusyId] = useState("");
 
@@ -69,7 +61,6 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
     if (!selectedMcpServer) {
       setMcpDraft(emptyMcpDraft);
       setStdioCommandLine(formatStdioCommandLine(emptyMcpDraft));
-      setMcpConfigJson(formatMcpConfigJson(emptyMcpDraft));
       return;
     }
 
@@ -87,7 +78,6 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
     };
     setMcpDraft(nextDraft);
     setStdioCommandLine(formatStdioCommandLine(nextDraft));
-    setMcpConfigJson(formatMcpConfigJson(nextDraft));
   }, [selectedMcpServer]);
 
   // Initial load
@@ -126,7 +116,6 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
     setSelectedMcpServerId("");
     setMcpDraft(emptyMcpDraft);
     setStdioCommandLine(formatStdioCommandLine(emptyMcpDraft));
-    setMcpConfigJson(formatMcpConfigJson(emptyMcpDraft));
   }
 
   function getDraftWithStdioCommandLine() {
@@ -149,29 +138,6 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
       url: "",
       headers_json: "{}"
     };
-  }
-
-  function handleApplyMcpConfigJson() {
-    try {
-      const nextDraft = parseMcpConfigJson(mcpConfigJson, mcpDraft);
-      setMcpDraft(nextDraft);
-      setStdioCommandLine(formatStdioCommandLine(nextDraft));
-      setMcpConfigJson(formatMcpConfigJson(nextDraft));
-      setNotice("MCP JSON 配置已应用。");
-    } catch (error) {
-      setNotice(`解析 MCP JSON 配置失败：${String(error)}`);
-    }
-  }
-
-  function handleFormatMcpConfigJson() {
-    try {
-      const nextDraft = getDraftWithStdioCommandLine();
-      setMcpDraft(nextDraft);
-      setMcpConfigJson(formatMcpConfigJson(nextDraft));
-      setNotice("MCP JSON 配置已格式化。");
-    } catch (error) {
-      setNotice(`格式化 MCP JSON 配置失败：${String(error)}`);
-    }
   }
 
   async function handleSaveMcpServer() {
@@ -273,16 +239,12 @@ export function useMcp(setNotice: (message: string) => void): UseMcpReturn {
     setMcpDraft,
     stdioCommandLine,
     setStdioCommandLine,
-    mcpConfigJson,
-    setMcpConfigJson,
     mcpBusyId,
     setMcpBusyId,
     selectedMcpServer,
     refreshMcpServers,
     updateMcpServerView,
     handleNewMcpServer,
-    handleApplyMcpConfigJson,
-    handleFormatMcpConfigJson,
     handleSaveMcpServer,
     handleDeleteMcpServer,
     handleConnectMcpServer,

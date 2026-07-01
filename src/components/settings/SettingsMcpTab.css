@@ -56,7 +56,30 @@
   font-size: var(--font-size-sm); line-height: 1.5;
 }
 .mcp-form-card textarea:focus { border-color: var(--border-color-focus); box-shadow: var(--focus-ring); }
-.mcp-json-actions { justify-content: flex-end; padding-top: 0; border-top: 0; }
+.mcp-kv-field {
+  display: grid; gap: 8px; min-width: 0;
+}
+.mcp-kv-field-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  color: var(--text-secondary); font-size: var(--type-meta-size);
+  font-weight: var(--font-weight-semibold);
+}
+.mcp-kv-list {
+  display: grid; gap: 8px; min-width: 0;
+}
+.mcp-kv-row {
+  display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) auto;
+  align-items: center; gap: 8px; min-width: 0;
+}
+.mcp-kv-row input {
+  min-width: 0;
+}
+.mcp-kv-empty {
+  display: flex; align-items: center; min-height: 34px;
+  padding: 0 12px; border: 1px dashed var(--border-color);
+  border-radius: var(--control-radius-md); color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
 .mcp-error-panel {
   display: grid; gap: 8px; min-width: 0;
   padding: 10px 12px; border: 1px solid rgba(239,68,68,0.32);
