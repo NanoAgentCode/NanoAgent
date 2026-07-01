@@ -334,10 +334,6 @@ export function installEnv(tech: string) {
   return invoke<boolean>("install_env", { tech });
 }
 
-export function createProjectDirectory(parentPath: string, name: string) {
-  return invoke<string>("create_project_directory", { parentPath, name });
-}
-
 export function isDirectoryEmpty(path: string) {
   return invoke<boolean>("is_directory_empty", { path });
 }

@@ -503,8 +503,8 @@ function App() {
             <label>
               <span>工作目录</span>
               <div className="project-path-picker">
-                <input value={projects.newProjectParent} readOnly placeholder="选择真实工作目录" />
-                <button type="button" onClick={() => void projects.handleSelectNewProjectParent()}>
+                <input value={projects.newProjectWorkdir} readOnly placeholder="选择真实工作目录" />
+                <button type="button" onClick={() => void projects.handleSelectNewProjectWorkdir()}>
                   选择
                 </button>
               </div>

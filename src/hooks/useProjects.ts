@@ -48,8 +48,8 @@ export interface UseProjectsReturn {
   setProjectConversations: React.Dispatch<React.SetStateAction<Record<string, Conversation[]>>>;
   showNewProjectDialog: boolean;
   setShowNewProjectDialog: React.Dispatch<React.SetStateAction<boolean>>;
-  newProjectParent: string;
-  setNewProjectParent: React.Dispatch<React.SetStateAction<string>>;
+  newProjectWorkdir: string;
+  setNewProjectWorkdir: React.Dispatch<React.SetStateAction<string>>;
   newProjectName: string;
   setNewProjectName: React.Dispatch<React.SetStateAction<string>>;
   pendingProjectRemoval: ProjectEntry | null;
@@ -74,7 +74,7 @@ export interface UseProjectsReturn {
   selectProject: (project: ProjectEntry) => void;
   upsertProject: (path: string, logicalName?: string) => void;
   handleOpenProject: () => Promise<void>;
-  handleSelectNewProjectParent: () => Promise<void>;
+  handleSelectNewProjectWorkdir: () => Promise<void>;
   handleCreateProject: () => Promise<void>;
   handleRemoveProjectApproval: (project: ProjectEntry) => void;
   handleConfirmRemoveProject: () => void;
@@ -99,7 +99,7 @@ export function useProjects(
   const [chatsSectionExpanded, setChatsSectionExpanded] = useState(true);
   const [projectConversations, setProjectConversations] = useState<Record<string, Conversation[]>>({});
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
-  const [newProjectParent, setNewProjectParent] = useState("");
+  const [newProjectWorkdir, setNewProjectWorkdir] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   const [pendingProjectRemoval, setPendingProjectRemoval] = useState<ProjectEntry | null>(null);
   const [projectApprovalText, setProjectApprovalText] = useState("");
@@ -196,7 +196,7 @@ export function useProjects(
     }
   }
 
-  async function handleSelectNewProjectParent() {
+  async function handleSelectNewProjectWorkdir() {
     try {
       const selected = await open({
         directory: true,
@@ -205,7 +205,7 @@ export function useProjects(
       });
 
       if (typeof selected === "string") {
-        setNewProjectParent(selected);
+        setNewProjectWorkdir(selected);
       }
     } catch (error) {
       setNotice(`选择目录失败：${String(error)}`);
@@ -214,25 +214,25 @@ export function useProjects(
 
   async function handleCreateProject() {
     const name = newProjectName.trim();
-    if (!newProjectParent || !name) {
+    if (!newProjectWorkdir || !name) {
       setNotice("请选择工作目录并填写项目名称");
       return;
     }
 
     try {
-      const isEmpty = await isDirectoryEmpty(newProjectParent);
+      const isEmpty = await isDirectoryEmpty(newProjectWorkdir);
       if (!isEmpty) {
         const confirmed = await confirmAction(
-          `工作目录「${newProjectParent}」不是空文件夹。是否仍将它作为项目「${name}」的工作目录添加？`,
+          `工作目录「${newProjectWorkdir}」不是空文件夹。是否仍将它作为项目「${name}」的工作目录添加？`,
           "warning"
         );
         if (!confirmed) {
           return;
         }
       }
-      upsertProject(newProjectParent, name);
+      upsertProject(newProjectWorkdir, name);
       setShowNewProjectDialog(false);
-      setNewProjectParent("");
+      setNewProjectWorkdir("");
       setNewProjectName("");
     } catch (error) {
       setNotice(`新建项目失败：${String(error)}`);
@@ -325,8 +325,8 @@ export function useProjects(
     setProjectConversations,
     showNewProjectDialog,
     setShowNewProjectDialog,
-    newProjectParent,
-    setNewProjectParent,
+    newProjectWorkdir,
+    setNewProjectWorkdir,
     newProjectName,
     setNewProjectName,
     pendingProjectRemoval,
@@ -339,7 +339,7 @@ export function useProjects(
     selectProject,
     upsertProject,
     handleOpenProject,
-    handleSelectNewProjectParent,
+    handleSelectNewProjectWorkdir,
     handleCreateProject,
     handleRemoveProjectApproval,
     handleConfirmRemoveProject,

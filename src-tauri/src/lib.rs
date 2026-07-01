@@ -2752,41 +2752,6 @@ fn run_install_command(cmd: &str, args: &[&str]) -> AppResult<bool> {
 }
 
 #[tauri::command]
-async fn create_project_directory(parent_path: String, name: String) -> AppResult<String> {
-    let project_name = name.trim();
-    if project_name.is_empty() {
-        return Err(crate::error::AppError::Message(
-            "项目名称不能为空".to_string(),
-        ));
-    }
-
-    if project_name.contains(['/', '\\']) || project_name == "." || project_name == ".." {
-        return Err(crate::error::AppError::Message(
-            "项目名称不能包含路径分隔符".to_string(),
-        ));
-    }
-
-    let parent = std::path::PathBuf::from(parent_path);
-    if !parent.is_dir() {
-        return Err(crate::error::AppError::Message(
-            "请选择有效的父目录".to_string(),
-        ));
-    }
-
-    let project_path = parent.join(project_name);
-    if project_path.exists() {
-        return Err(crate::error::AppError::Message(
-            "目标项目目录已存在".to_string(),
-        ));
-    }
-
-    std::fs::create_dir(&project_path)
-        .map_err(|err| crate::error::AppError::Message(format!("创建项目目录失败: {err}")))?;
-
-    Ok(project_path.to_string_lossy().to_string())
-}
-
-#[tauri::command]
 async fn is_directory_empty(path: String) -> AppResult<bool> {
     let directory = std::path::PathBuf::from(path);
     if !directory.is_dir() {
@@ -4147,7 +4112,6 @@ pub fn run() {
             execute_agent_tool_call,
             check_env,
             install_env,
-            create_project_directory,
             is_directory_empty,
             list_project_files,
             read_project_file,
