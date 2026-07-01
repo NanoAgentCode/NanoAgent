@@ -93,7 +93,7 @@ export default function SettingsModal({
               onClick={() => { setActiveSettingsTab("memory"); workspace.handleKindChange("memory"); }}
             >
               <Brain size={16} />
-              <span>记忆系统</span>
+              <span>记忆库</span>
             </button>
             <button
               className={activeSettingsTab === "model" ? "settings-nav-item active" : "settings-nav-item"}

@@ -124,7 +124,7 @@
   border-color: var(--accent-danger);
   box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.22);
 }
-/* 记忆系统保存和删除按钮特定样式：失去焦点是空心，获取焦点（及悬浮）时是实心 */
+/* 记忆库保存和删除按钮特定样式：失去焦点是空心，获取焦点（及悬浮）时是实心 */
 .editor-actions.memory-actions .success-btn {
   background: transparent;
   color: var(--accent-emerald);

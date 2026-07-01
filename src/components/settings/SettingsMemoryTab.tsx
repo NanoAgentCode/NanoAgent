@@ -11,8 +11,8 @@ interface SettingsMemoryTabProps {
 export default function SettingsMemoryTab({ workspace, memory, workspaceRef }: SettingsMemoryTabProps) {
   return (
     <div className="settings-tab-content">
-      <h3>记忆系统</h3>
-      <p className="description">配置AI的长期记忆偏好与项目上下文，提高回答精准度。</p>
+      <h3>记忆库</h3>
+      <p className="description">管理会进入对话上下文的记忆；关闭上下文使用不会删除记忆。</p>
       <WorkspaceGrid workspace={workspace} memory={memory} workspaceRef={workspaceRef} />
     </div>
   );

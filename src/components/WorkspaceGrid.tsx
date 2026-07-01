@@ -15,7 +15,7 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
     <section className="settings-workspace-grid" ref={workspaceRef}>
       <section className="list-pane" style={{ flexBasis: "320px" }}>
         <header className="list-header">
-          <strong>{workspace.activeKind === "memory" ? "" : workspaceLabels[workspace.activeKind]}</strong>
+          <strong>{workspaceLabels[workspace.activeKind]}</strong>
           <span>{workspace.activeKind === "memory" ? memory.memoryItems.length : workspace.items.length} 条</span>
         </header>
         <div className="search-bar">
@@ -38,7 +38,7 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
                 >
                   <div className="item-row-header">
                     <span className="badge-memory">记忆</span>
-                    <span className="status-indicator">{item.enabled ? "已启用" : "已禁用"}</span>
+                    <span className="status-indicator">{item.enabled ? "用于上下文" : "不用于上下文"}</span>
                   </div>
                   <strong>{item.title}</strong>
                   <small>{item.content || "暂无内容"}</small>
@@ -95,7 +95,7 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
                   onChange={(event) => memory.setMemoryEnabled(event.target.checked)}
                   disabled={!memory.selectedMemory}
                 />
-                在对话中启用
+                用于对话上下文
               </label>
               <div className="editor-actions memory-actions">
                 <button className="icon-text-btn success-btn" onClick={() => void memory.handleSaveMemory(workspace.query)} disabled={!memory.selectedMemory} type="button" aria-label="保存" title="保存">
@@ -118,7 +118,7 @@ export default function WorkspaceGrid({ workspace, memory, workspaceRef }: Works
               className="body-input"
               value={memory.memoryContent}
               onChange={(event) => memory.setMemoryContent(event.target.value)}
-              placeholder="稳定记录用户偏好、事实背景、工作流规则或项目上下文..."
+              placeholder="记录稳定偏好、事实背景、工作流规则或项目上下文..."
               disabled={!memory.selectedMemory}
             />
             <input

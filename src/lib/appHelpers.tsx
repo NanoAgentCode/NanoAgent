@@ -31,7 +31,7 @@ export const workspaceLabels: Record<WorkspaceView, string> = {
   all: "全部",
   note: "笔记",
   prompt: "提示词",
-  memory: "记忆系统"
+  memory: "记忆库"
 };
 
 export const themeLabels: Record<ThemeMode, string> = {

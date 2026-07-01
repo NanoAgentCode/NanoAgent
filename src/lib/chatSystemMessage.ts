@@ -3,7 +3,7 @@ import type { ChatMessage, Memory, McpServerView, ProjectEntry, ProjectFileEntry
 
 export const systemMessage: ChatMessage = {
   role: "system",
-  content: "你是一个专注的本地效率助手。请保持回答简明且实用。记忆写入由应用本地功能处理；除非应用明确提供结果，否则不要声称已经保存或更新记忆。"
+  content: "你是一个专注的本地效率助手。请保持回答简明且实用。记忆库写入由应用本地功能处理；除非应用明确提供结果，否则不要声称已经保存或更新记忆。"
 };
 
 export function buildSystemMessage(
@@ -135,7 +135,7 @@ export function buildSystemMessage(
     projectContext,
     mcpContext,
     skillsContext || mcpContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext || "无已启用本地技能"}\n\n${toolsSystemInstruction}` : "",
-    memoryContext ? `用户维护的长期记忆，在相关时使用，不要无意义提及：\n${memoryContext}` : "",
+    memoryContext ? `来自记忆库、且已设置为用于对话上下文的记忆；仅在相关时使用，不要无意义提及：\n${memoryContext}` : "",
     ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
   ].filter(Boolean);
 
