@@ -1402,6 +1402,15 @@ async fn list_enabled_memories(state: State<'_, AppState>) -> AppResult<Vec<Memo
 }
 
 #[tauri::command]
+async fn list_relevant_memories(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<i64>,
+) -> AppResult<Vec<Memory>> {
+    state.db.lock().await.list_relevant_memories(&query, limit)
+}
+
+#[tauri::command]
 async fn search_memories(state: State<'_, AppState>, query: String) -> AppResult<Vec<Memory>> {
     state.db.lock().await.search_memories(&query)
 }
@@ -3893,6 +3902,7 @@ pub fn run() {
             search_rag_context,
             list_memories,
             list_enabled_memories,
+            list_relevant_memories,
             search_memories,
             create_memory,
             update_memory,

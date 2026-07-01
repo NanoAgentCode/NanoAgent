@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
-    Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, Memory, MemoryDraft, MemoryPatch,
-    McpServerConfig, McpServerDraft, Message, MessageDraft, MessageMetadata, ModelConfig,
+    Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, McpServerConfig, McpServerDraft,
+    Memory, MemoryDraft, MemoryPatch, Message, MessageDraft, MessageMetadata, ModelConfig,
     ModelConfigDraft, OpsServer, OpsServerDraft, RagChunkMatch, RagFile,
 };
 
@@ -1166,6 +1166,53 @@ impl Database {
         Ok(rows)
     }
 
+    pub fn list_relevant_memories(
+        &self,
+        query: &str,
+        limit: Option<i64>,
+    ) -> AppResult<Vec<Memory>> {
+        let limit = limit.unwrap_or(8).clamp(1, 30) as usize;
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            let mut memories = self.list_enabled_memories()?;
+            memories.truncate(limit);
+            return Ok(memories);
+        }
+
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, title, content, tags_json, enabled, created_at, updated_at
+            FROM memories
+            WHERE enabled = 1
+            ORDER BY updated_at DESC
+            ",
+        )?;
+        let memories = stmt
+            .query_map([], Self::row_to_memory)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)?;
+
+        let tokens = memory_query_tokens(trimmed);
+        let query_lower = trimmed.to_lowercase();
+        let mut scored = memories
+            .into_iter()
+            .filter_map(|memory| {
+                let score = score_memory_relevance(&memory, &query_lower, &tokens);
+                (score > 0).then_some((score, memory))
+            })
+            .collect::<Vec<_>>();
+
+        scored.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| right.1.updated_at.cmp(&left.1.updated_at))
+        });
+        scored.truncate(limit);
+
+        Ok(scored.into_iter().map(|(_, memory)| memory).collect())
+    }
+
     pub fn search_memories(&self, query: &str) -> AppResult<Vec<Memory>> {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -1495,6 +1542,94 @@ fn clean_or_default(value: String, default: &str) -> String {
 
 fn clean_optional_string(value: String) -> String {
     value.trim().to_string()
+}
+
+fn memory_query_tokens(query: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+
+    for ch in query.chars() {
+        if ch.is_alphanumeric() {
+            current.push(ch.to_ascii_lowercase());
+            continue;
+        }
+
+        push_memory_token(&mut tokens, &current);
+        current.clear();
+    }
+
+    push_memory_token(&mut tokens, &current);
+
+    tokens.sort();
+    tokens.dedup();
+    tokens.truncate(24);
+    tokens
+}
+
+fn push_memory_token(tokens: &mut Vec<String>, token: &str) {
+    let char_count = token.chars().count();
+    if char_count < 2 {
+        return;
+    }
+
+    tokens.push(token.to_string());
+    if token.is_ascii() || char_count < 4 {
+        return;
+    }
+
+    let chars = token.chars().collect::<Vec<_>>();
+    for size in [2usize, 3] {
+        if chars.len() < size {
+            continue;
+        }
+        for window in chars.windows(size).take(16) {
+            tokens.push(window.iter().collect());
+        }
+    }
+}
+
+fn score_memory_relevance(memory: &Memory, query_lower: &str, tokens: &[String]) -> i32 {
+    let title = memory.title.to_lowercase();
+    let content = memory.content.to_lowercase();
+    let tags = memory.tags.join(" ").to_lowercase();
+    let mut score = 0;
+
+    if title.contains(query_lower) {
+        score += 16;
+    }
+    if tags.contains(query_lower) {
+        score += 12;
+    }
+    if content.contains(query_lower) {
+        score += 8;
+    }
+    if title.contains("偏好")
+        || title.contains("preference")
+        || tags.contains("偏好")
+        || tags.contains("preference")
+        || tags.contains("always")
+        || tags.contains("规则")
+        || tags.contains("指令")
+    {
+        score += 3;
+    }
+
+    for token in tokens {
+        if token.chars().count() < 2 {
+            continue;
+        }
+        if title.contains(token) {
+            score += 6;
+        }
+        if tags.contains(token) {
+            score += 5;
+        }
+        if content.contains(token) {
+            score += 2;
+        }
+    }
+
+    score
 }
 
 fn validate_json_array_or_empty(value: &str, name: &str) -> AppResult<()> {

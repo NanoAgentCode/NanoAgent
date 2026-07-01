@@ -18,7 +18,10 @@ export function buildSystemMessage(
   const runtimeContext = buildRuntimeContext();
 
   const memoryContext = memories
-    .map((memory) => `- ${memory.title}: ${memory.content}`)
+    .map((memory) => {
+      const tags = memory.tags.length > 0 ? ` [${memory.tags.join(", ")}]` : "";
+      return `- ${memory.title}${tags}: ${memory.content}`;
+    })
     .join("\n");
 
   const ragContext = ragMatches.length > 0

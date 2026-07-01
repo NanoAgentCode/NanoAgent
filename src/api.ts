@@ -204,6 +204,10 @@ export function listEnabledMemories() {
   return invoke<Memory[]>("list_enabled_memories");
 }
 
+export function listRelevantMemories(query: string, limit = 8) {
+  return invoke<Memory[]>("list_relevant_memories", { query, limit });
+}
+
 export function searchMemories(query: string) {
   return invoke<Memory[]>("search_memories", { query });
 }

@@ -8,7 +8,7 @@ import {
   createMemory,
   deleteMessages,
   indexRagFile,
-  listEnabledMemories,
+  listRelevantMemories,
   listMessages,
   listProjectFiles,
   listRagFiles,
@@ -301,7 +301,7 @@ export function useChat({
         setPendingImageAttachments([]);
       }
 
-      const enabledMemories = await listEnabledMemories();
+      const relevantMemories = await listRelevantMemories(content, 8);
       let projectFiles: import("../types").ProjectFileEntry[] = [];
       if (projectForRequest?.path) {
         try {
@@ -346,7 +346,7 @@ export function useChat({
 
       const ragMatches = await rag.loadRagMatches(conversationId, content, activeModelId);
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(enabledMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
+        buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
         ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
       ];
 
@@ -441,17 +441,17 @@ export function useChat({
   ) {
     const projectForRequest = projects.resolveConversationProject(conversationId, projectHint);
     const modelConfigId = conv.resolveConversationModelId(conversationId);
-    const enabledMemories = await listEnabledMemories();
     let projectFiles: import("../types").ProjectFileEntry[] = [];
     if (projectForRequest?.path) {
       try { projectFiles = await listProjectFiles(projectForRequest.path); }
       catch (error) { console.error("Failed to list project files:", error); }
     }
     const retrievalQuery = [...currentMessages].reverse().find((message) => message.role === "user")?.content || "";
+    const relevantMemories = await listRelevantMemories(retrievalQuery, 8);
     const ragMatches = await rag.loadRagMatches(conversationId, retrievalQuery, modelConfigId);
 
     const modelMessages: ChatMessage[] = [
-      buildSystemMessage(enabledMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
+      buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
       ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
     ];
 
