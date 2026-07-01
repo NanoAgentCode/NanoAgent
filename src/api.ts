@@ -338,6 +338,10 @@ export function createProjectDirectory(parentPath: string, name: string) {
   return invoke<string>("create_project_directory", { parentPath, name });
 }
 
+export function isDirectoryEmpty(path: string) {
+  return invoke<boolean>("is_directory_empty", { path });
+}
+
 export function listProjectFiles(projectPath: string) {
   return invoke<ProjectFileEntry[]>("list_project_files", { projectPath });
 }

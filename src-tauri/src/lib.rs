@@ -2787,6 +2787,20 @@ async fn create_project_directory(parent_path: String, name: String) -> AppResul
 }
 
 #[tauri::command]
+async fn is_directory_empty(path: String) -> AppResult<bool> {
+    let directory = std::path::PathBuf::from(path);
+    if !directory.is_dir() {
+        return Err(crate::error::AppError::Message(
+            "请选择有效的工作目录".to_string(),
+        ));
+    }
+
+    let mut entries = std::fs::read_dir(&directory)
+        .map_err(|err| crate::error::AppError::Message(format!("读取工作目录失败: {err}")))?;
+    Ok(entries.next().is_none())
+}
+
+#[tauri::command]
 async fn list_project_files(project_path: String) -> AppResult<Vec<ProjectFileEntry>> {
     const MAX_ENTRIES: usize = 300;
     const MAX_DEPTH: usize = 5;
@@ -4134,6 +4148,7 @@ pub fn run() {
             check_env,
             install_env,
             create_project_directory,
+            is_directory_empty,
             list_project_files,
             read_project_file,
             create_project_file,

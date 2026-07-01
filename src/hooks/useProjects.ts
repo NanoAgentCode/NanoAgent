@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { createProjectDirectory, listConversations } from "../api";
+import { isDirectoryEmpty, listConversations } from "../api";
+import { confirmAction } from "../lib/dialogs";
 import type { ProjectEntry, Conversation } from "../types";
 
 const projectStorageKey = "nano-agent-projects";
@@ -71,7 +72,7 @@ export interface UseProjectsReturn {
   }>>;
   activeProject: ProjectEntry | null;
   selectProject: (project: ProjectEntry) => void;
-  upsertProject: (path: string) => void;
+  upsertProject: (path: string, logicalName?: string) => void;
   handleOpenProject: () => Promise<void>;
   handleSelectNewProjectParent: () => Promise<void>;
   handleCreateProject: () => Promise<void>;
@@ -150,19 +151,20 @@ export function useProjects(
     setExpandedProjectIds((current) => (current.includes(project.id) ? current : [...current, project.id]));
   }
 
-  function upsertProject(path: string) {
+  function upsertProject(path: string, logicalName?: string) {
     const normalizedPath = path.trim().replace(/[\\/]+$/, "");
     if (!normalizedPath) return;
 
     const now = new Date().toISOString();
+    const normalizedName = logicalName?.trim();
     const existing = projects.find(
       (project) => project.path.toLowerCase() === normalizedPath.toLowerCase()
     );
     const nextProject: ProjectEntry = existing
-      ? { ...existing, opened_at: now }
+      ? { ...existing, name: normalizedName || existing.name, opened_at: now }
       : {
           id: normalizedPath,
-          name: projectNameFromPath(normalizedPath),
+          name: normalizedName || projectNameFromPath(normalizedPath),
           path: normalizedPath,
           opened_at: now
         };
@@ -199,7 +201,7 @@ export function useProjects(
       const selected = await open({
         directory: true,
         multiple: false,
-        title: "选择新项目所在目录"
+        title: "选择项目工作目录"
       });
 
       if (typeof selected === "string") {
@@ -213,13 +215,22 @@ export function useProjects(
   async function handleCreateProject() {
     const name = newProjectName.trim();
     if (!newProjectParent || !name) {
-      setNotice("请选择父目录并填写项目名称");
+      setNotice("请选择工作目录并填写项目名称");
       return;
     }
 
     try {
-      const projectPath = await createProjectDirectory(newProjectParent, name);
-      upsertProject(projectPath);
+      const isEmpty = await isDirectoryEmpty(newProjectParent);
+      if (!isEmpty) {
+        const confirmed = await confirmAction(
+          `工作目录「${newProjectParent}」不是空文件夹。是否仍将它作为项目「${name}」的工作目录添加？`,
+          "warning"
+        );
+        if (!confirmed) {
+          return;
+        }
+      }
+      upsertProject(newProjectParent, name);
       setShowNewProjectDialog(false);
       setNewProjectParent("");
       setNewProjectName("");

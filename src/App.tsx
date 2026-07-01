@@ -501,9 +501,9 @@ function App() {
               </button>
             </header>
             <label>
-              <span>父目录</span>
+              <span>工作目录</span>
               <div className="project-path-picker">
-                <input value={projects.newProjectParent} readOnly placeholder="选择项目所在目录" />
+                <input value={projects.newProjectParent} readOnly placeholder="选择真实工作目录" />
                 <button type="button" onClick={() => void projects.handleSelectNewProjectParent()}>
                   选择
                 </button>
@@ -514,7 +514,7 @@ function App() {
               <input
                 value={projects.newProjectName}
                 onChange={(event) => projects.setNewProjectName(event.target.value)}
-                placeholder="my-project"
+                placeholder="逻辑名称，例如：官网改版"
                 autoFocus
               />
             </label>
@@ -524,7 +524,7 @@ function App() {
               </button>
               <button className="modal-action-btn modal-action-btn--create" type="button" onClick={() => void projects.handleCreateProject()}>
                 <FolderPlus size={15} />
-                创建并打开
+                添加并打开
               </button>
             </footer>
           </section>
