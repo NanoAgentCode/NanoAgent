@@ -268,11 +268,9 @@ impl Database {
             return self.list_items(None);
         }
 
-        let fts_query = trimmed
-            .split_whitespace()
-            .map(|part| format!("{}*", part.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let Some(fts_query) = build_fts_prefix_query(trimmed) else {
+            return Ok(Vec::new());
+        };
 
         let mut stmt = self.conn.prepare(
             "
@@ -1219,11 +1217,9 @@ impl Database {
             return self.list_memories();
         }
 
-        let fts_query = trimmed
-            .split_whitespace()
-            .map(|part| format!("{}*", part.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(" ");
+        let Some(fts_query) = build_fts_prefix_query(trimmed) else {
+            return Ok(Vec::new());
+        };
 
         let mut stmt = self.conn.prepare(
             "
@@ -1544,6 +1540,47 @@ fn clean_optional_string(value: String) -> String {
     value.trim().to_string()
 }
 
+fn build_fts_prefix_query(query: &str) -> Option<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+
+    for ch in query.chars() {
+        if ch.is_alphanumeric() {
+            current.extend(ch.to_lowercase());
+            continue;
+        }
+
+        push_fts_token(&mut tokens, &current);
+        current.clear();
+    }
+
+    push_fts_token(&mut tokens, &current);
+    tokens.sort();
+    tokens.dedup();
+    tokens.truncate(32);
+
+    if tokens.is_empty() {
+        return None;
+    }
+
+    Some(
+        tokens
+            .into_iter()
+            .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+fn push_fts_token(tokens: &mut Vec<String>, token: &str) {
+    let trimmed = token.trim();
+    if trimmed.chars().count() < 2 {
+        return;
+    }
+
+    tokens.push(trimmed.chars().take(64).collect());
+}
+
 fn memory_query_tokens(query: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
@@ -1768,4 +1805,35 @@ fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
         return Err(AppError::Message(message.to_string()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fts_prefix_query_handles_punctuation_heavy_input() {
+        let query = build_fts_prefix_query(r#"MCP: "stdio" path=C:\tmp\foo"#).unwrap();
+
+        assert!(query.contains("\"mcp\"*"));
+        assert!(query.contains("\"stdio\"*"));
+        assert!(query.contains("\"path\"*"));
+        assert!(query.contains("\"tmp\"*"));
+        assert!(query.contains("\"foo\"*"));
+        assert!(!query.contains("\"c\"*"));
+    }
+
+    #[test]
+    fn fts_prefix_query_keeps_chinese_terms() {
+        let query = build_fts_prefix_query("记忆：项目上下文、偏好").unwrap();
+
+        assert!(query.contains("\"记忆\"*"));
+        assert!(query.contains("\"项目上下文\"*"));
+        assert!(query.contains("\"偏好\"*"));
+    }
+
+    #[test]
+    fn fts_prefix_query_ignores_non_searchable_input() {
+        assert_eq!(build_fts_prefix_query(":: -- /"), None);
+    }
 }
