@@ -15,7 +15,6 @@ import type { OpsServer, OpsServerDraft, OpsSshEvent } from "../types";
 import { confirmAction } from "../lib/dialogs";
 
 interface OpsPanelProps {
-  notice: string;
   setNotice: (message: string) => void;
 }
 
@@ -196,7 +195,7 @@ function serverToDraft(server: OpsServer): OpsServerDraft {
   };
 }
 
-export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
+export default function OpsPanel({ setNotice }: OpsPanelProps) {
   const [servers, setServers] = useState<OpsServer[]>([]);
   const [selectedServerId, setSelectedServerId] = useState("");
   const [draft, setDraft] = useState<OpsServerDraft>(emptyDraft);
@@ -741,7 +740,6 @@ export default function OpsPanel({ notice, setNotice }: OpsPanelProps) {
           </section>
         </div>
       )}
-      {notice && <div className="notice" onClick={() => setNotice("")}>{notice}</div>}
     </section>
   );
 }

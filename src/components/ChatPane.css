@@ -531,21 +531,7 @@
   width: 20px;
   height: 20px;
 }
-.notice {
-  position: absolute; right: 20px; bottom: 20px; max-width: calc(100% - 40px);
-  padding: 10px 14px; border: 1px solid var(--notification-info-border);
-  border-radius: var(--notification-radius);
-  color: var(--notification-info-text);
-  background: linear-gradient(0deg, var(--notification-info-bg), var(--notification-info-bg)), var(--notification-bg);
-  box-shadow: var(--notification-shadow);
-  font-size: var(--control-font-size); font-weight: var(--control-font-weight);
-  backdrop-filter: blur(8px); z-index: 10; cursor: pointer;
-  animation: fade-in 0.2s ease-out; transition: var(--control-transition);
-}
-.notice:hover {
-  border-color: var(--accent-cyan);
-  box-shadow: var(--notification-shadow), var(--focus-ring);
-}
+
 .prompt-suggestions-dropdown {
   position: absolute; bottom: calc(100% - 6px); left: 0; right: 0;
   background: var(--bg-card);

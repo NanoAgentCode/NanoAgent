@@ -118,6 +118,12 @@
   --notification-warning-bg: rgba(251, 191, 36, 0.08);
   --notification-warning-border: rgba(251, 191, 36, 0.35);
   --notification-warning-text: var(--accent-warning);
+  --notification-success-bg: rgba(52, 211, 153, 0.08);
+  --notification-success-border: rgba(52, 211, 153, 0.26);
+  --notification-success-text: var(--accent-emerald);
+  --notification-error-bg: rgba(251, 113, 133, 0.08);
+  --notification-error-border: rgba(251, 113, 133, 0.26);
+  --notification-error-text: var(--accent-danger);
 
   /* Chat & Render colors */
   --chat-pane-bg: #0b1120;
@@ -220,6 +226,12 @@
   --notification-info-border: rgba(8, 145, 178, 0.24);
   --notification-warning-bg: rgba(217, 119, 6, 0.08);
   --notification-warning-border: rgba(217, 119, 6, 0.3);
+  --notification-success-bg: rgba(5, 150, 105, 0.08);
+  --notification-success-border: rgba(5, 150, 105, 0.24);
+  --notification-success-text: var(--accent-emerald);
+  --notification-error-bg: rgba(225, 29, 72, 0.08);
+  --notification-error-border: rgba(225, 29, 72, 0.24);
+  --notification-error-text: var(--accent-danger);
 
   /* Chat & Render colors */
   --chat-pane-bg: #f3f7fb;

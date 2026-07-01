@@ -33,6 +33,7 @@ import ChatPane from "./components/ChatPane";
 import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import OpsPanel from "./components/OpsPanel";
 import SettingsModal from "./components/settings/SettingsModal";
+import NotificationToast from "./components/NotificationToast";
 import { confirmAction } from "./lib/dialogs";
 import {
   getStoredCloseAction,
@@ -668,7 +669,7 @@ function App() {
       />
 
       {activeMainView === "ops" ? (
-        <OpsPanel notice={notice} setNotice={setNotice} />
+        <OpsPanel setNotice={setNotice} />
       ) : (
         <ChatPane
           activeConversationId={activeConversationId}
@@ -687,7 +688,6 @@ function App() {
           executingToolMessageId={executingToolMessageId}
           messageToolCalls={messageToolCalls}
           attachmentProjectPath={attachmentProjectPath}
-          notice={notice}
           obs={obs}
           model={model}
           handleSendMessage={handleSendMessage}
@@ -872,6 +872,9 @@ function App() {
         </div>
       )}
       <ConfirmDialogHost />
+      {notice && (
+        <NotificationToast notice={notice} onClose={() => setNotice("")} />
+      )}
     </main>
   );
 }

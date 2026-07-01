@@ -26,7 +26,6 @@ interface ChatPaneProps {
   executingToolMessageId: string | null;
   messageToolCalls: Record<string, AgentToolCall>;
   attachmentProjectPath: string;
-  notice: string;
   obs: UseObservabilityReturn;
   model: UseModelReturn;
   handleSendMessage: () => Promise<void>;
@@ -61,7 +60,6 @@ export default function ChatPane({
   executingToolMessageId,
   messageToolCalls,
   attachmentProjectPath,
-  notice,
   obs,
   model,
   handleSendMessage,
@@ -379,8 +377,6 @@ export default function ChatPane({
           </div>
         </div>
       </div>
-
-      {notice && <div className="notice" onClick={() => setNotice("")}>{notice}</div>}
     </aside>
   );
 }
