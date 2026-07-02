@@ -182,7 +182,7 @@ pub async fn open_project_file_location(
         .parent()
         .ok_or_else(|| AppError::Message("无法解析文件所在目录".to_string()))?;
 
-    open_folder_in_file_manager(folder)?;
+    open_file_location_in_file_manager(&file_path, folder)?;
     Ok(folder.to_string_lossy().to_string())
 }
 
@@ -410,11 +410,11 @@ fn collect_project_files(
     Ok(())
 }
 
-fn open_folder_in_file_manager(folder: &Path) -> AppResult<()> {
+fn open_file_location_in_file_manager(file_path: &Path, folder: &Path) -> AppResult<()> {
     #[cfg(target_os = "windows")]
     {
         let mut command = std::process::Command::new("explorer.exe");
-        command.arg(folder);
+        command.arg(format!("/select,{}", file_path.to_string_lossy()));
         command
             .spawn()
             .map_err(|err| AppError::Message(format!("打开资源管理器失败: {err}")))?;
