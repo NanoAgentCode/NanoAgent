@@ -11,10 +11,10 @@ interface MarkdownMessageProps {
   projectFiles?: ProjectFileEntry[];
 }
 
-const LOCAL_FILE_EXTENSION = /\.(png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)$/i;
+const LOCAL_FILE_EXTENSION = /\.(png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|jsx?|mjs|tsx?|json|md|txt|csv|ya?ml|toml|xml|lock|rs|py|java|go|cs|c|cpp|h|hpp|vue|svelte|sql|sh|ps1|bat|cmd|xlsx?|docx?|pptx?|zip)$/i;
 const EXTERNAL_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const PATH_LINK_PATTERN =
-  /(^|[\s([{"'，。；：、])((?:\.\/)?(?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+\.(?:png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)(?::\d+(?::\d+)?)?)(?=$|[\s)\]}"'，。；：、:,.!?！？])/gi;
+  /(^|[\s([{"'，。；：、])((?:\.\/)?(?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+\.(?:png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|jsx?|mjs|tsx?|json|md|txt|csv|ya?ml|toml|xml|lock|rs|py|java|go|cs|c|cpp|h|hpp|vue|svelte|sql|sh|ps1|bat|cmd|xlsx?|docx?|pptx?|zip)(?::\d+(?::\d+)?)?)(?=$|[\s)\]}"'，。；：、:,.!?！？])/gi;
 const PATH_SEPARATOR = /[\\/]/;
 
 type MarkdownNode = {
@@ -63,6 +63,11 @@ function buildFileNameIndex(projectFiles: ProjectFileEntry[] = []) {
       return leftDepth - rightDepth || left.length - right.length || left.localeCompare(right);
     })
     .forEach((path) => {
+      const normalizedPath = path.toLowerCase();
+      if (!index.has(normalizedPath)) {
+        index.set(normalizedPath, path);
+      }
+
       const fileName = path.split("/").pop()?.toLowerCase();
       if (fileName && !index.has(fileName)) {
         index.set(fileName, path);
@@ -75,7 +80,14 @@ function buildFileNameIndex(projectFiles: ProjectFileEntry[] = []) {
 function resolveAutoLinkedPath(displayPath: string, fileNameIndex: Map<string, string>) {
   const normalizedPath = normalizeAutoLinkedPath(displayPath);
   if (PATH_SEPARATOR.test(stripLineSuffix(displayPath).replace(/^\.\//, ""))) {
-    return normalizedPath;
+    const exactPath = fileNameIndex.get(normalizedPath.toLowerCase());
+    if (exactPath) return exactPath;
+
+    const suffix = `/${normalizedPath.toLowerCase()}`;
+    const suffixMatch = [...fileNameIndex.values()]
+      .filter((path) => path.toLowerCase().endsWith(suffix))
+      .sort((left, right) => left.length - right.length || left.localeCompare(right))[0];
+    return suffixMatch || normalizedPath;
   }
 
   return fileNameIndex.get(normalizedPath.toLowerCase()) || normalizedPath;
@@ -166,6 +178,12 @@ function getExternalResourceUrl(href: string) {
   }
 }
 
+function openLocalFileLocation(projectPath: string, relativePath: string) {
+  void openProjectFileLocation(projectPath, relativePath).catch((error) => {
+    console.error("Failed to open local file location:", error);
+  });
+}
+
 function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMessageProps) {
   const fileNameIndex = useMemo(() => buildFileNameIndex(projectFiles), [projectFiles]);
 
@@ -197,11 +215,7 @@ function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMe
                 className="local-file-link"
                 type="button"
                 title={`打开所在文件夹: ${relativePath}`}
-                onClick={() => {
-                  void openProjectFileLocation(projectPath, relativePath).catch((error) => {
-                    console.error("Failed to open local file location:", error);
-                  });
-                }}
+                onClick={() => openLocalFileLocation(projectPath, relativePath)}
               >
                 {children}
               </button>
@@ -237,6 +251,7 @@ function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMe
         code({ className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || "");
           const language = match?.[1];
+          const inlineText = String(children).trim();
 
           if (className) {
             return (
@@ -250,6 +265,20 @@ function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMe
                   </code>
                 </pre>
               </div>
+            );
+          }
+
+          if (projectPath && isProjectRelativeFileHref(inlineText)) {
+            const relativePath = resolveAutoLinkedPath(decodeProjectHref(inlineText), fileNameIndex);
+            return (
+              <button
+                className="inline-code local-file-code-link"
+                type="button"
+                title={`打开所在文件夹: ${relativePath}`}
+                onClick={() => openLocalFileLocation(projectPath, relativePath)}
+              >
+                {children}
+              </button>
             );
           }
 
