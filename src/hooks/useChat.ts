@@ -39,7 +39,7 @@ import { useRagFiles } from "./useRagFiles";
 import { useChatInput } from "./useChatInput";
 import type {
   AgentRun, AgentToolCall, ChatMessage, ChatStreamEvent,
-  ChatImageAttachment, Conversation, Item, PersistedMessage, ProjectEntry
+  ChatImageAttachment, Conversation, Item, PersistedMessage, ProjectEntry, ProjectFileEntry
 } from "../types";
 import type { UseProjectsReturn } from "./useProjects";
 import type { UseModelReturn } from "./useModel";
@@ -87,6 +87,7 @@ export interface UseChatReturn {
   pendingImageAttachments: ChatImageAttachment[];
   removePendingImageAttachment: (relativePath: string) => void;
   attachmentProjectPath: string;
+  projectFiles: ProjectFileEntry[];
   activeConversation: Conversation | undefined;
   activeConversationProject: ProjectEntry | null;
   loadMessages: (conversationId: string) => Promise<void>;
@@ -646,6 +647,12 @@ export function useChat({
     return resolvedProject?.path || projectHint?.path || skills.tempDir;
   }
 
+  function getConversationProjectFiles() {
+    const projectHint = conv.getConversationProjectHint();
+    const resolvedProject = projects.resolveConversationProject(conv.activeConversationId, projectHint);
+    return projects.getProjectFilesForPath(resolvedProject?.path || projectHint?.path);
+  }
+
   function buildImageAttachmentPrompt(attachments: ChatImageAttachment[]) {
     if (attachments.length === 0) return;
     const lines = [
@@ -901,6 +908,7 @@ export function useChat({
     pendingImageAttachments,
     removePendingImageAttachment,
     attachmentProjectPath: getAttachmentProjectPath(),
+    projectFiles: getConversationProjectFiles(),
 
     // Conversation methods
     refreshConversations: conv.refreshConversations,

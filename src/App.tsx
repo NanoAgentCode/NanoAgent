@@ -115,6 +115,7 @@ function App() {
     pendingImageAttachments,
     removePendingImageAttachment,
     attachmentProjectPath,
+    projectFiles,
     executingToolMessageId,
     messageToolCalls,
     activeConversation,
@@ -695,6 +696,7 @@ function App() {
           executingToolMessageId={executingToolMessageId}
           messageToolCalls={messageToolCalls}
           attachmentProjectPath={attachmentProjectPath}
+          projectFiles={projectFiles}
           obs={obs}
           model={model}
           handleSendMessage={handleSendMessage}

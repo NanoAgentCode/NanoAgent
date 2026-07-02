@@ -3,16 +3,19 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Plugin } from "unified";
 import { openExternalUrl, openProjectFileLocation } from "../api";
+import type { ProjectFileEntry } from "../types";
 
 interface MarkdownMessageProps {
   content: string;
   projectPath?: string | null;
+  projectFiles?: ProjectFileEntry[];
 }
 
 const LOCAL_FILE_EXTENSION = /\.(png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)$/i;
 const EXTERNAL_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const PATH_LINK_PATTERN =
   /(^|[\s([{"'，。；：、])((?:\.\/)?(?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+\.(?:png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)(?::\d+(?::\d+)?)?)(?=$|[\s)\]}"'，。；：、:,.!?！？])/gi;
+const PATH_SEPARATOR = /[\\/]/;
 
 type MarkdownNode = {
   type: string;
@@ -26,7 +29,7 @@ function isProjectRelativeFileHref(href: string) {
   const trimmed = href.trim();
   if (!trimmed || trimmed.startsWith("#")) return false;
   if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return false;
-  const pathOnly = trimmed.split(/[?#]/, 1)[0].replace(/\\/g, "/");
+  const pathOnly = stripLineSuffix(trimmed.split(/[?#]/, 1)[0]).replace(/\\/g, "/");
   if (!pathOnly || pathOnly.startsWith("/") || pathOnly.includes(":")) return false;
   return LOCAL_FILE_EXTENSION.test(pathOnly);
 }
@@ -48,20 +51,50 @@ function normalizeAutoLinkedPath(path: string) {
   return stripLineSuffix(path).replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
+function buildFileNameIndex(projectFiles: ProjectFileEntry[] = []) {
+  const index = new Map<string, string>();
+
+  projectFiles
+    .filter((file) => !file.is_dir)
+    .map((file) => file.path.replace(/\\/g, "/"))
+    .sort((left, right) => {
+      const leftDepth = left.split("/").length;
+      const rightDepth = right.split("/").length;
+      return leftDepth - rightDepth || left.length - right.length || left.localeCompare(right);
+    })
+    .forEach((path) => {
+      const fileName = path.split("/").pop()?.toLowerCase();
+      if (fileName && !index.has(fileName)) {
+        index.set(fileName, path);
+      }
+    });
+
+  return index;
+}
+
+function resolveAutoLinkedPath(displayPath: string, fileNameIndex: Map<string, string>) {
+  const normalizedPath = normalizeAutoLinkedPath(displayPath);
+  if (PATH_SEPARATOR.test(stripLineSuffix(displayPath).replace(/^\.\//, ""))) {
+    return normalizedPath;
+  }
+
+  return fileNameIndex.get(normalizedPath.toLowerCase()) || normalizedPath;
+}
+
 function createTextNode(value: string): MarkdownNode {
   return { type: "text", value };
 }
 
-function createAutoLinkedPathNode(displayPath: string): MarkdownNode {
+function createAutoLinkedPathNode(displayPath: string, fileNameIndex: Map<string, string>): MarkdownNode {
   return {
     type: "link",
-    url: normalizeAutoLinkedPath(displayPath),
+    url: resolveAutoLinkedPath(displayPath, fileNameIndex),
     title: null,
     children: [createTextNode(displayPath)]
   };
 }
 
-function autoLinkProjectPathsInText(value: string) {
+function autoLinkProjectPathsInText(value: string, fileNameIndex: Map<string, string>) {
   const nodes: MarkdownNode[] = [];
   let cursor = 0;
 
@@ -75,7 +108,7 @@ function autoLinkProjectPathsInText(value: string) {
       nodes.push(createTextNode(value.slice(cursor, pathStart)));
     }
 
-    nodes.push(createAutoLinkedPathNode(displayPath));
+    nodes.push(createAutoLinkedPathNode(displayPath, fileNameIndex));
     cursor = match.index + matchedText.length;
   }
 
@@ -87,7 +120,7 @@ function autoLinkProjectPathsInText(value: string) {
   return nodes;
 }
 
-function autoLinkProjectPathsInNode(node: MarkdownNode) {
+function autoLinkProjectPathsInNode(node: MarkdownNode, fileNameIndex: Map<string, string>) {
   if (!node.children || node.type === "link" || node.type === "linkReference") {
     return;
   }
@@ -97,7 +130,7 @@ function autoLinkProjectPathsInNode(node: MarkdownNode) {
 
   for (const child of node.children) {
     if (child.type === "text" && child.value) {
-      const linkedNodes = autoLinkProjectPathsInText(child.value);
+      const linkedNodes = autoLinkProjectPathsInText(child.value, fileNameIndex);
       if (linkedNodes) {
         nextChildren.push(...linkedNodes);
         changed = true;
@@ -105,7 +138,7 @@ function autoLinkProjectPathsInNode(node: MarkdownNode) {
       }
     }
 
-    autoLinkProjectPathsInNode(child);
+    autoLinkProjectPathsInNode(child, fileNameIndex);
     nextChildren.push(child);
   }
 
@@ -114,9 +147,9 @@ function autoLinkProjectPathsInNode(node: MarkdownNode) {
   }
 }
 
-const remarkAutoLinkProjectPaths: Plugin<[], MarkdownNode> = () => {
+const remarkAutoLinkProjectPaths: Plugin<[Map<string, string>], MarkdownNode> = (fileNameIndex) => {
   return (tree) => {
-    autoLinkProjectPathsInNode(tree);
+    autoLinkProjectPathsInNode(tree, fileNameIndex);
   };
 };
 
@@ -133,7 +166,9 @@ function getExternalResourceUrl(href: string) {
   }
 }
 
-function MarkdownMessage({ content, projectPath }: MarkdownMessageProps) {
+function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMessageProps) {
+  const fileNameIndex = useMemo(() => buildFileNameIndex(projectFiles), [projectFiles]);
+
   // Pre-process content to convert single newlines to soft line breaks (two spaces followed by a newline)
   // in non-code blocks. This preserves natural line breaks during markdown rendering.
   const processedContent = useMemo(() => {
@@ -151,12 +186,12 @@ function MarkdownMessage({ content, projectPath }: MarkdownMessageProps) {
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkAutoLinkProjectPaths]}
+      remarkPlugins={[remarkGfm, [remarkAutoLinkProjectPaths, fileNameIndex]]}
       components={{
         a({ href, children, ...props }) {
           const isLocalFile = href ? isProjectRelativeFileHref(href) : false;
           if (href && isLocalFile && projectPath) {
-            const relativePath = decodeProjectHref(href);
+            const relativePath = resolveAutoLinkedPath(decodeProjectHref(href), fileNameIndex);
             return (
               <button
                 className="local-file-link"

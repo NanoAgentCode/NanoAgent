@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { FolderOpen, X } from "lucide-react";
 import MarkdownMessage from "./MarkdownMessage";
 import { openProjectFileLocation, readChatImageAttachment } from "../api";
+import type { ProjectFileEntry } from "../types";
 
 interface ImageAttachmentMessageProps {
   content: string;
   projectPath?: string | null;
+  projectFiles?: ProjectFileEntry[];
 }
 
 interface ParsedImageAttachment {
@@ -58,7 +60,7 @@ function parseImageAttachmentContent(content: string) {
   };
 }
 
-export default function ImageAttachmentMessage({ content, projectPath }: ImageAttachmentMessageProps) {
+export default function ImageAttachmentMessage({ content, projectPath, projectFiles = [] }: ImageAttachmentMessageProps) {
   const [preview, setPreview] = useState<LoadedImageAttachment | null>(null);
   const [loadedAttachments, setLoadedAttachments] = useState<LoadedImageAttachment[]>([]);
   const parsed = useMemo(() => parseImageAttachmentContent(content), [content]);
@@ -93,12 +95,14 @@ export default function ImageAttachmentMessage({ content, projectPath }: ImageAt
   }, [parsed.attachments, projectPath]);
 
   if (parsed.attachments.length === 0) {
-    return <MarkdownMessage content={content} projectPath={projectPath} />;
+    return <MarkdownMessage content={content} projectPath={projectPath} projectFiles={projectFiles} />;
   }
 
   return (
     <>
-      {parsed.displayContent && <MarkdownMessage content={parsed.displayContent} projectPath={projectPath} />}
+      {parsed.displayContent && (
+        <MarkdownMessage content={parsed.displayContent} projectPath={projectPath} projectFiles={projectFiles} />
+      )}
       <div className="image-attachment-grid">
         {loadedAttachments.map((attachment) => (
           <div

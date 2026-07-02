@@ -1,4 +1,4 @@
-import type { ItemKind, WebSearchStatus, WorkspaceView, ThemeMode } from "../types";
+import type { ItemKind, ProjectFileEntry, WebSearchStatus, WorkspaceView, ThemeMode } from "../types";
 import { parseToolResult } from "./messageHelpers";
 import ImageAttachmentMessage from "../components/ImageAttachmentMessage";
 import ToolResultMessage from "../components/ToolResultMessage";
@@ -42,6 +42,7 @@ export const themeLabels: Record<ThemeMode, string> = {
 
 interface RenderMessageContentOptions {
   attachmentProjectPath?: string | null;
+  projectFiles?: ProjectFileEntry[];
 }
 
 export function renderMessageContent(content: string, options: RenderMessageContentOptions = {}) {
@@ -49,5 +50,11 @@ export function renderMessageContent(content: string, options: RenderMessageCont
   if (toolResult) {
     return <ToolResultMessage result={toolResult} />;
   }
-  return <ImageAttachmentMessage content={content} projectPath={options.attachmentProjectPath} />;
+  return (
+    <ImageAttachmentMessage
+      content={content}
+      projectPath={options.attachmentProjectPath}
+      projectFiles={options.projectFiles}
+    />
+  );
 }

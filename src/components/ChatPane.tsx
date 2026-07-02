@@ -5,7 +5,7 @@ import AgentRuntimePanel from "./AgentRuntimePanel";
 import { formatWebSearchBadge, renderMessageContent } from "../lib/appHelpers";
 import { parseToolCall, parseToolResult } from "../lib/messageHelpers";
 import type { ParsedToolCall } from "../lib/messageHelpers";
-import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation, ChatImageAttachment } from "../types";
+import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation, ChatImageAttachment, ProjectFileEntry } from "../types";
 import type { UseObservabilityReturn } from "../hooks/useObservability";
 import type { UseModelReturn } from "../hooks/useModel";
 
@@ -26,6 +26,7 @@ interface ChatPaneProps {
   executingToolMessageId: string | null;
   messageToolCalls: Record<string, AgentToolCall>;
   attachmentProjectPath: string;
+  projectFiles: ProjectFileEntry[];
   obs: UseObservabilityReturn;
   model: UseModelReturn;
   handleSendMessage: () => Promise<void>;
@@ -60,6 +61,7 @@ export default function ChatPane({
   executingToolMessageId,
   messageToolCalls,
   attachmentProjectPath,
+  projectFiles,
   obs,
   model,
   handleSendMessage,
@@ -213,7 +215,7 @@ export default function ChatPane({
               {message.role === "assistant" && messageReasoning[message.id]?.trim() && (
                 <details className="reasoning-panel">
                   <summary className="reasoning-title">思考过程</summary>
-                  <MarkdownMessage content={messageReasoning[message.id]} />
+                  <MarkdownMessage content={messageReasoning[message.id]} projectPath={attachmentProjectPath} projectFiles={projectFiles} />
                 </details>
               )}
               {message.role === "assistant" && webSearchMeta && (
@@ -226,7 +228,7 @@ export default function ChatPane({
                   )}
                 </div>
               )}
-              {renderMessageContent(message.content, { attachmentProjectPath })}
+              {renderMessageContent(message.content, { attachmentProjectPath, projectFiles })}
               
               {toolCall && (
                 <div className="tool-call-card">
