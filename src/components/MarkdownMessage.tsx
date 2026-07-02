@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import type { Plugin } from "unified";
 import { openExternalUrl, openProjectFileLocation } from "../api";
 
 interface MarkdownMessageProps {
@@ -10,6 +11,16 @@ interface MarkdownMessageProps {
 
 const LOCAL_FILE_EXTENSION = /\.(png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)$/i;
 const EXTERNAL_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+const PATH_LINK_PATTERN =
+  /(^|[\s([{"'，。；：、])((?:\.\/)?(?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+\.(?:png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)(?::\d+(?::\d+)?)?)(?=$|[\s)\]}"'，。；：、:,.!?！？])/gi;
+
+type MarkdownNode = {
+  type: string;
+  value?: string;
+  url?: string;
+  title?: string | null;
+  children?: MarkdownNode[];
+};
 
 function isProjectRelativeFileHref(href: string) {
   const trimmed = href.trim();
@@ -28,6 +39,86 @@ function decodeProjectHref(href: string) {
     return pathOnly;
   }
 }
+
+function stripLineSuffix(path: string) {
+  return path.replace(/:\d+(?::\d+)?$/, "");
+}
+
+function normalizeAutoLinkedPath(path: string) {
+  return stripLineSuffix(path).replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function createTextNode(value: string): MarkdownNode {
+  return { type: "text", value };
+}
+
+function createAutoLinkedPathNode(displayPath: string): MarkdownNode {
+  return {
+    type: "link",
+    url: normalizeAutoLinkedPath(displayPath),
+    title: null,
+    children: [createTextNode(displayPath)]
+  };
+}
+
+function autoLinkProjectPathsInText(value: string) {
+  const nodes: MarkdownNode[] = [];
+  let cursor = 0;
+
+  for (const match of value.matchAll(PATH_LINK_PATTERN)) {
+    const matchedText = match[0];
+    const prefix = match[1] || "";
+    const displayPath = match[2];
+    const pathStart = match.index + prefix.length;
+
+    if (pathStart > cursor) {
+      nodes.push(createTextNode(value.slice(cursor, pathStart)));
+    }
+
+    nodes.push(createAutoLinkedPathNode(displayPath));
+    cursor = match.index + matchedText.length;
+  }
+
+  if (cursor === 0) return null;
+  if (cursor < value.length) {
+    nodes.push(createTextNode(value.slice(cursor)));
+  }
+
+  return nodes;
+}
+
+function autoLinkProjectPathsInNode(node: MarkdownNode) {
+  if (!node.children || node.type === "link" || node.type === "linkReference") {
+    return;
+  }
+
+  const nextChildren: MarkdownNode[] = [];
+  let changed = false;
+
+  for (const child of node.children) {
+    if (child.type === "text" && child.value) {
+      const linkedNodes = autoLinkProjectPathsInText(child.value);
+      if (linkedNodes) {
+        nextChildren.push(...linkedNodes);
+        changed = true;
+        continue;
+      }
+    }
+
+    autoLinkProjectPathsInNode(child);
+    nextChildren.push(child);
+  }
+
+  if (changed) {
+    node.children = nextChildren;
+  }
+}
+
+const remarkAutoLinkProjectPaths: Plugin<[], MarkdownNode> = () => {
+  return (tree) => {
+    autoLinkProjectPathsInNode(tree);
+  };
+};
 
 function getExternalResourceUrl(href: string) {
   const trimmed = href.trim();
@@ -60,7 +151,7 @@ function MarkdownMessage({ content, projectPath }: MarkdownMessageProps) {
 
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkAutoLinkProjectPaths]}
       components={{
         a({ href, children, ...props }) {
           const isLocalFile = href ? isProjectRelativeFileHref(href) : false;
