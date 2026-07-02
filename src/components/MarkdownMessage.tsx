@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { openProjectFileLocation } from "../api";
+import { openExternalUrl, openProjectFileLocation } from "../api";
 
 interface MarkdownMessageProps {
   content: string;
@@ -9,6 +9,7 @@ interface MarkdownMessageProps {
 }
 
 const LOCAL_FILE_EXTENSION = /\.(png|jpe?g|gif|webp|bmp|tiff?|svg|pdf|html?|css|js|mjs|ts|tsx|json|md|txt|csv|xlsx?|docx?|pptx?|zip)$/i;
+const EXTERNAL_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 
 function isProjectRelativeFileHref(href: string) {
   const trimmed = href.trim();
@@ -25,6 +26,19 @@ function decodeProjectHref(href: string) {
     return decodeURIComponent(pathOnly);
   } catch {
     return pathOnly;
+  }
+}
+
+function getExternalResourceUrl(href: string) {
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.startsWith("#")) return null;
+
+  try {
+    const url = new URL(trimmed);
+    if (!EXTERNAL_LINK_PROTOCOLS.has(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
   }
 }
 
@@ -65,6 +79,26 @@ function MarkdownMessage({ content, projectPath }: MarkdownMessageProps) {
               >
                 {children}
               </button>
+            );
+          }
+
+          const externalUrl = href ? getExternalResourceUrl(href) : null;
+          if (externalUrl) {
+            return (
+              <a
+                {...props}
+                href={externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl(externalUrl).catch((error) => {
+                    console.error("Failed to open external resource:", error);
+                  });
+                }}
+              >
+                {children}
+              </a>
             );
           }
 

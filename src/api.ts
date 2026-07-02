@@ -374,6 +374,10 @@ export function openProjectFileLocation(projectPath: string, relativePath: strin
   return invoke<string>("open_project_file_location", { projectPath, relativePath });
 }
 
+export function openExternalUrl(url: string) {
+  return invoke<void>("plugin:opener|open_url", { url });
+}
+
 export function executeBashCommand(projectPath: string, command: string) {
   return invoke<string>("execute_bash_command", { projectPath, command });
 }
