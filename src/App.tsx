@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
@@ -31,8 +31,6 @@ import { useChat } from "./hooks/useChat";
 import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import ConfirmDialogHost from "./components/ConfirmDialogHost";
-import OpsPanel from "./components/OpsPanel";
-import SettingsModal from "./components/settings/SettingsModal";
 import NotificationToast from "./components/NotificationToast";
 import { confirmAction } from "./lib/dialogs";
 import {
@@ -52,6 +50,9 @@ import type {
 type MainView = "chat" | "ops";
 
 const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
+
+const OpsPanel = lazy(() => import("./components/OpsPanel"));
+const SettingsModal = lazy(() => import("./components/settings/SettingsModal"));
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -645,31 +646,37 @@ function App() {
         </div>
       )}
 
-      <SettingsModal
-        showModelConfig={showModelConfig}
-        setShowModelConfig={setShowModelConfig}
-        activeSettingsTab={activeSettingsTab}
-        setActiveSettingsTab={setActiveSettingsTab}
-        themeMode={themeMode}
-        setThemeMode={setThemeMode}
-        workspace={workspace}
-        memory={memory}
-        workspaceRef={workspaceRef}
-        model={model}
-        skills={skills}
-        mcp={mcp}
-        env={env}
-        obs={obs}
-        archivedConversations={archivedConversations}
-        previewArchivedId={previewArchivedId}
-        previewMessages={previewMessages}
-        loadArchivedPreview={loadArchivedPreview}
-        handleRestoreConversation={handleRestoreConversation}
-        handleDeleteArchivedConversation={handleDeleteArchivedConversation}
-      />
+      {showModelConfig && (
+        <Suspense fallback={null}>
+          <SettingsModal
+            showModelConfig={showModelConfig}
+            setShowModelConfig={setShowModelConfig}
+            activeSettingsTab={activeSettingsTab}
+            setActiveSettingsTab={setActiveSettingsTab}
+            themeMode={themeMode}
+            setThemeMode={setThemeMode}
+            workspace={workspace}
+            memory={memory}
+            workspaceRef={workspaceRef}
+            model={model}
+            skills={skills}
+            mcp={mcp}
+            env={env}
+            obs={obs}
+            archivedConversations={archivedConversations}
+            previewArchivedId={previewArchivedId}
+            previewMessages={previewMessages}
+            loadArchivedPreview={loadArchivedPreview}
+            handleRestoreConversation={handleRestoreConversation}
+            handleDeleteArchivedConversation={handleDeleteArchivedConversation}
+          />
+        </Suspense>
+      )}
 
       {activeMainView === "ops" ? (
-        <OpsPanel setNotice={setNotice} />
+        <Suspense fallback={null}>
+          <OpsPanel setNotice={setNotice} />
+        </Suspense>
       ) : (
         <ChatPane
           activeConversationId={activeConversationId}
