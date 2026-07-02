@@ -410,7 +410,10 @@ fn collect_project_files(
     Ok(())
 }
 
-fn open_file_location_in_file_manager(file_path: &Path, folder: &Path) -> AppResult<()> {
+fn open_file_location_in_file_manager(
+    #[cfg_attr(not(target_os = "windows"), allow(unused_variables))] file_path: &Path,
+    #[cfg_attr(target_os = "windows", allow(unused_variables))] folder: &Path,
+) -> AppResult<()> {
     #[cfg(target_os = "windows")]
     {
         let mut command = std::process::Command::new("explorer.exe");
