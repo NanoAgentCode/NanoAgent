@@ -9,6 +9,7 @@ mod observability;
 mod project_files;
 mod rag;
 mod runtime;
+mod runtime_events;
 mod settings;
 mod shell;
 mod skills;
@@ -47,9 +48,10 @@ use project_files::{
     sanitize_attachment_file_name,
 };
 use runtime::{
-    AgentEventLog, AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft,
-    AgentToolCall, AgentToolCallDraft, RuntimeStore,
+    AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
+    AgentToolCallDraft, RuntimeStore,
 };
+use runtime_events::AgentEventLog;
 use settings::load_tavily_api_key;
 use shell::{check_cmd_exists, check_python_exists, resolve_cmd_on_path};
 use skills::{sync_anthropic_skills as fetch_anthropic_skills, GitHubSkill};
