@@ -22,7 +22,12 @@ import {
   isSupportedImageAttachment,
   isSupportedImageAttachmentFile
 } from "../lib/imageAttachments";
-import { extractMemoryDraft, parseToolCall, type ParsedToolCall } from "../lib/messageHelpers";
+import {
+  extractMemoryDraft,
+  extractPersonalizationMemoryDraft,
+  parseToolCall,
+  type ParsedToolCall
+} from "../lib/messageHelpers";
 import {
   safeApproveAgentToolCall,
   safeCreateAgentRun,
@@ -273,6 +278,10 @@ export function useChat({
         }
         return;
       }
+      const personalizationDraft = extractPersonalizationMemoryDraft(textContent);
+      if (personalizationDraft) {
+        void savePersonalizationMemory(personalizationDraft, agentRun?.id);
+      }
       if (pendingImageAttachments.length > 0) {
         setPendingImageAttachments([]);
       }
@@ -406,6 +415,48 @@ export function useChat({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function savePersonalizationMemory(
+    draft: ReturnType<typeof extractPersonalizationMemoryDraft>,
+    runId?: string | null
+  ) {
+    if (!draft) return;
+    try {
+      const existing = await listRelevantMemories(draft.content, 5);
+      const normalizedContent = normalizeMemoryText(draft.content);
+      const isDuplicate = existing.some((memory) =>
+        normalizeMemoryText(memory.content) === normalizedContent ||
+        normalizeMemoryText(memory.title) === normalizeMemoryText(draft.title)
+      );
+      if (isDuplicate) return;
+
+      const savedMemory = await createMemory(draft);
+      if (runId) {
+        void safeRecordAgentStep({
+          run_id: runId,
+          kind: "memory",
+          status: "completed",
+          input_summary: `auto_personalization:${savedMemory.title}`,
+          output_summary: `memory_id=${savedMemory.id}`
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to save personalization memory:", error);
+      if (runId) {
+        void safeRecordAgentStep({
+          run_id: runId,
+          kind: "memory",
+          status: "failed",
+          input_summary: draft.title,
+          output_summary: String(error)
+        });
+      }
+    }
+  }
+
+  function normalizeMemoryText(value: string) {
+    return value.replace(/\s+/g, " ").trim().toLowerCase();
   }
 
   // ── Continue LLM after tool execution ──

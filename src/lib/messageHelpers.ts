@@ -38,6 +38,52 @@ export function extractMemoryDraft(content: string) {
   };
 }
 
+export function extractPersonalizationMemoryDraft(content: string) {
+  const normalized = compactPersonalizationText(content);
+  if (!normalized || normalized.length > 240 || normalized.endsWith("?") || normalized.endsWith("？")) {
+    return null;
+  }
+
+  const lower = normalized.toLowerCase();
+  const isPreference =
+    /(我.*(喜欢|偏好|更喜欢|不喜欢|讨厌|习惯|希望你|以后.*回答|回复.*尽量|默认.*用)|请你以后|以后请)/.test(normalized) ||
+    /\b(i|i'm|i am|me)\b.*\b(prefer|like|dislike|usually|always|want you to|don't like)\b/.test(lower);
+  const isProfile =
+    /(我是|我叫|我的名字|我目前|我正在|我主要|我负责|我的工作|我用的是|常用|工作目录|项目是)/.test(normalized) ||
+    /\b(i am|i'm|my name is|i work on|i use|my role is|i'm responsible for)\b/.test(lower);
+
+  if (!isPreference && !isProfile) {
+    return null;
+  }
+
+  const tags = ["auto", "personalization", isPreference ? "preference" : "profile"];
+  const title = buildPersonalizationTitle(normalized, isPreference ? "偏好" : "用户画像");
+
+  return {
+    title,
+    content: normalized,
+    tags,
+    enabled: true
+  };
+}
+
+function compactPersonalizationText(content: string) {
+  return content
+    .replace(/!\[[^\]]*]\([^)]+\)/g, "")
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildPersonalizationTitle(content: string, fallback: string) {
+  const title = content
+    .replace(/[。.!！?？\n\r].*$/s, "")
+    .replace(/^(请|麻烦你|以后请|请你以后)\s*/, "")
+    .slice(0, 24)
+    .trim();
+  return title || fallback;
+}
+
 export interface ParsedToolCall {
   name: string;
   args: Record<string, string>;

@@ -1644,11 +1644,27 @@ fn score_memory_relevance(memory: &Memory, query_lower: &str, tokens: &[String])
         || title.contains("preference")
         || tags.contains("偏好")
         || tags.contains("preference")
+        || tags.contains("personalization")
+        || tags.contains("profile")
+        || tags.contains("workflow")
         || tags.contains("always")
         || tags.contains("规则")
         || tags.contains("指令")
     {
-        score += 3;
+        score += 8;
+    }
+    if title.contains("用户画像")
+        || title.contains("工作方式")
+        || content.contains("我喜欢")
+        || content.contains("我偏好")
+        || content.contains("我习惯")
+        || content.contains("希望你")
+        || content.contains("以后")
+        || content.contains("i prefer")
+        || content.contains("i like")
+        || content.contains("i usually")
+    {
+        score += 5;
     }
 
     for token in tokens {

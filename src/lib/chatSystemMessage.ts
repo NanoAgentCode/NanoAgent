@@ -135,7 +135,13 @@ export function buildSystemMessage(
     projectContext,
     mcpContext,
     skillsContext || mcpContext ? `当前已启用的技能列表与工具调用规范：\n${skillsContext || "无已启用本地技能"}\n\n${toolsSystemInstruction}` : "",
-    memoryContext ? `来自记忆库、且已设置为用于对话上下文的记忆；仅在相关时使用，不要无意义提及：\n${memoryContext}` : "",
+    memoryContext ? [
+      "用户个性化记忆（用于保持跨会话一致性）：",
+      "- 这些记忆可能包含用户偏好、身份背景、工作方式、常用技术栈或长期项目上下文。",
+      "- 回答时优先尊重明确的用户偏好；如果记忆与当前请求无关，不要刻意提及。",
+      "- 如果当前消息与旧记忆冲突，以当前消息为准，不要争辩旧记忆。",
+      memoryContext
+    ].join("\n") : "",
     ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
   ].filter(Boolean);
 
