@@ -1674,11 +1674,21 @@ async fn execute_registered_tool(
 ) -> AppResult<String> {
     let args = agent_runner::parse_args_json(&tool_call.args_json)?;
     agent_runner::validate_tool_args(&tool_call.name, &args)?;
-    let _policy_decision = tool_policy::evaluate_tool_call(
+    let allowed_mcp_tools = if tool_call.name.starts_with("mcp__") {
+        state.mcp.lock().await.allowed_tool_scopes()
+    } else {
+        Default::default()
+    };
+    let policy_decision = tool_policy::evaluate_tool_call(
         &tool_call.name,
         &args,
-        &tool_policy::ToolPolicyContext { allow_command },
+        &tool_policy::ToolPolicyContext::new(
+            project_path.to_string(),
+            allow_command,
+            allowed_mcp_tools,
+        ),
     )?;
+    let args = policy_decision.normalized_args;
 
     match tool_call.name.as_str() {
         "read_file" => {

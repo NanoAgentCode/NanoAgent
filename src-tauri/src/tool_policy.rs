@@ -1,8 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};
+use crate::project_files::{normalize_relative_path, project_root, resolve_project_relative_path};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ToolPolicyDescriptor {
@@ -15,6 +16,8 @@ pub struct ToolPolicyDescriptor {
 #[derive(Debug, Clone)]
 pub struct ToolPolicyContext {
     pub allow_command: bool,
+    pub project_path: String,
+    pub allowed_mcp_tools: BTreeSet<McpToolScope>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -23,6 +26,27 @@ pub struct ToolPolicyDecision {
     pub risk: String,
     pub requires_approval: bool,
     pub reason: String,
+    pub normalized_args: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct McpToolScope {
+    pub server_id: String,
+    pub tool_name: String,
+}
+
+impl ToolPolicyContext {
+    pub fn new(
+        project_path: String,
+        allow_command: bool,
+        allowed_mcp_tools: BTreeSet<McpToolScope>,
+    ) -> Self {
+        Self {
+            allow_command,
+            project_path,
+            allowed_mcp_tools,
+        }
+    }
 }
 
 pub fn built_in_tool_policies() -> Vec<ToolPolicyDescriptor> {
@@ -62,13 +86,29 @@ pub fn evaluate_tool_call(
     match tool_name {
         "read_file" => {
             let path = required_policy_arg(args, "path")?;
-            reject_internal_path(path)?;
-            Ok(decision(tool_name, "low", true, "project_file_read"))
+            let normalized_path = validate_project_relative_path(&context.project_path, path)?;
+            let mut normalized_args = args.clone();
+            normalized_args.insert("path".to_string(), normalized_path);
+            Ok(decision(
+                tool_name,
+                "low",
+                true,
+                "project_file_read",
+                normalized_args,
+            ))
         }
         "write_file" => {
             let path = required_policy_arg(args, "path")?;
-            reject_internal_path(path)?;
-            Ok(decision(tool_name, "high", true, "project_file_write"))
+            let normalized_path = validate_project_relative_path(&context.project_path, path)?;
+            let mut normalized_args = args.clone();
+            normalized_args.insert("path".to_string(), normalized_path.clone());
+            Ok(decision(
+                tool_name,
+                risk_for_write_path(&normalized_path),
+                true,
+                "project_file_write",
+                normalized_args,
+            ))
         }
         "execute_command" => {
             if !context.allow_command {
@@ -77,16 +117,45 @@ pub fn evaluate_tool_call(
                 ));
             }
             let command = required_policy_arg(args, "command")?;
-            reject_blocked_command(command)?;
-            Ok(decision(tool_name, "high", true, "project_shell_command"))
+            let command_policy = evaluate_command(command)?;
+            let mut normalized_args = args.clone();
+            normalized_args.insert("command".to_string(), command.trim().to_string());
+            Ok(decision(
+                tool_name,
+                command_policy.risk,
+                true,
+                command_policy.reason,
+                normalized_args,
+            ))
         }
         "ocr_image" => {
             let path = required_policy_arg(args, "path")?;
-            reject_internal_path(path)?;
-            Ok(decision(tool_name, "medium", true, "project_image_ocr"))
+            let normalized_path = validate_project_relative_path(&context.project_path, path)?;
+            let mut normalized_args = args.clone();
+            normalized_args.insert("path".to_string(), normalized_path);
+            Ok(decision(
+                tool_name,
+                "medium",
+                true,
+                "project_image_ocr",
+                normalized_args,
+            ))
         }
         name if name.starts_with("mcp__") => {
-            Ok(decision(tool_name, "external", true, "mcp_tool_call"))
+            let scope = parse_mcp_tool_scope(name)?;
+            if !context.allowed_mcp_tools.contains(&scope) {
+                return Err(AppError::Message(format!(
+                    "MCP 工具未连接或未授权: {} / {}",
+                    scope.server_id, scope.tool_name
+                )));
+            }
+            Ok(decision(
+                tool_name,
+                risk_for_mcp_tool(&scope.tool_name),
+                true,
+                "mcp_tool_call_allowed",
+                args.clone(),
+            ))
         }
         _ => Err(AppError::Message(format!("unknown tool: {tool_name}"))),
     }
@@ -97,12 +166,14 @@ fn decision(
     risk: &str,
     requires_approval: bool,
     reason: &str,
+    normalized_args: BTreeMap<String, String>,
 ) -> ToolPolicyDecision {
     ToolPolicyDecision {
         tool_name: tool_name.to_string(),
         risk: risk.to_string(),
         requires_approval,
         reason: reason.to_string(),
+        normalized_args,
     }
 }
 
@@ -113,6 +184,15 @@ fn required_policy_arg<'a>(args: &'a BTreeMap<String, String>, name: &str) -> Ap
         .ok_or_else(|| AppError::Message(format!("missing tool argument: {name}")))
 }
 
+fn validate_project_relative_path(project_path: &str, path: &str) -> AppResult<String> {
+    let normalized = normalize_relative_path(path)?;
+    reject_internal_path(&normalized)?;
+    let root = project_root(project_path)?;
+    let target_path = resolve_project_relative_path(&root, &normalized)?;
+    reject_symlink_escape(&root, &target_path)?;
+    Ok(normalized)
+}
+
 fn reject_internal_path(path: &str) -> AppResult<()> {
     let normalized = path.trim().replace('\\', "/").to_ascii_lowercase();
     let trimmed = normalized.trim_matches('/');
@@ -120,6 +200,8 @@ fn reject_internal_path(path: &str) -> AppResult<()> {
         || trimmed.starts_with(".git/")
         || trimmed == ".codegraph"
         || trimmed.starts_with(".codegraph/")
+        || trimmed == ".nano-agent"
+        || trimmed.starts_with(".nano-agent/")
     {
         return Err(AppError::Message(
             "工具策略拒绝访问项目内部控制目录".to_string(),
@@ -128,39 +210,182 @@ fn reject_internal_path(path: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn reject_blocked_command(command: &str) -> AppResult<()> {
+fn reject_symlink_escape(root: &std::path::Path, target_path: &std::path::Path) -> AppResult<()> {
+    if !target_path.exists() {
+        return Ok(());
+    }
+    let canonical = target_path
+        .canonicalize()
+        .map_err(|err| AppError::Message(format!("解析文件路径失败: {err}")))?;
+    if !canonical.starts_with(root) {
+        return Err(AppError::Message("文件路径必须位于当前项目内".to_string()));
+    }
+    Ok(())
+}
+
+struct CommandPolicy {
+    risk: &'static str,
+    reason: &'static str,
+}
+
+fn evaluate_command(command: &str) -> AppResult<CommandPolicy> {
     let normalized = command
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase();
-    let blocked_patterns = [
-        "git reset --hard",
-        "git clean -fd",
-        "rm -rf",
-        "remove-item -recurse",
-        "remove-item -r",
-        "del /s",
-        "rmdir /s",
-        "format ",
-        "shutdown ",
-        "reg delete",
-    ];
-
-    if blocked_patterns
-        .iter()
-        .any(|pattern| normalized.contains(pattern))
-    {
+    let tokens = tokenize_command(&normalized);
+    if is_destructive_command(&normalized, &tokens) {
         return Err(AppError::Message(
             "工具策略拒绝执行高破坏性命令，请改用更小范围的操作".to_string(),
         ));
     }
-    Ok(())
+    if is_write_like_command(&tokens) {
+        return Ok(CommandPolicy {
+            risk: "high",
+            reason: "project_shell_command_mutating",
+        });
+    }
+    Ok(CommandPolicy {
+        risk: "medium",
+        reason: "project_shell_command",
+    })
+}
+
+fn tokenize_command(command: &str) -> Vec<String> {
+    command
+        .split(|ch: char| ch.is_whitespace() || matches!(ch, ';' | '&' | '|' | '(' | ')'))
+        .map(|token| token.trim_matches(|ch| matches!(ch, '"' | '\'' | '`')))
+        .filter(|token| !token.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn is_destructive_command(normalized: &str, tokens: &[String]) -> bool {
+    if normalized.contains("git reset --hard")
+        || normalized.contains("git clean -fd")
+        || normalized.contains("git clean -df")
+        || normalized.contains("rm -rf")
+        || normalized.contains("rm -fr")
+        || normalized.contains("remove-item -recurse")
+        || normalized.contains("remove-item -r")
+        || normalized.contains("del /s")
+        || normalized.contains("rmdir /s")
+        || normalized.contains("format ")
+        || normalized.contains("shutdown ")
+        || normalized.contains("reg delete")
+    {
+        return true;
+    }
+
+    tokens.windows(2).any(|window| {
+        matches!(
+            (window[0].as_str(), window[1].as_str()),
+            ("git", "reset") | ("git", "clean") | ("reg", "delete")
+        )
+    }) || tokens
+        .iter()
+        .any(|token| matches!(token.as_str(), "format" | "shutdown"))
+}
+
+fn is_write_like_command(tokens: &[String]) -> bool {
+    if let Some(position) = tokens.iter().position(|token| token == "git") {
+        let subcommand = tokens.get(position + 1).map(String::as_str).unwrap_or("");
+        return matches!(
+            subcommand,
+            "add"
+                | "am"
+                | "apply"
+                | "bisect"
+                | "checkout"
+                | "cherry-pick"
+                | "clean"
+                | "commit"
+                | "fetch"
+                | "merge"
+                | "mv"
+                | "pull"
+                | "push"
+                | "rebase"
+                | "reset"
+                | "restore"
+                | "revert"
+                | "rm"
+                | "stash"
+                | "switch"
+        );
+    }
+
+    tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "copy"
+                | "cp"
+                | "move"
+                | "mv"
+                | "new-item"
+                | "ni"
+                | "set-content"
+                | "add-content"
+                | "out-file"
+                | "mkdir"
+                | "md"
+                | "npm"
+                | "pnpm"
+                | "yarn"
+                | "cargo"
+                | "powershell"
+                | "cmd"
+        )
+    })
+}
+
+fn risk_for_write_path(path: &str) -> &'static str {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".md") || lower.ends_with(".txt") || lower.starts_with("docs/") {
+        "medium"
+    } else {
+        "high"
+    }
+}
+
+fn parse_mcp_tool_scope(name: &str) -> AppResult<McpToolScope> {
+    let rest = name
+        .strip_prefix("mcp__")
+        .ok_or_else(|| AppError::Message("invalid mcp tool name".to_string()))?;
+    let (server_id, tool_name) = rest.split_once("__").ok_or_else(|| {
+        AppError::Message("mcp tool name must be mcp__server_id__tool_name".to_string())
+    })?;
+    if server_id.trim().is_empty() || tool_name.trim().is_empty() {
+        return Err(AppError::Message(
+            "mcp tool name must include server id and tool name".to_string(),
+        ));
+    }
+    Ok(McpToolScope {
+        server_id: server_id.to_string(),
+        tool_name: tool_name.to_string(),
+    })
+}
+
+fn risk_for_mcp_tool(tool_name: &str) -> &'static str {
+    let lower = tool_name.to_ascii_lowercase();
+    if [
+        "write", "delete", "remove", "exec", "shell", "command", "patch", "update",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        "external_high"
+    } else {
+        "external"
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
 
     fn args(values: &[(&str, &str)]) -> BTreeMap<String, String> {
         values
@@ -169,14 +394,28 @@ mod tests {
             .collect()
     }
 
+    fn test_project() -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("nano-agent-policy-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("test project should be created");
+        root
+    }
+
+    fn context(root: &std::path::Path, allow_command: bool) -> ToolPolicyContext {
+        ToolPolicyContext::new(
+            root.to_string_lossy().to_string(),
+            allow_command,
+            BTreeSet::new(),
+        )
+    }
+
     #[test]
     fn blocks_command_when_command_tool_disabled() {
+        let root = test_project();
         let result = evaluate_tool_call(
             "execute_command",
             &args(&[("command", "npm run build")]),
-            &ToolPolicyContext {
-                allow_command: false,
-            },
+            &context(&root, false),
         );
 
         assert!(result.is_err());
@@ -184,12 +423,11 @@ mod tests {
 
     #[test]
     fn blocks_highly_destructive_commands() {
+        let root = test_project();
         let result = evaluate_tool_call(
             "execute_command",
             &args(&[("command", "git reset --hard HEAD")]),
-            &ToolPolicyContext {
-                allow_command: true,
-            },
+            &context(&root, true),
         );
 
         assert!(result.is_err());
@@ -197,27 +435,82 @@ mod tests {
 
     #[test]
     fn blocks_internal_control_paths() {
+        let root = test_project();
         let result = evaluate_tool_call(
             "write_file",
             &args(&[("path", ".git/config"), ("content", "x")]),
-            &ToolPolicyContext {
-                allow_command: true,
-            },
+            &context(&root, true),
         );
 
         assert!(result.is_err());
     }
 
     #[test]
-    fn allows_mcp_tools_as_external_policy_scope() {
+    fn normalizes_project_paths() {
+        let root = test_project();
         let decision = evaluate_tool_call(
+            "read_file",
+            &args(&[("path", ".\\README.md")]),
+            &context(&root, true),
+        )
+        .expect("project path should normalize");
+
+        assert_eq!(
+            decision.normalized_args.get("path").map(String::as_str),
+            Some("README.md")
+        );
+    }
+
+    #[test]
+    fn blocks_parent_path_escape() {
+        let root = test_project();
+        let result = evaluate_tool_call(
+            "read_file",
+            &args(&[("path", "../outside.txt")]),
+            &context(&root, true),
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn classifies_readonly_commands_as_medium_risk() {
+        let root = test_project();
+        let decision = evaluate_tool_call(
+            "execute_command",
+            &args(&[("command", "git status --short")]),
+            &context(&root, true),
+        )
+        .expect("readonly command should be allowed");
+
+        assert_eq!(decision.risk, "medium");
+    }
+
+    #[test]
+    fn blocks_mcp_tools_not_in_scope() {
+        let root = test_project();
+        let result = evaluate_tool_call(
             "mcp__server__tool",
             &args(&[("arguments", "{}")]),
-            &ToolPolicyContext {
-                allow_command: true,
-            },
-        )
-        .expect("mcp policy should allow registered mcp calls");
+            &context(&root, true),
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn allows_mcp_tools_in_scope() {
+        let root = test_project();
+        let mut allowed_mcp_tools = BTreeSet::new();
+        allowed_mcp_tools.insert(McpToolScope {
+            server_id: "server".to_string(),
+            tool_name: "tool".to_string(),
+        });
+        let context =
+            ToolPolicyContext::new(root.to_string_lossy().to_string(), true, allowed_mcp_tools);
+        let decision =
+            evaluate_tool_call("mcp__server__tool", &args(&[("arguments", "{}")]), &context)
+                .expect("mcp policy should allow registered mcp calls");
 
         assert_eq!(decision.risk, "external");
         assert!(decision.requires_approval);

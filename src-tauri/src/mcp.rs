@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 use reqwest::header::{
@@ -14,6 +14,7 @@ use tokio::time::{timeout, Duration};
 
 use crate::error::{AppError, AppResult};
 use crate::models::McpServerConfig;
+use crate::tool_policy::McpToolScope;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MCP_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2024-11-05"];
@@ -149,6 +150,22 @@ impl McpClientManager {
             .ok_or_else(|| AppError::Message("mcp server is not connected".to_string()))?;
         session.call_tool(request).await
     }
+
+    pub fn allowed_tool_scopes(&self) -> BTreeSet<McpToolScope> {
+        self.sessions
+            .iter()
+            .flat_map(|(server_id, session)| {
+                session
+                    .tools()
+                    .into_iter()
+                    .map(|tool| McpToolScope {
+                        server_id: server_id.clone(),
+                        tool_name: tool.name,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
 }
 
 enum McpSession {
@@ -163,7 +180,9 @@ impl McpSession {
             "stdio" => Ok(Self::Stdio(StdioSession::start(config).await?)),
             "sse" => Ok(Self::Sse(SseSession::start(config).await?)),
             "streamable_http" => Ok(Self::StreamableHttp(HttpSession::start(config).await?)),
-            other => Err(AppError::Message(format!("unsupported mcp transport: {other}"))),
+            other => Err(AppError::Message(format!(
+                "unsupported mcp transport: {other}"
+            ))),
         }
     }
 
@@ -607,7 +626,9 @@ impl SseSession {
             if event.event.as_deref() == Some("endpoint") {
                 let endpoint = event.data.trim();
                 if endpoint.is_empty() {
-                    return Err(AppError::Message("mcp sse endpoint event is empty".to_string()));
+                    return Err(AppError::Message(
+                        "mcp sse endpoint event is empty".to_string(),
+                    ));
                 }
                 break resolve_endpoint_url(&config.url, endpoint)?;
             }
@@ -643,16 +664,15 @@ impl SseSession {
             }
         }
         Err(AppError::Message(format_handshake_failures(
-            "sse",
-            &failures,
-            None,
+            "sse", &failures, None,
         )))
     }
 
     async fn request(&mut self, method: &str, params: Value) -> AppResult<Value> {
         self.request_id += 1;
         let id = self.request_id;
-        self.post_message(json_rpc_request(id, method, params)).await?;
+        self.post_message(json_rpc_request(id, method, params))
+            .await?;
         loop {
             let event = timeout(
                 REQUEST_TIMEOUT,
@@ -660,7 +680,11 @@ impl SseSession {
             )
             .await
             .map_err(|_| AppError::Message(format!("mcp sse request timed out: {method}")))??;
-            if event.event.as_deref().is_some_and(|event| event != "message") {
+            if event
+                .event
+                .as_deref()
+                .is_some_and(|event| event != "message")
+            {
                 continue;
             }
             if let Some(result) = parse_json_rpc_line(&event.data, id)? {
@@ -763,12 +787,21 @@ async fn response_to_json_rpc_result(
         let text = response.text().await?;
         let event = sse_text_events(&text)
             .into_iter()
-            .find(|event| parse_json_rpc_line(&event.data, id).ok().flatten().is_some())
+            .find(|event| {
+                parse_json_rpc_line(&event.data, id)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
             .ok_or_else(|| {
-                AppError::Message(format!("mcp streamable http response missing id for {method}"))
+                AppError::Message(format!(
+                    "mcp streamable http response missing id for {method}"
+                ))
             })?;
         parse_json_rpc_line(&event.data, id)?.ok_or_else(|| {
-            AppError::Message(format!("mcp streamable http response missing id for {method}"))
+            AppError::Message(format!(
+                "mcp streamable http response missing id for {method}"
+            ))
         })?
     } else {
         let text = response.text().await?;
@@ -838,11 +871,7 @@ fn negotiated_protocol_version(result: &Value, fallback: &str) -> String {
         .to_string()
 }
 
-fn format_handshake_failures(
-    transport: &str,
-    failures: &[String],
-    stderr: Option<&str>,
-) -> String {
+fn format_handshake_failures(transport: &str, failures: &[String], stderr: Option<&str>) -> String {
     let detail = if failures.is_empty() {
         "no protocol attempts were made".to_string()
     } else {
