@@ -39,6 +39,7 @@ import type {
   AgentModelOutputResolution,
   AgentToolExecution,
   AgentToolExecutionRequest,
+  AgentEventLog,
   AgentRunTimeline,
   RagChunkMatch,
   RagFile,
@@ -428,6 +429,10 @@ export function listAgentRuns(conversationId: string, limit = 50) {
 
 export function listAgentRunTimelines(conversationId: string, limit = 20) {
   return invoke<AgentRunTimeline[]>("list_agent_run_timelines", { conversationId, limit });
+}
+
+export function listAgentEventLogs(conversationId: string, limit = 20) {
+  return invoke<AgentEventLog[]>("list_agent_event_logs", { conversationId, limit });
 }
 
 export function recordAgentStep(draft: AgentStepDraft) {

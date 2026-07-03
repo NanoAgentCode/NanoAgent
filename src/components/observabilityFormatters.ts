@@ -1,4 +1,4 @@
-import type { AgentRun, AgentRunTimeline, AgentStep, ObservabilitySpan } from "../types";
+import type { AgentEventLogEntry, AgentRun, AgentRunTimeline, AgentStep, ObservabilitySpan } from "../types";
 
 export type AgentTimelineEvent = {
   id: string;
@@ -10,6 +10,12 @@ export type AgentTimelineEvent = {
 };
 
 export function buildAgentTimelineEvents(timeline: AgentRunTimeline): AgentTimelineEvent[] {
+  if (timeline.events?.length) {
+    return timeline.events.map(formatAgentEventLogEntry).sort(
+      (left, right) => Date.parse(left.time) - Date.parse(right.time)
+    );
+  }
+
   const stepEvents = timeline.steps.map((step) => ({
     id: `step-${step.id}`,
     time: step.created_at,
@@ -39,6 +45,43 @@ export function buildAgentTimelineEvents(timeline: AgentRunTimeline): AgentTimel
   return [...stepEvents, ...toolEvents].sort(
     (left, right) => Date.parse(left.time) - Date.parse(right.time)
   );
+}
+
+function formatAgentEventLogEntry(event: AgentEventLogEntry): AgentTimelineEvent {
+  return {
+    id: event.id,
+    time: event.started_at,
+    status: event.status,
+    title: formatAgentEventTitle(event),
+    subtitle: `${event.source} / ${event.event_type}`,
+    detail: [
+      event.input_summary ? `input: ${event.input_summary}` : "",
+      event.output_summary ? `output: ${event.output_summary}` : "",
+      event.error ? `error: ${event.error}` : "",
+      event.metadata_json ? `metadata: ${event.metadata_json}` : "",
+      event.entity_type && event.entity_id ? `entity: ${event.entity_type} / ${event.entity_id}` : "",
+      event.duration_ms != null ? `duration: ${formatDuration(event.duration_ms)}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n")
+  };
+}
+
+function formatAgentEventTitle(event: AgentEventLogEntry) {
+  const labels: Record<string, string> = {
+    "run.started": "运行开始",
+    "run.completed": "运行结束",
+    "message.user": "用户消息",
+    "model.step": "模型调用",
+    "model.continue": "模型继续",
+    "tool.requested": "工具请求",
+    "tool.executed": "工具执行",
+    "approval.decision": "审批",
+    "memory.write": "记忆写入",
+    "runtime.error": "错误",
+    "runtime.step": "运行步骤"
+  };
+  return labels[event.event_type] || event.title || event.event_type;
 }
 
 export function formatAgentRunTitle(run: AgentRun) {

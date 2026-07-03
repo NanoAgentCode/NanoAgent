@@ -456,10 +456,37 @@ export interface AgentToolExecution {
   result_text: string;
 }
 
+export interface AgentEventLogEntry {
+  id: string;
+  run_id: string;
+  trace_id: string;
+  parent_id?: string | null;
+  source: string;
+  event_type: string;
+  phase: string;
+  status: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  title: string;
+  input_summary?: string | null;
+  output_summary?: string | null;
+  error?: string | null;
+  metadata_json?: string | null;
+  started_at: string;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface AgentEventLog {
+  run: AgentRun;
+  events: AgentEventLogEntry[];
+}
+
 export interface AgentRunTimeline {
   run: AgentRun;
   steps: AgentStep[];
   tool_calls: AgentToolCall[];
+  events: AgentEventLogEntry[];
 }
 
 export type WorkspaceView = ItemKind | "all" | "memory";

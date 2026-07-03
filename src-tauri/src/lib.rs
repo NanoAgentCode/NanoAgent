@@ -47,8 +47,8 @@ use project_files::{
     sanitize_attachment_file_name,
 };
 use runtime::{
-    AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft, AgentToolCall,
-    AgentToolCallDraft, RuntimeStore,
+    AgentEventLog, AgentRun, AgentRunDraft, AgentRunTimeline, AgentStep, AgentStepDraft,
+    AgentToolCall, AgentToolCallDraft, RuntimeStore,
 };
 use settings::load_tavily_api_key;
 use shell::{check_cmd_exists, check_python_exists, resolve_cmd_on_path};
@@ -1449,6 +1449,19 @@ async fn list_agent_run_timelines(
         .lock()
         .await
         .list_run_timelines(&conversation_id, limit.unwrap_or(20))
+}
+
+#[tauri::command]
+async fn list_agent_event_logs(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    limit: Option<i64>,
+) -> AppResult<Vec<AgentEventLog>> {
+    state
+        .runtime
+        .lock()
+        .await
+        .list_event_logs(&conversation_id, limit.unwrap_or(20))
 }
 
 #[tauri::command]
@@ -2866,6 +2879,7 @@ pub fn run() {
             finish_agent_run,
             list_agent_runs,
             list_agent_run_timelines,
+            list_agent_event_logs,
             record_agent_step,
             create_agent_tool_call,
             update_agent_tool_call,
