@@ -3,6 +3,7 @@ mod db;
 mod error;
 mod file_content;
 mod llm;
+mod logging;
 mod mcp;
 mod models;
 mod observability;
@@ -91,6 +92,11 @@ struct OpsSshEvent {
     data: String,
 }
 
+struct OperationContext {
+    span: Option<SpanContext>,
+    log: logging::OperationLogContext,
+}
+
 async fn start_observation(
     state: &State<'_, AppState>,
     operation: &str,
@@ -100,26 +106,46 @@ async fn start_observation(
     input_summary: Option<String>,
     metadata: serde_json::Value,
     trace_id: Option<String>,
-) -> Option<SpanContext> {
-    if category != "llm" && category != "mcp" {
-        return None;
-    }
+) -> OperationContext {
+    let entity_type = entity_type.map(str::to_string);
+    let log = logging::start_operation(
+        operation,
+        category,
+        entity_type.clone(),
+        entity_id.clone(),
+        input_summary.clone(),
+        metadata.clone(),
+        trace_id.clone(),
+    );
 
-    state.observability.lock().await.start_span(SpanStart {
-        trace_id,
-        parent_span_id: None,
-        operation: operation.to_string(),
-        category: category.to_string(),
-        entity_type: entity_type.map(str::to_string),
-        entity_id,
-        input_summary,
-        metadata,
-    })
+    let span = if should_trace_observation(operation, category) {
+        state.observability.lock().await.start_span(SpanStart {
+            trace_id,
+            parent_span_id: None,
+            operation: operation.to_string(),
+            category: category.to_string(),
+            entity_type: entity_type.clone(),
+            entity_id,
+            input_summary,
+            metadata,
+        })
+    } else {
+        None
+    };
+
+    OperationContext { span, log }
+}
+
+fn should_trace_observation(operation: &str, category: &str) -> bool {
+    matches!(
+        (category, operation),
+        ("llm", "chat") | ("llm", "chat_stream") | ("llm", "ops.ai.ask")
+    ) || operation == "mcp.agent.tool.call"
 }
 
 async fn finish_observation<T>(
     state: &State<'_, AppState>,
-    span: Option<SpanContext>,
+    context: OperationContext,
     result: &AppResult<T>,
     output_summary: Option<String>,
 ) {
@@ -127,11 +153,14 @@ async fn finish_observation<T>(
         Ok(_) => ("ok", None),
         Err(err) => ("error", Some(err.to_string())),
     };
+
+    logging::finish_operation(&context.log, status, error.clone(), output_summary.clone());
+
     state
         .observability
         .lock()
         .await
-        .finish_span(span, status, output_summary, error);
+        .finish_span(context.span, status, output_summary, error);
 }
 
 fn count_summary<T>(items: &[T]) -> String {
@@ -1089,7 +1118,32 @@ async fn ask_ops_ai(state: State<'_, AppState>, request: OpsAiRequest) -> AppRes
             },
         ],
     };
-    send_chat_completion(config, chat_request).await
+    let span = start_observation(
+        &state,
+        "ops.ai.ask",
+        "llm",
+        Some("ops_server"),
+        Some(server.id.clone()),
+        Some(format!("prompt_chars={}", prompt.chars().count())),
+        serde_json::json!({
+            "model_config_id": config.id,
+            "server_id": server.id,
+            "last_ssh_output_chars": request
+                .last_ssh_output
+                .as_ref()
+                .map(|output| output.chars().count())
+                .unwrap_or(0),
+        }),
+        chat_request.trace_id.clone(),
+    )
+    .await;
+    let result = send_chat_completion(config, chat_request).await;
+    let output = result
+        .as_ref()
+        .ok()
+        .map(|response| format!("content_chars={}", response.content.chars().count()));
+    finish_observation(&state, span, &result, output).await;
+    result
 }
 
 #[tauri::command]
@@ -2751,7 +2805,11 @@ fn setup_system_tray(app: &mut tauri::App) -> Result<(), String> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "tray_show" => {
                 if let Err(err) = show_main_window(app) {
-                    eprintln!("failed to show main window from tray: {err}");
+                    logging::error(
+                        "tray",
+                        "failed to show main window from tray",
+                        serde_json::json!({ "error": err.to_string() }),
+                    );
                 }
             }
             "tray_quit" => app.exit(0),
@@ -2765,7 +2823,11 @@ fn setup_system_tray(app: &mut tauri::App) -> Result<(), String> {
             } = event
             {
                 if let Err(err) = show_main_window(tray.app_handle()) {
-                    eprintln!("failed to show main window from tray click: {err}");
+                    logging::error(
+                        "tray",
+                        "failed to show main window from tray click",
+                        serde_json::json!({ "error": err.to_string() }),
+                    );
                 }
             }
         });
@@ -2782,7 +2844,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Err(err) = show_main_window(app) {
-                eprintln!("failed to show main window from second instance: {err}");
+                logging::error(
+                    "single-instance",
+                    "failed to show main window from second instance",
+                    serde_json::json!({ "error": err.to_string() }),
+                );
             }
         }))
         .plugin(tauri_plugin_dialog::init())
@@ -2796,6 +2862,15 @@ pub fn run() {
                 .map_err(|err| format!("failed to resolve app data directory: {err}"))?;
             std::fs::create_dir_all(&data_dir)
                 .map_err(|err| format!("failed to create app data directory: {err}"))?;
+            let log_dir = data_dir.join("logs");
+            logging::init_system_logger(log_dir)
+                .map_err(|err| format!("failed to initialize system logger: {err}"))?;
+            logging::info("app", "NanoAgent startup", serde_json::json!({}));
+            logging::debug(
+                "app",
+                "app data directory resolved",
+                serde_json::json!({ "path": data_dir.display().to_string() }),
+            );
             let temp_dir = data_dir.join("temp");
             std::fs::create_dir_all(&temp_dir)
                 .map_err(|err| format!("failed to create temp directory: {err}"))?;
@@ -2807,7 +2882,11 @@ pub fn run() {
             let observability = match SqliteObservabilitySink::open(observability_path) {
                 Ok(sink) => ObservabilityPipeline::new(vec![Box::new(sink)]),
                 Err(err) => {
-                    eprintln!("observability disabled: {err}");
+                    logging::warn(
+                        "observability",
+                        "observability disabled",
+                        serde_json::json!({ "error": err.to_string() }),
+                    );
                     ObservabilityPipeline::disabled()
                 }
             };

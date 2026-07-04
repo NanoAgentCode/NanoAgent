@@ -8,6 +8,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::logging;
 
 #[derive(Debug, Clone)]
 pub struct SpanStart {
@@ -101,7 +102,11 @@ impl ObservabilityPipeline {
 
         for sink in &mut self.sinks {
             if let Err(err) = sink.on_start(&span, &start) {
-                eprintln!("observability sink '{}' start failed: {err}", sink.name());
+                logging::error(
+                    "observability",
+                    "observability sink start failed",
+                    serde_json::json!({ "sink": sink.name(), "error": err.to_string() }),
+                );
             }
         }
 
@@ -129,7 +134,11 @@ impl ObservabilityPipeline {
 
         for sink in &mut self.sinks {
             if let Err(err) = sink.on_finish(&span, &end) {
-                eprintln!("observability sink '{}' finish failed: {err}", sink.name());
+                logging::error(
+                    "observability",
+                    "observability sink finish failed",
+                    serde_json::json!({ "sink": sink.name(), "error": err.to_string() }),
+                );
             }
         }
     }
@@ -264,7 +273,7 @@ impl ObservabilitySink for SqliteObservabilitySink {
                    status, started_at, ended_at, duration_ms, input_summary, output_summary,
                    error, metadata_json
             FROM observability_spans
-            WHERE category IN ('llm', 'mcp')
+            WHERE operation IN ('chat', 'chat_stream', 'ops.ai.ask', 'mcp.agent.tool.call')
             ORDER BY started_at DESC
             LIMIT ?1
             ",
