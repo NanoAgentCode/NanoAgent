@@ -319,6 +319,34 @@ export interface CodeSearchResult {
   score: number;
 }
 
+export interface ProjectIndexRun {
+  id: string;
+  project_path: string;
+  indexer: string;
+  status: string;
+  file_count: number;
+  chunk_count: number;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectIndexStats {
+  project_path: string;
+  runs: ProjectIndexRun[];
+}
+
+export interface ProjectIndexSearchResult {
+  indexer: string;
+  file_path: string;
+  title: string;
+  chunk_index: number;
+  start_line: number;
+  end_line: number;
+  snippet: string;
+  score: number;
+}
+
 export interface GitHubSkill {
   slug: string;
   name: string;

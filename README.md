@@ -9,7 +9,7 @@ NanoAgent 是一个本地优先的桌面 AI 工作台，使用 Tauri v2、Rust�
 - OpenAI-compatible Chat/Embeddings、Anthropic Messages API，以及 Ollama/OpenRouter 等兼容服务。
 - 流式回复、reasoning/thinking 片段展示和长对话上下文压缩。
 - 轻量 RAG：拖拽文件、抽取文本、分块、生成 embedding，并在对话时召回相关片段。
-- 项目代码索引：为项目构建代码实体、关系和文本片段索引，代码类问答会优先召回函数、组件、类型、调用和相关代码片段。
+- 项目索引中心：为项目构建可插拔索引，当前包含代码实体/关系索引和文档片段索引，代码、配置、说明、数据文件问答会优先召回项目级上下文。
 - 图片附件和 OCR：图片保存到 `.nano-agent/uploads/images/`，消息中渲染缩略图，点击可预览，并可通过 `ocr_image` 调用本机 PaddleOCR。
 - 归档预览：设置页的 Archive 预览复用普通聊天的消息渲染链路，项目会话使用 `project_path`，普通会话回退到 app data 下的 `temp/`。
 - 项目工作区：创建项目目录、打开项目时构建轻量文件索引、浏览文件树、读写/重命名/删除项目文件、执行项目命令。
@@ -115,6 +115,7 @@ src/lib/                       系统提示、工具解析、格式化和安全�
 src-tauri/src/lib.rs           Tauri command 注册、应用状态和启动流程
 src-tauri/src/db.rs            主业务 SQLite 数据访问
 src-tauri/src/code_index.rs    项目代码实体、关系和片段索引
+src-tauri/src/project_index.rs 项目文档片段索引与通用项目索引查询
 src-tauri/src/runtime.rs       Agent run/step/tool call 运行时存储
 src-tauri/src/observability.rs 观测 sink/pipeline 与观测库
 src-tauri/src/llm.rs           Chat、streaming 和 embeddings 请求
@@ -130,7 +131,7 @@ docs/                          系统设计、运维和学习路线文档
 - 数据隔离：业务数据、Agent 运行时、观测数据分库保存，降低互相影响。
 - 显式路径：项目路径、会话 ID、模型 ID、tool call ID 等跨层标识显式传递。
 - 可点击资源：模型输出项目文件名或相对路径时，前端基于当前项目文件索引生成可点击链接；裸文件名只在能从项目索引解析时补全。
-- 代码优先检索：代码类问题优先使用项目代码索引中的实体、关系和片段，再回退到普通文件列表或工具读取。
+- 项目优先检索：代码类问题优先使用代码实体/关系索引，文档和普通文件问题优先使用项目文档索引，再回退到普通文件列表或工具读取。
 - 用户审批：高风险工具调用必须先形成可见的 tool call，再由用户确认执行。
 - 可扩展：模型、MCP、Skills、观测 sink 和 Agent 工具都保留扩展边界。
 - 非阻塞观测：观测写入失败只记录错误，不阻断主业务流程。

@@ -162,7 +162,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.project-code-index-badge {
+.project-index-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;

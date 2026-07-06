@@ -2,13 +2,21 @@ import { useEffect, useState, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   getCodeIndexStats,
+  getProjectIndexStats,
+  indexProjectDocuments,
   indexProjectCode,
   isDirectoryEmpty,
   listConversations,
   listProjectFiles
 } from "../api";
 import { confirmAction } from "../lib/dialogs";
-import type { CodeIndexStats, ProjectEntry, Conversation, ProjectFileEntry } from "../types";
+import type {
+  CodeIndexStats,
+  ProjectEntry,
+  Conversation,
+  ProjectFileEntry,
+  ProjectIndexStats
+} from "../types";
 
 const projectStorageKey = "nano-agent-projects";
 const activeProjectStorageKey = "nano-agent-active-project-id";
@@ -84,7 +92,8 @@ export interface UseProjectsReturn {
   activeProjectFiles: ProjectFileEntry[];
   projectFilesByPath: Record<string, ProjectFileEntry[]>;
   codeIndexStatsByPath: Record<string, CodeIndexStats>;
-  indexingCodeProjectPath: string;
+  projectIndexStatsByPath: Record<string, ProjectIndexStats>;
+  indexingProjectPath: string;
   selectProject: (project: ProjectEntry) => void;
   upsertProject: (path: string, logicalName?: string) => void;
   handleOpenProject: () => Promise<void>;
@@ -96,8 +105,10 @@ export interface UseProjectsReturn {
   refreshProjectConversationMap: (projectList?: ProjectEntry[]) => Promise<void>;
   refreshProjectFileIndex: (project: ProjectEntry) => Promise<void>;
   refreshCodeIndexStats: (project: ProjectEntry) => Promise<void>;
-  handleIndexProjectCode: (project: ProjectEntry) => Promise<void>;
+  refreshProjectIndexStats: (project: ProjectEntry) => Promise<void>;
+  handleIndexProject: (project: ProjectEntry) => Promise<void>;
   getCodeIndexStatsForPath: (path?: string | null) => CodeIndexStats | null;
+  getProjectIndexStatsForPath: (path?: string | null) => ProjectIndexStats | null;
   getProjectFilesForPath: (path?: string | null) => ProjectFileEntry[];
   findConversationById: (conversationId: string) => Conversation | null;
   findConversationProject: (conversation: Conversation | null) => ProjectEntry | null;
@@ -119,7 +130,8 @@ export function useProjects(
   const [projectConversations, setProjectConversations] = useState<Record<string, Conversation[]>>({});
   const [projectFilesByPath, setProjectFilesByPath] = useState<Record<string, ProjectFileEntry[]>>({});
   const [codeIndexStatsByPath, setCodeIndexStatsByPath] = useState<Record<string, CodeIndexStats>>({});
-  const [indexingCodeProjectPath, setIndexingCodeProjectPath] = useState("");
+  const [projectIndexStatsByPath, setProjectIndexStatsByPath] = useState<Record<string, ProjectIndexStats>>({});
+  const [indexingProjectPath, setIndexingProjectPath] = useState("");
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [newProjectWorkdir, setNewProjectWorkdir] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
@@ -179,6 +191,7 @@ export function useProjects(
     }
     void refreshProjectFileIndex(activeProject);
     void refreshCodeIndexStats(activeProject);
+    void refreshProjectIndexStats(activeProject);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.path]);
 
@@ -188,6 +201,7 @@ export function useProjects(
     setExpandedProjectIds((current) => (current.includes(project.id) ? current : [...current, project.id]));
     void refreshProjectFileIndex(project);
     void refreshCodeIndexStats(project);
+    void refreshProjectIndexStats(project);
   }
 
   function upsertProject(path: string, logicalName?: string) {
@@ -217,6 +231,8 @@ export function useProjects(
     setExpandedProjectIds((current) => (current.includes(nextProject.id) ? current : [...current, nextProject.id]));
     saveProjects(nextProjects, nextProject.id);
     void refreshProjectFileIndex(nextProject);
+    void refreshCodeIndexStats(nextProject);
+    void refreshProjectIndexStats(nextProject);
     setNotice(`已打开项目：${nextProject.name}`);
   }
 
@@ -308,6 +324,10 @@ export function useProjects(
       const { [projectFileIndexKey(pendingProjectRemoval.path)]: _, ...rest } = current;
       return rest;
     });
+    setProjectIndexStatsByPath((current) => {
+      const { [projectFileIndexKey(pendingProjectRemoval.path)]: _, ...rest } = current;
+      return rest;
+    });
     saveProjects(nextProjects, nextActiveProjectId);
     setPendingProjectRemoval(null);
     setProjectApprovalText("");
@@ -366,22 +386,46 @@ export function useProjects(
     }
   }
 
-  async function handleIndexProjectCode(project: ProjectEntry) {
-    setIndexingCodeProjectPath(project.path);
+  async function refreshProjectIndexStats(project: ProjectEntry) {
     try {
-      const run = await indexProjectCode(project.path);
+      const stats = await getProjectIndexStats(project.path);
+      setProjectIndexStatsByPath((current) => ({
+        ...current,
+        [projectFileIndexKey(project.path)]: stats
+      }));
+    } catch (error) {
+      console.error("Failed to load project index stats:", error);
+    }
+  }
+
+  async function handleIndexProject(project: ProjectEntry) {
+    setIndexingProjectPath(project.path);
+    try {
+      const [codeRun, documentRun] = await Promise.all([
+        indexProjectCode(project.path),
+        indexProjectDocuments(project.path)
+      ]);
       setCodeIndexStatsByPath((current) => ({
         ...current,
         [projectFileIndexKey(project.path)]: {
-          project_path: run.project_path,
-          latest_run: run
+          project_path: codeRun.project_path,
+          latest_run: codeRun
         }
       }));
-      setNotice(`代码索引完成：${run.file_count} 个文件，${run.entity_count} 个实体，${run.relation_count} 条关系。`);
+      setProjectIndexStatsByPath((current) => ({
+        ...current,
+        [projectFileIndexKey(project.path)]: {
+          project_path: documentRun.project_path,
+          runs: [documentRun]
+        }
+      }));
+      setNotice(
+        `项目索引完成：代码 ${codeRun.entity_count} 个实体、${codeRun.relation_count} 条关系；文档 ${documentRun.file_count} 个文件、${documentRun.chunk_count} 个片段。`
+      );
     } catch (error) {
-      setNotice(`代码索引失败：${String(error)}`);
+      setNotice(`项目索引失败：${String(error)}`);
     } finally {
-      setIndexingCodeProjectPath("");
+      setIndexingProjectPath("");
     }
   }
 
@@ -393,6 +437,11 @@ export function useProjects(
   function getCodeIndexStatsForPath(path?: string | null) {
     if (!path) return null;
     return codeIndexStatsByPath[projectFileIndexKey(path)] || null;
+  }
+
+  function getProjectIndexStatsForPath(path?: string | null) {
+    if (!path) return null;
+    return projectIndexStatsByPath[projectFileIndexKey(path)] || null;
   }
 
   function findConversationById(conversationId: string) {
@@ -445,7 +494,8 @@ export function useProjects(
     activeProjectFiles,
     projectFilesByPath,
     codeIndexStatsByPath,
-    indexingCodeProjectPath,
+    projectIndexStatsByPath,
+    indexingProjectPath,
     selectProject,
     upsertProject,
     handleOpenProject,
@@ -457,8 +507,10 @@ export function useProjects(
     refreshProjectConversationMap,
     refreshProjectFileIndex,
     refreshCodeIndexStats,
-    handleIndexProjectCode,
+    refreshProjectIndexStats,
+    handleIndexProject,
     getCodeIndexStatsForPath,
+    getProjectIndexStatsForPath,
     getProjectFilesForPath,
     findConversationById,
     findConversationProject,

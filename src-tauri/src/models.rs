@@ -375,6 +375,53 @@ pub struct CodeSearchResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexRun {
+    pub id: String,
+    pub project_path: String,
+    pub indexer: String,
+    pub status: String,
+    pub file_count: i64,
+    pub chunk_count: i64,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexStats {
+    pub project_path: String,
+    pub runs: Vec<ProjectIndexRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexChunk {
+    pub id: String,
+    pub project_path: String,
+    pub indexer: String,
+    pub file_path: String,
+    pub title: String,
+    pub chunk_index: i64,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub text: String,
+    pub content_hash: String,
+    pub token_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexSearchResult {
+    pub indexer: String,
+    pub file_path: String,
+    pub title: String,
+    pub chunk_index: i64,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub snippet: String,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectFileEntry {
     pub path: String,
     pub is_dir: bool,

@@ -13,7 +13,8 @@ import {
   listProjectFiles,
   listRagFiles,
   readAbsoluteFile,
-  searchCodeIndex
+  searchCodeIndex,
+  searchProjectIndex
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
 import { isSupportedRagFile, MAX_CONTEXT_TOKENS, estimateTokens } from "../lib/formatters";
@@ -335,8 +336,19 @@ export function useChat({
 
       const ragMatches = await rag.loadRagMatches(conversationId, content, activeModelId);
       const codeMatches = await loadCodeMatches(projectForRequest?.path, content);
+      const projectIndexMatches = await loadProjectIndexMatches(projectForRequest?.path, content);
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, codeMatches, skills.tempDir),
+        buildSystemMessage(
+          relevantMemories,
+          projectForRequest,
+          projectFiles,
+          skills.skills,
+          mcp.mcpServers,
+          ragMatches,
+          codeMatches,
+          projectIndexMatches,
+          skills.tempDir
+        ),
         ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
       ];
 
@@ -440,9 +452,20 @@ export function useChat({
     const relevantMemories = await listRelevantMemories(retrievalQuery, 8);
     const ragMatches = await rag.loadRagMatches(conversationId, retrievalQuery, modelConfigId);
     const codeMatches = await loadCodeMatches(projectForRequest?.path, retrievalQuery);
+    const projectIndexMatches = await loadProjectIndexMatches(projectForRequest?.path, retrievalQuery);
 
     const modelMessages: ChatMessage[] = [
-      buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, codeMatches, skills.tempDir),
+      buildSystemMessage(
+        relevantMemories,
+        projectForRequest,
+        projectFiles,
+        skills.skills,
+        mcp.mcpServers,
+        ragMatches,
+        codeMatches,
+        projectIndexMatches,
+        skills.tempDir
+      ),
       ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
     ];
 
@@ -674,6 +697,16 @@ export function useChat({
       return await searchCodeIndex(projectPath, query, 8);
     } catch (error) {
       console.warn("Failed to search code index:", error);
+      return [];
+    }
+  }
+
+  async function loadProjectIndexMatches(projectPath: string | undefined, query: string) {
+    if (!projectPath || !query.trim()) return [];
+    try {
+      return await searchProjectIndex(projectPath, query, "document", 6);
+    } catch (error) {
+      console.warn("Failed to search project index:", error);
       return [];
     }
   }

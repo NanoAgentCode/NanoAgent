@@ -1,5 +1,14 @@
 import { buildRuntimeContext, formatProjectFileTree } from "./formatters";
-import type { ChatMessage, CodeSearchResult, Memory, McpServerView, ProjectEntry, ProjectFileEntry, RagChunkMatch } from "../types";
+import type {
+  ChatMessage,
+  CodeSearchResult,
+  Memory,
+  McpServerView,
+  ProjectEntry,
+  ProjectFileEntry,
+  ProjectIndexSearchResult,
+  RagChunkMatch
+} from "../types";
 
 export const systemMessage: ChatMessage = {
   role: "system",
@@ -14,6 +23,7 @@ export function buildSystemMessage(
   mcpServers: McpServerView[] = [],
   ragMatches: RagChunkMatch[] = [],
   codeMatches: CodeSearchResult[] = [],
+  projectIndexMatches: ProjectIndexSearchResult[] = [],
   tempDir?: string
 ): ChatMessage {
   const runtimeContext = buildRuntimeContext();
@@ -39,6 +49,15 @@ export function buildSystemMessage(
         .map((match, index) => {
           const score = Number.isFinite(match.score) ? match.score.toFixed(3) : "0.000";
           return `[${index + 1}] ${match.file_path}:${match.start_line}-${match.end_line} · ${match.kind} · ${match.name} · score ${score}\n${match.snippet}`;
+        })
+        .join("\n\n")
+    : "";
+
+  const projectIndexContext = projectIndexMatches.length > 0
+    ? projectIndexMatches
+        .map((match, index) => {
+          const score = Number.isFinite(match.score) ? match.score.toFixed(3) : "0.000";
+          return `[${index + 1}] ${match.file_path}:${match.start_line}-${match.end_line} · ${match.title} · ${match.indexer} · chunk ${match.chunk_index + 1} · score ${score}\n${match.snippet}`;
         })
         .join("\n\n")
     : "";
@@ -156,6 +175,11 @@ export function buildSystemMessage(
       "当前项目代码索引检索结果，仅在回答代码结构、调用链、实现位置或修改建议时使用：",
       "- 回答代码问题时优先引用这些路径和行号；如果结果不足，请说明需要读取更精确的文件内容。",
       codeContext
+    ].join("\n") : "",
+    projectIndexContext ? [
+      "当前项目文档索引检索结果，用于回答项目说明、配置、数据文件、文档和普通文件内容相关问题：",
+      "- 优先引用这些项目内路径和行号；如果结果不足，再请求读取更精确的文件内容。",
+      projectIndexContext
     ].join("\n") : "",
     ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
   ].filter(Boolean);
