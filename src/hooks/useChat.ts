@@ -12,11 +12,10 @@ import {
   listMessages,
   listProjectFiles,
   listRagFiles,
-  readAbsoluteFile,
-  searchCodeIndex,
-  searchProjectIndex
+  readAbsoluteFile
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
+import { loadProjectRetrievalContext } from "../lib/projectRetrieval";
 import { isSupportedRagFile, MAX_CONTEXT_TOKENS, estimateTokens } from "../lib/formatters";
 import { isSupportedImageAttachmentFile } from "../lib/imageAttachments";
 import {
@@ -335,8 +334,7 @@ export function useChat({
       }
 
       const ragMatches = await rag.loadRagMatches(conversationId, content, activeModelId);
-      const codeMatches = await loadCodeMatches(projectForRequest?.path, content);
-      const projectIndexMatches = await loadProjectIndexMatches(projectForRequest?.path, content);
+      const projectRetrieval = await loadProjectRetrievalContext(projectForRequest?.path, content);
       const modelMessages: ChatMessage[] = [
         buildSystemMessage(
           relevantMemories,
@@ -345,8 +343,8 @@ export function useChat({
           skills.skills,
           mcp.mcpServers,
           ragMatches,
-          codeMatches,
-          projectIndexMatches,
+          projectRetrieval.codeMatches,
+          projectRetrieval.projectIndexMatches,
           skills.tempDir
         ),
         ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
@@ -451,8 +449,7 @@ export function useChat({
     const retrievalQuery = [...currentMessages].reverse().find((message) => message.role === "user")?.content || "";
     const relevantMemories = await listRelevantMemories(retrievalQuery, 8);
     const ragMatches = await rag.loadRagMatches(conversationId, retrievalQuery, modelConfigId);
-    const codeMatches = await loadCodeMatches(projectForRequest?.path, retrievalQuery);
-    const projectIndexMatches = await loadProjectIndexMatches(projectForRequest?.path, retrievalQuery);
+    const projectRetrieval = await loadProjectRetrievalContext(projectForRequest?.path, retrievalQuery);
 
     const modelMessages: ChatMessage[] = [
       buildSystemMessage(
@@ -462,8 +459,8 @@ export function useChat({
         skills.skills,
         mcp.mcpServers,
         ragMatches,
-        codeMatches,
-        projectIndexMatches,
+        projectRetrieval.codeMatches,
+        projectRetrieval.projectIndexMatches,
         skills.tempDir
       ),
       ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
@@ -689,31 +686,6 @@ export function useChat({
     const projectHint = conv.getConversationProjectHint();
     const resolvedProject = projects.resolveConversationProject(conv.activeConversationId, projectHint);
     return projects.getProjectFilesForPath(resolvedProject?.path || projectHint?.path);
-  }
-
-  async function loadCodeMatches(projectPath: string | undefined, query: string) {
-    if (!projectPath || !isLikelyCodeQuestion(query)) return [];
-    try {
-      return await searchCodeIndex(projectPath, query, 8);
-    } catch (error) {
-      console.warn("Failed to search code index:", error);
-      return [];
-    }
-  }
-
-  async function loadProjectIndexMatches(projectPath: string | undefined, query: string) {
-    if (!projectPath || !query.trim()) return [];
-    try {
-      return await searchProjectIndex(projectPath, query, "document", 6);
-    } catch (error) {
-      console.warn("Failed to search project index:", error);
-      return [];
-    }
-  }
-
-  function isLikelyCodeQuestion(query: string) {
-    const normalized = query.toLowerCase();
-    return /代码|函数|组件|接口|调用|实现|报错|文件|模块|重构|类|类型|方法|tsx?|rust|tauri|api|hook|component|function|class|type|interface|error|trace|call/.test(normalized);
   }
 
   // ── RAG file handlers (need context from useChat state) ──
