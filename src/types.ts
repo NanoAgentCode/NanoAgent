@@ -290,6 +290,35 @@ export interface RagChunkMatch {
   score: number;
 }
 
+export interface CodeIndexRun {
+  id: string;
+  project_path: string;
+  status: string;
+  file_count: number;
+  entity_count: number;
+  relation_count: number;
+  chunk_count: number;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CodeIndexStats {
+  project_path: string;
+  latest_run?: CodeIndexRun | null;
+}
+
+export interface CodeSearchResult {
+  file_path: string;
+  kind: string;
+  name: string;
+  language: string;
+  start_line: number;
+  end_line: number;
+  snippet: string;
+  score: number;
+}
+
 export interface GitHubSkill {
   slug: string;
   name: string;

@@ -1,8 +1,14 @@
 import { useEffect, useState, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { isDirectoryEmpty, listConversations, listProjectFiles } from "../api";
+import {
+  getCodeIndexStats,
+  indexProjectCode,
+  isDirectoryEmpty,
+  listConversations,
+  listProjectFiles
+} from "../api";
 import { confirmAction } from "../lib/dialogs";
-import type { ProjectEntry, Conversation, ProjectFileEntry } from "../types";
+import type { CodeIndexStats, ProjectEntry, Conversation, ProjectFileEntry } from "../types";
 
 const projectStorageKey = "nano-agent-projects";
 const activeProjectStorageKey = "nano-agent-active-project-id";
@@ -77,6 +83,8 @@ export interface UseProjectsReturn {
   activeProject: ProjectEntry | null;
   activeProjectFiles: ProjectFileEntry[];
   projectFilesByPath: Record<string, ProjectFileEntry[]>;
+  codeIndexStatsByPath: Record<string, CodeIndexStats>;
+  indexingCodeProjectPath: string;
   selectProject: (project: ProjectEntry) => void;
   upsertProject: (path: string, logicalName?: string) => void;
   handleOpenProject: () => Promise<void>;
@@ -87,6 +95,9 @@ export interface UseProjectsReturn {
   toggleProjectExpanded: (projectId: string) => void;
   refreshProjectConversationMap: (projectList?: ProjectEntry[]) => Promise<void>;
   refreshProjectFileIndex: (project: ProjectEntry) => Promise<void>;
+  refreshCodeIndexStats: (project: ProjectEntry) => Promise<void>;
+  handleIndexProjectCode: (project: ProjectEntry) => Promise<void>;
+  getCodeIndexStatsForPath: (path?: string | null) => CodeIndexStats | null;
   getProjectFilesForPath: (path?: string | null) => ProjectFileEntry[];
   findConversationById: (conversationId: string) => Conversation | null;
   findConversationProject: (conversation: Conversation | null) => ProjectEntry | null;
@@ -107,6 +118,8 @@ export function useProjects(
   const [chatsSectionExpanded, setChatsSectionExpanded] = useState(true);
   const [projectConversations, setProjectConversations] = useState<Record<string, Conversation[]>>({});
   const [projectFilesByPath, setProjectFilesByPath] = useState<Record<string, ProjectFileEntry[]>>({});
+  const [codeIndexStatsByPath, setCodeIndexStatsByPath] = useState<Record<string, CodeIndexStats>>({});
+  const [indexingCodeProjectPath, setIndexingCodeProjectPath] = useState("");
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [newProjectWorkdir, setNewProjectWorkdir] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
@@ -165,6 +178,7 @@ export function useProjects(
       return;
     }
     void refreshProjectFileIndex(activeProject);
+    void refreshCodeIndexStats(activeProject);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.path]);
 
@@ -173,6 +187,7 @@ export function useProjects(
     saveProjects(projects, project.id);
     setExpandedProjectIds((current) => (current.includes(project.id) ? current : [...current, project.id]));
     void refreshProjectFileIndex(project);
+    void refreshCodeIndexStats(project);
   }
 
   function upsertProject(path: string, logicalName?: string) {
@@ -289,6 +304,10 @@ export function useProjects(
       const { [projectFileIndexKey(pendingProjectRemoval.path)]: _, ...rest } = current;
       return rest;
     });
+    setCodeIndexStatsByPath((current) => {
+      const { [projectFileIndexKey(pendingProjectRemoval.path)]: _, ...rest } = current;
+      return rest;
+    });
     saveProjects(nextProjects, nextActiveProjectId);
     setPendingProjectRemoval(null);
     setProjectApprovalText("");
@@ -335,9 +354,45 @@ export function useProjects(
     }
   }
 
+  async function refreshCodeIndexStats(project: ProjectEntry) {
+    try {
+      const stats = await getCodeIndexStats(project.path);
+      setCodeIndexStatsByPath((current) => ({
+        ...current,
+        [projectFileIndexKey(project.path)]: stats
+      }));
+    } catch (error) {
+      console.error("Failed to load code index stats:", error);
+    }
+  }
+
+  async function handleIndexProjectCode(project: ProjectEntry) {
+    setIndexingCodeProjectPath(project.path);
+    try {
+      const run = await indexProjectCode(project.path);
+      setCodeIndexStatsByPath((current) => ({
+        ...current,
+        [projectFileIndexKey(project.path)]: {
+          project_path: run.project_path,
+          latest_run: run
+        }
+      }));
+      setNotice(`代码索引完成：${run.file_count} 个文件，${run.entity_count} 个实体，${run.relation_count} 条关系。`);
+    } catch (error) {
+      setNotice(`代码索引失败：${String(error)}`);
+    } finally {
+      setIndexingCodeProjectPath("");
+    }
+  }
+
   function getProjectFilesForPath(path?: string | null) {
     if (!path) return [];
     return projectFilesByPath[projectFileIndexKey(path)] || [];
+  }
+
+  function getCodeIndexStatsForPath(path?: string | null) {
+    if (!path) return null;
+    return codeIndexStatsByPath[projectFileIndexKey(path)] || null;
   }
 
   function findConversationById(conversationId: string) {
@@ -389,6 +444,8 @@ export function useProjects(
     activeProject,
     activeProjectFiles,
     projectFilesByPath,
+    codeIndexStatsByPath,
+    indexingCodeProjectPath,
     selectProject,
     upsertProject,
     handleOpenProject,
@@ -399,6 +456,9 @@ export function useProjects(
     toggleProjectExpanded,
     refreshProjectConversationMap,
     refreshProjectFileIndex,
+    refreshCodeIndexStats,
+    handleIndexProjectCode,
+    getCodeIndexStatsForPath,
     getProjectFilesForPath,
     findConversationById,
     findConversationProject,

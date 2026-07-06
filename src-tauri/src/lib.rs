@@ -1,4 +1,5 @@
 mod agent_runner;
+mod code_index;
 mod db;
 mod error;
 mod file_content;
@@ -2942,6 +2943,9 @@ pub fn run() {
             rag::index_rag_file,
             rag::delete_rag_file,
             rag::search_rag_context,
+            code_index::index_project_code,
+            code_index::get_code_index_stats,
+            code_index::search_code_index,
             list_memories,
             list_enabled_memories,
             list_relevant_memories,

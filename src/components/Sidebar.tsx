@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Server, Settings } from "lucide-react";
+import { Braces, ChevronDown, ChevronRight, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Server, Settings } from "lucide-react";
 import type { Conversation, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "../hooks/useProjects";
 
@@ -78,6 +78,12 @@ export default function Sidebar({
               const projectChats = projects.projectConversations[project.id] || [];
               const hasNoChats = projectChats.length === 0;
               const tooltipText = hasNoChats ? "暂无项目会话" : project.path;
+              const codeStats = projects.getCodeIndexStatsForPath(project.path);
+              const latestCodeRun = codeStats?.latest_run;
+              const isIndexingCode = projects.indexingCodeProjectPath === project.path;
+              const codeIndexTitle = latestCodeRun
+                ? `代码索引：${latestCodeRun.entity_count} 个实体，${latestCodeRun.relation_count} 条关系，${latestCodeRun.chunk_count} 个片段`
+                : "建立代码索引";
 
               return (
                 <div key={project.id} className="sidebar-project-group">
@@ -108,7 +114,23 @@ export default function Sidebar({
                       {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </button>
                     {isCollapsed ? <Folder size={16} className="sidebar-project-icon" /> : <span className="sidebar-project-dot" />}
-                    {!isCollapsed && <span className="project-title" title={tooltipText}>{project.name}</span>}
+                    {!isCollapsed && <span className="project-title" title={tooltipText}>
+                      {project.name}
+                      {latestCodeRun && <span className="project-code-index-badge" title={codeIndexTitle}>{latestCodeRun.entity_count}</span>}
+                    </span>}
+                    {!isCollapsed && <button
+                      className="project-add-chat-btn"
+                      type="button"
+                      aria-label="建立代码索引"
+                      title={isIndexingCode ? "正在建立代码索引" : codeIndexTitle}
+                      disabled={isIndexingCode}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void projects.handleIndexProjectCode(project);
+                      }}
+                    >
+                      <Braces size={16} />
+                    </button>}
                     {!isCollapsed && <button
                       className="project-add-chat-btn"
                       type="button"

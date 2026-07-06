@@ -1,5 +1,5 @@
 import { buildRuntimeContext, formatProjectFileTree } from "./formatters";
-import type { ChatMessage, Memory, McpServerView, ProjectEntry, ProjectFileEntry, RagChunkMatch } from "../types";
+import type { ChatMessage, CodeSearchResult, Memory, McpServerView, ProjectEntry, ProjectFileEntry, RagChunkMatch } from "../types";
 
 export const systemMessage: ChatMessage = {
   role: "system",
@@ -13,6 +13,7 @@ export function buildSystemMessage(
   skills: any[] = [],
   mcpServers: McpServerView[] = [],
   ragMatches: RagChunkMatch[] = [],
+  codeMatches: CodeSearchResult[] = [],
   tempDir?: string
 ): ChatMessage {
   const runtimeContext = buildRuntimeContext();
@@ -29,6 +30,15 @@ export function buildSystemMessage(
         .map((match, index) => {
           const score = Number.isFinite(match.score) ? match.score.toFixed(3) : "0.000";
           return `[${index + 1}] ${match.file_name} · chunk ${match.chunk_index + 1} · score ${score}\n${match.text}`;
+        })
+        .join("\n\n")
+    : "";
+
+  const codeContext = codeMatches.length > 0
+    ? codeMatches
+        .map((match, index) => {
+          const score = Number.isFinite(match.score) ? match.score.toFixed(3) : "0.000";
+          return `[${index + 1}] ${match.file_path}:${match.start_line}-${match.end_line} · ${match.kind} · ${match.name} · score ${score}\n${match.snippet}`;
         })
         .join("\n\n")
     : "";
@@ -141,6 +151,11 @@ export function buildSystemMessage(
       "- 回答时优先尊重明确的用户偏好；如果记忆与当前请求无关，不要刻意提及。",
       "- 如果当前消息与旧记忆冲突，以当前消息为准，不要争辩旧记忆。",
       memoryContext
+    ].join("\n") : "",
+    codeContext ? [
+      "当前项目代码索引检索结果，仅在回答代码结构、调用链、实现位置或修改建议时使用：",
+      "- 回答代码问题时优先引用这些路径和行号；如果结果不足，请说明需要读取更精确的文件内容。",
+      codeContext
     ].join("\n") : "",
     ragContext ? `当前对话上传文件检索结果，仅在回答当前问题相关时使用：\n${ragContext}` : ""
   ].filter(Boolean);

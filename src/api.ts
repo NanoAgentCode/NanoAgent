@@ -41,6 +41,9 @@ import type {
   AgentToolExecutionRequest,
   AgentEventLog,
   AgentRunTimeline,
+  CodeIndexRun,
+  CodeIndexStats,
+  CodeSearchResult,
   RagChunkMatch,
   RagFile,
   RagFileDraft,
@@ -322,6 +325,18 @@ export function searchRagContext(
     modelConfigId,
     limit
   });
+}
+
+export function indexProjectCode(projectPath: string) {
+  return invoke<CodeIndexRun>("index_project_code", { projectPath });
+}
+
+export function getCodeIndexStats(projectPath: string) {
+  return invoke<CodeIndexStats>("get_code_index_stats", { projectPath });
+}
+
+export function searchCodeIndex(projectPath: string, query: string, limit = 8) {
+  return invoke<CodeSearchResult[]>("search_code_index", { projectPath, query, limit });
 }
 
 export function checkEnv(nodePath?: string, pythonPath?: string) {

@@ -12,7 +12,8 @@ import {
   listMessages,
   listProjectFiles,
   listRagFiles,
-  readAbsoluteFile
+  readAbsoluteFile,
+  searchCodeIndex
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
 import { isSupportedRagFile, MAX_CONTEXT_TOKENS, estimateTokens } from "../lib/formatters";
@@ -333,8 +334,9 @@ export function useChat({
       }
 
       const ragMatches = await rag.loadRagMatches(conversationId, content, activeModelId);
+      const codeMatches = await loadCodeMatches(projectForRequest?.path, content);
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
+        buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, codeMatches, skills.tempDir),
         ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
       ];
 
@@ -437,9 +439,10 @@ export function useChat({
     const retrievalQuery = [...currentMessages].reverse().find((message) => message.role === "user")?.content || "";
     const relevantMemories = await listRelevantMemories(retrievalQuery, 8);
     const ragMatches = await rag.loadRagMatches(conversationId, retrievalQuery, modelConfigId);
+    const codeMatches = await loadCodeMatches(projectForRequest?.path, retrievalQuery);
 
     const modelMessages: ChatMessage[] = [
-      buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
+      buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, codeMatches, skills.tempDir),
       ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
     ];
 
@@ -663,6 +666,21 @@ export function useChat({
     const projectHint = conv.getConversationProjectHint();
     const resolvedProject = projects.resolveConversationProject(conv.activeConversationId, projectHint);
     return projects.getProjectFilesForPath(resolvedProject?.path || projectHint?.path);
+  }
+
+  async function loadCodeMatches(projectPath: string | undefined, query: string) {
+    if (!projectPath || !isLikelyCodeQuestion(query)) return [];
+    try {
+      return await searchCodeIndex(projectPath, query, 8);
+    } catch (error) {
+      console.warn("Failed to search code index:", error);
+      return [];
+    }
+  }
+
+  function isLikelyCodeQuestion(query: string) {
+    const normalized = query.toLowerCase();
+    return /代码|函数|组件|接口|调用|实现|报错|文件|模块|重构|类|类型|方法|tsx?|rust|tauri|api|hook|component|function|class|type|interface|error|trace|call/.test(normalized);
   }
 
   // ── RAG file handlers (need context from useChat state) ──

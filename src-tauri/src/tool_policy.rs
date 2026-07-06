@@ -240,6 +240,11 @@ fn evaluate_command(command: &str) -> AppResult<CommandPolicy> {
             "工具策略拒绝执行高破坏性命令，请改用更小范围的操作".to_string(),
         ));
     }
+    if is_broad_recursive_code_scan(&normalized, &tokens) {
+        return Err(AppError::Message(
+            "工具策略拒绝执行大范围递归代码扫描。请先使用项目区的代码索引按钮建立索引，再直接提问代码实体、调用或实现位置。".to_string(),
+        ));
+    }
     if is_write_like_command(&tokens) {
         return Ok(CommandPolicy {
             risk: "high",
@@ -259,6 +264,34 @@ fn tokenize_command(command: &str) -> Vec<String> {
         .filter(|token| !token.is_empty())
         .map(ToString::to_string)
         .collect()
+}
+
+fn is_broad_recursive_code_scan(normalized: &str, tokens: &[String]) -> bool {
+    let recursive = tokens
+        .iter()
+        .any(|token| matches!(token.as_str(), "-recurse" | "/s" | "-r" | "--recursive"));
+    if !recursive {
+        return false;
+    }
+
+    let scans_files = tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "get-childitem" | "gci" | "dir" | "ls" | "rg" | "grep" | "findstr" | "where"
+        )
+    });
+    let scans_code = normalized.contains("*.ts")
+        || normalized.contains("*.tsx")
+        || normalized.contains("*.js")
+        || normalized.contains("*.jsx")
+        || normalized.contains("*.rs")
+        || normalized.contains("*.java")
+        || normalized.contains("entity")
+        || normalized.contains("model")
+        || normalized.contains("controller")
+        || normalized.contains("service");
+
+    scans_files && scans_code
 }
 
 fn is_destructive_command(normalized: &str, tokens: &[String]) -> bool {
