@@ -1,4 +1,5 @@
 mod agent_runner;
+mod code_index;
 mod db;
 mod error;
 mod file_content;
@@ -8,6 +9,7 @@ mod mcp;
 mod models;
 mod observability;
 mod project_files;
+mod project_index;
 mod rag;
 mod runtime;
 mod runtime_events;
@@ -2942,6 +2944,12 @@ pub fn run() {
             rag::index_rag_file,
             rag::delete_rag_file,
             rag::search_rag_context,
+            code_index::index_project_code,
+            code_index::get_code_index_stats,
+            code_index::search_code_index,
+            project_index::index_project_documents,
+            project_index::get_project_index_stats,
+            project_index::search_project_index,
             list_memories,
             list_enabled_memories,
             list_relevant_memories,

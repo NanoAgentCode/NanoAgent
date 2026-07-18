@@ -154,10 +154,26 @@
   box-shadow: 0 0 8px var(--accent-cyan);
 }
 .sidebar-project-item .project-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.project-index-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--control-radius-sm);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
 }
 .sidebar-project-group {
   display: flex;
@@ -181,6 +197,11 @@
   opacity: 1;
   width: 22px;
   color: var(--text-muted);
+}
+.project-add-chat-btn:disabled {
+  opacity: 1;
+  cursor: wait;
+  color: var(--accent-cyan);
 }
 .project-expand-btn svg,
 .project-remove-btn svg,

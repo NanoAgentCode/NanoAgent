@@ -300,6 +300,128 @@ pub struct RagChunkMatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeIndexRun {
+    pub id: String,
+    pub project_path: String,
+    pub status: String,
+    pub file_count: i64,
+    pub entity_count: i64,
+    pub relation_count: i64,
+    pub chunk_count: i64,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeIndexStats {
+    pub project_path: String,
+    pub latest_run: Option<CodeIndexRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeEntity {
+    pub id: String,
+    pub project_path: String,
+    pub file_path: String,
+    pub name: String,
+    pub kind: String,
+    pub language: String,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub signature: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeRelation {
+    pub id: String,
+    pub project_path: String,
+    pub source_entity_id: Option<String>,
+    pub source_name: String,
+    pub target_entity_id: Option<String>,
+    pub target_name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub line: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeChunk {
+    pub id: String,
+    pub project_path: String,
+    pub file_path: String,
+    pub language: String,
+    pub chunk_index: i64,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub text: String,
+    pub content_hash: String,
+    pub token_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSearchResult {
+    pub file_path: String,
+    pub kind: String,
+    pub name: String,
+    pub language: String,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub snippet: String,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexRun {
+    pub id: String,
+    pub project_path: String,
+    pub indexer: String,
+    pub status: String,
+    pub file_count: i64,
+    pub chunk_count: i64,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexStats {
+    pub project_path: String,
+    pub runs: Vec<ProjectIndexRun>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexChunk {
+    pub id: String,
+    pub project_path: String,
+    pub indexer: String,
+    pub file_path: String,
+    pub title: String,
+    pub chunk_index: i64,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub text: String,
+    pub content_hash: String,
+    pub token_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIndexSearchResult {
+    pub indexer: String,
+    pub file_path: String,
+    pub title: String,
+    pub chunk_index: i64,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub snippet: String,
+    pub score: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectFileEntry {
     pub path: String,
     pub is_dir: bool,

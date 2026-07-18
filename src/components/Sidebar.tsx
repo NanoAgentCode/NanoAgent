@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Server, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, Database, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Server, Settings } from "lucide-react";
 import type { Conversation, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "../hooks/useProjects";
 
@@ -78,6 +78,15 @@ export default function Sidebar({
               const projectChats = projects.projectConversations[project.id] || [];
               const hasNoChats = projectChats.length === 0;
               const tooltipText = hasNoChats ? "暂无项目会话" : project.path;
+              const codeStats = projects.getCodeIndexStatsForPath(project.path);
+              const latestCodeRun = codeStats?.latest_run;
+              const projectIndexStats = projects.getProjectIndexStatsForPath(project.path);
+              const latestDocumentRun = projectIndexStats?.runs.find((run) => run.indexer === "document");
+              const isIndexingProject = projects.indexingProjectPath === project.path;
+              const totalIndexUnits = (latestCodeRun?.entity_count || 0) + (latestDocumentRun?.chunk_count || 0);
+              const projectIndexTitle = latestCodeRun || latestDocumentRun
+                ? `项目索引：代码 ${latestCodeRun?.entity_count || 0} 个实体，文档 ${latestDocumentRun?.chunk_count || 0} 个片段`
+                : "建立项目索引";
 
               return (
                 <div key={project.id} className="sidebar-project-group">
@@ -108,7 +117,23 @@ export default function Sidebar({
                       {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     </button>
                     {isCollapsed ? <Folder size={16} className="sidebar-project-icon" /> : <span className="sidebar-project-dot" />}
-                    {!isCollapsed && <span className="project-title" title={tooltipText}>{project.name}</span>}
+                    {!isCollapsed && <span className="project-title" title={tooltipText}>
+                      {project.name}
+                      {totalIndexUnits > 0 && <span className="project-index-badge" title={projectIndexTitle}>{totalIndexUnits}</span>}
+                    </span>}
+                    {!isCollapsed && <button
+                      className="project-add-chat-btn"
+                      type="button"
+                      aria-label="建立项目索引"
+                      title={isIndexingProject ? "正在建立项目索引" : projectIndexTitle}
+                      disabled={isIndexingProject}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void projects.handleIndexProject(project);
+                      }}
+                    >
+                      <Database size={16} />
+                    </button>}
                     {!isCollapsed && <button
                       className="project-add-chat-btn"
                       type="button"

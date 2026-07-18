@@ -12,22 +12,19 @@ import {
   listMessages,
   listProjectFiles,
   listRagFiles,
-  readAbsoluteFile,
-  saveChatImageAttachment
+  readAbsoluteFile
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
+import { loadProjectRetrievalContext } from "../lib/projectRetrieval";
 import { isSupportedRagFile, MAX_CONTEXT_TOKENS, estimateTokens } from "../lib/formatters";
-import {
-  fileToBase64,
-  isSupportedImageAttachment,
-  isSupportedImageAttachmentFile
-} from "../lib/imageAttachments";
+import { isSupportedImageAttachmentFile } from "../lib/imageAttachments";
 import {
   extractMemoryDraft,
   extractPersonalizationMemoryDraft,
   parseToolCall,
   type ParsedToolCall
 } from "../lib/messageHelpers";
+import { savePersonalizationMemory } from "../lib/chatMemory";
 import {
   safeApproveAgentToolCall,
   safeCreateAgentRun,
@@ -42,6 +39,10 @@ import {
 import { useConversations } from "./useConversations";
 import { useRagFiles } from "./useRagFiles";
 import { useChatInput } from "./useChatInput";
+import {
+  buildMessageContentWithImageAttachments,
+  useChatAttachments
+} from "./useChatAttachments";
 import type {
   AgentRun, AgentToolCall, ChatMessage, ChatStreamEvent,
   ChatImageAttachment, Conversation, Item, PersistedMessage, ProjectEntry, ProjectFileEntry
@@ -150,6 +151,11 @@ export function useChat({
   const conv = useConversations(setNotice, model, projects, showModelConfig, activeSettingsTab);
   const rag = useRagFiles(setNotice);
   const input = useChatInput();
+  const attachments = useChatAttachments({
+    getProjectPath: getAttachmentProjectPath,
+    onNotice: setNotice,
+    onDragEnd: () => rag.setIsRagDragging(false)
+  });
 
   // ── State owned by useChat ──
   const [messages, setMessages] = useState<PersistedMessage[]>([]);
@@ -158,8 +164,6 @@ export function useChat({
   const [executingToolMessageId, setExecutingToolMessageId] = useState<string | null>(null);
   const [messageToolCalls, setMessageToolCalls] = useState<Record<string, AgentToolCall>>({});
   const [conversationRunIds, setConversationRunIds] = useState<Record<string, string>>({});
-  const [uploadingImageAttachment, setUploadingImageAttachment] = useState(false);
-  const [pendingImageAttachments, setPendingImageAttachments] = useState<ChatImageAttachment[]>([]);
 
   // ── Sync activeConversationId ref ──
   useEffect(() => {
@@ -219,12 +223,12 @@ export function useChat({
   // ── Send message ──
   async function handleSendMessage() {
     const textContent = input.chatInput.trim();
-    const content = buildMessageContentWithImageAttachments(textContent, pendingImageAttachments);
+    const content = buildMessageContentWithImageAttachments(textContent, attachments.pendingImageAttachments);
     const memoryDraft = extractMemoryDraft(content);
     const effectiveModelId = conv.resolveConversationModelId(conv.activeConversationId);
     const activeModelId = effectiveModelId;
 
-    if ((!textContent && pendingImageAttachments.length === 0) || (!activeModelId && !memoryDraft)) {
+    if ((!textContent && attachments.pendingImageAttachments.length === 0) || (!activeModelId && !memoryDraft)) {
       setNotice(activeModelId ? "" : "请先保存并选择一个模型");
       return;
     }
@@ -282,8 +286,8 @@ export function useChat({
       if (personalizationDraft) {
         void savePersonalizationMemory(personalizationDraft, agentRun?.id);
       }
-      if (pendingImageAttachments.length > 0) {
-        setPendingImageAttachments([]);
+      if (attachments.pendingImageAttachments.length > 0) {
+        attachments.clearPendingImageAttachments();
       }
 
       const relevantMemories = await listRelevantMemories(content, 8);
@@ -330,8 +334,19 @@ export function useChat({
       }
 
       const ragMatches = await rag.loadRagMatches(conversationId, content, activeModelId);
+      const projectRetrieval = await loadProjectRetrievalContext(projectForRequest?.path, content);
       const modelMessages: ChatMessage[] = [
-        buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
+        buildSystemMessage(
+          relevantMemories,
+          projectForRequest,
+          projectFiles,
+          skills.skills,
+          mcp.mcpServers,
+          ragMatches,
+          projectRetrieval.codeMatches,
+          projectRetrieval.projectIndexMatches,
+          skills.tempDir
+        ),
         ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
       ];
 
@@ -417,48 +432,6 @@ export function useChat({
     }
   }
 
-  async function savePersonalizationMemory(
-    draft: ReturnType<typeof extractPersonalizationMemoryDraft>,
-    runId?: string | null
-  ) {
-    if (!draft) return;
-    try {
-      const existing = await listRelevantMemories(draft.content, 5);
-      const normalizedContent = normalizeMemoryText(draft.content);
-      const isDuplicate = existing.some((memory) =>
-        normalizeMemoryText(memory.content) === normalizedContent ||
-        normalizeMemoryText(memory.title) === normalizeMemoryText(draft.title)
-      );
-      if (isDuplicate) return;
-
-      const savedMemory = await createMemory(draft);
-      if (runId) {
-        void safeRecordAgentStep({
-          run_id: runId,
-          kind: "memory",
-          status: "completed",
-          input_summary: `auto_personalization:${savedMemory.title}`,
-          output_summary: `memory_id=${savedMemory.id}`
-        });
-      }
-    } catch (error) {
-      console.warn("Failed to save personalization memory:", error);
-      if (runId) {
-        void safeRecordAgentStep({
-          run_id: runId,
-          kind: "memory",
-          status: "failed",
-          input_summary: draft.title,
-          output_summary: String(error)
-        });
-      }
-    }
-  }
-
-  function normalizeMemoryText(value: string) {
-    return value.replace(/\s+/g, " ").trim().toLowerCase();
-  }
-
   // ── Continue LLM after tool execution ──
   async function triggerLlmContinue(
     conversationId: string,
@@ -476,9 +449,20 @@ export function useChat({
     const retrievalQuery = [...currentMessages].reverse().find((message) => message.role === "user")?.content || "";
     const relevantMemories = await listRelevantMemories(retrievalQuery, 8);
     const ragMatches = await rag.loadRagMatches(conversationId, retrievalQuery, modelConfigId);
+    const projectRetrieval = await loadProjectRetrievalContext(projectForRequest?.path, retrievalQuery);
 
     const modelMessages: ChatMessage[] = [
-      buildSystemMessage(relevantMemories, projectForRequest, projectFiles, skills.skills, mcp.mcpServers, ragMatches, skills.tempDir),
+      buildSystemMessage(
+        relevantMemories,
+        projectForRequest,
+        projectFiles,
+        skills.skills,
+        mcp.mcpServers,
+        ragMatches,
+        projectRetrieval.codeMatches,
+        projectRetrieval.projectIndexMatches,
+        skills.tempDir
+      ),
       ...currentMessages.map((message) => ({ role: message.role, content: message.content }))
     ];
 
@@ -704,92 +688,6 @@ export function useChat({
     return projects.getProjectFilesForPath(resolvedProject?.path || projectHint?.path);
   }
 
-  function buildImageAttachmentPrompt(attachments: ChatImageAttachment[]) {
-    if (attachments.length === 0) return;
-    const lines = [
-      "图片附件：",
-      ...attachments.map((attachment) => `- ${attachment.name}: ${attachment.relative_path}`),
-      "需要识别图片文字时，请调用 ocr_image 工具。"
-    ];
-    return lines.join("\n");
-  }
-
-  function buildMessageContentWithImageAttachments(textContent: string, attachments: ChatImageAttachment[]) {
-    const imagePrompt = buildImageAttachmentPrompt(attachments);
-    if (!imagePrompt) return textContent;
-    return textContent ? `${textContent}\n\n${imagePrompt}` : imagePrompt;
-  }
-
-  function addPendingImageAttachments(attachments: ChatImageAttachment[]) {
-    if (attachments.length === 0) return;
-    setPendingImageAttachments((current) => [...current, ...attachments]);
-  }
-
-  function removePendingImageAttachment(relativePath: string) {
-    setPendingImageAttachments((current) =>
-      current.filter((attachment) => attachment.relative_path !== relativePath)
-    );
-  }
-
-  async function handleImageFiles(files: FileList | File[]) {
-    const selectedFiles = Array.from(files).filter(isSupportedImageAttachmentFile);
-    if (selectedFiles.length === 0) {
-      setNotice("OCR 图片仅支持 png、jpg、jpeg、bmp、webp、tif、tiff。");
-      return 0;
-    }
-
-    const projectPath = getAttachmentProjectPath();
-    setUploadingImageAttachment(true);
-    try {
-      const attachments: ChatImageAttachment[] = [];
-      for (const file of selectedFiles) {
-        const contentBase64 = await fileToBase64(file);
-        const attachment = await saveChatImageAttachment({
-          project_path: projectPath,
-          file_name: file.name || "pasted-image.png",
-          content_base64: contentBase64,
-          source_path: null
-        });
-        attachments.push(attachment);
-      }
-      addPendingImageAttachments(attachments);
-      setNotice(`已添加 ${attachments.length} 张图片，可直接让助手识别文字。`);
-      return attachments.length;
-    } catch (error) {
-      console.error("Failed to attach image:", error);
-      setNotice(`图片添加失败：${String(error)}`);
-      return 0;
-    } finally {
-      setUploadingImageAttachment(false);
-      rag.setIsRagDragging(false);
-    }
-  }
-
-  async function attachDroppedImagePaths(paths: string[]) {
-    const imagePaths = paths.filter((path) => isSupportedImageAttachment(path));
-    if (imagePaths.length === 0) return 0;
-
-    const projectPath = getAttachmentProjectPath();
-    setUploadingImageAttachment(true);
-    try {
-      const attachments: ChatImageAttachment[] = [];
-      for (const filePath of imagePaths) {
-        const fileName = filePath.split(/[/\\]/).pop() || "image.png";
-        const attachment = await saveChatImageAttachment({
-          project_path: projectPath,
-          file_name: fileName,
-          content_base64: null,
-          source_path: filePath
-        });
-        attachments.push(attachment);
-      }
-      addPendingImageAttachments(attachments);
-      return attachments.length;
-    } finally {
-      setUploadingImageAttachment(false);
-    }
-  }
-
   // ── RAG file handlers (need context from useChat state) ──
   async function handleRagFiles(files: FileList | File[]) {
     const fileList = Array.from(files);
@@ -797,7 +695,7 @@ export function useChat({
     const selectedFiles = fileList.filter((file) => isSupportedRagFile(file.name));
     let imageCount = 0;
     if (imageFiles.length > 0) {
-      imageCount = await handleImageFiles(imageFiles);
+      imageCount = await attachments.handleImageFiles(imageFiles);
     }
     if (selectedFiles.length === 0) {
       if (imageCount === 0) {
@@ -837,7 +735,7 @@ export function useChat({
     let imageCount = 0;
     let imageFailed = false;
     try {
-      imageCount = await attachDroppedImagePaths(paths);
+      imageCount = await attachments.attachDroppedImagePaths(paths);
     } catch (error) {
       imageFailed = true;
       console.error("Failed to attach dropped images:", error);
@@ -896,7 +794,7 @@ export function useChat({
       input.handleChatInputKeyDown(event);
     } else if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (!busy && (input.chatInput.trim() || pendingImageAttachments.length > 0)) {
+      if (!busy && (input.chatInput.trim() || attachments.pendingImageAttachments.length > 0)) {
         void handleSendMessage();
       }
     }
@@ -955,9 +853,9 @@ export function useChat({
     executingToolMessageId, setExecutingToolMessageId,
     messageToolCalls, setMessageToolCalls,
     conversationRunIds, setConversationRunIds,
-    uploadingImageAttachment,
-    pendingImageAttachments,
-    removePendingImageAttachment,
+    uploadingImageAttachment: attachments.uploadingImageAttachment,
+    pendingImageAttachments: attachments.pendingImageAttachments,
+    removePendingImageAttachment: attachments.removePendingImageAttachment,
     attachmentProjectPath: getAttachmentProjectPath(),
     projectFiles: getConversationProjectFiles(),
 
@@ -986,7 +884,7 @@ export function useChat({
     // RAG handlers
     refreshRagFiles: rag.refreshRagFiles,
     handleRagFiles,
-    handleImageFiles,
+    handleImageFiles: attachments.handleImageFiles,
     handleDroppedFilePaths,
     handleDeleteRagFile,
 

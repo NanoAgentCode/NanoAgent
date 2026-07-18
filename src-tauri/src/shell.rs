@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::error::{AppError, AppResult};
 use tokio::time::timeout;
 
-const PROJECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+const PROJECT_COMMAND_TIMEOUT: Duration = Duration::from_secs(45);
 
 pub async fn run_project_command(
     root: &Path,
