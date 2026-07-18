@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Plugin } from "unified";
 import { openExternalUrl, openProjectFileLocation } from "../api";
@@ -32,6 +32,55 @@ function isProjectRelativeFileHref(href: string) {
   const pathOnly = stripLineSuffix(trimmed.split(/[?#]/, 1)[0]).replace(/\\/g, "/");
   if (!pathOnly || pathOnly.startsWith("/") || pathOnly.includes(":")) return false;
   return LOCAL_FILE_EXTENSION.test(pathOnly);
+}
+
+function decodeHrefPath(href: string) {
+  const trimmed = href.trim();
+  if (/^file:/i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      const decodedPath = decodeURIComponent(url.pathname);
+      return /^\/[A-Za-z]:\//.test(decodedPath) ? decodedPath.slice(1) : decodedPath;
+    } catch {
+      return "";
+    }
+  }
+
+  return decodeProjectHref(trimmed);
+}
+
+function isAbsoluteLocalPath(path: string) {
+  return /^[A-Za-z]:\//.test(path) || path.startsWith("/");
+}
+
+function resolveProjectFileHref(
+  href: string,
+  projectPath: string,
+  fileNameIndex: Map<string, string>
+) {
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.startsWith("#") || EXTERNAL_LINK_PROTOCOLS.has(trimmed.split(":", 1)[0] + ":")) {
+    return null;
+  }
+
+  const decodedPath = stripLineSuffix(decodeHrefPath(trimmed).split(/[?#]/, 1)[0])
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "");
+  if (!decodedPath || !LOCAL_FILE_EXTENSION.test(decodedPath)) return null;
+
+  if (!isAbsoluteLocalPath(decodedPath)) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(decodedPath)) return null;
+    return resolveAutoLinkedPath(decodedPath, fileNameIndex);
+  }
+
+  const normalizedProjectPath = projectPath.replace(/\\/g, "/").replace(/\/+$/, "");
+  const caseInsensitive = /^[A-Za-z]:\//.test(normalizedProjectPath);
+  const comparablePath = caseInsensitive ? decodedPath.toLowerCase() : decodedPath;
+  const comparableProjectPath = caseInsensitive ? normalizedProjectPath.toLowerCase() : normalizedProjectPath;
+  const projectPrefix = `${comparableProjectPath}/`;
+  if (!comparablePath.startsWith(projectPrefix)) return null;
+
+  return decodedPath.slice(normalizedProjectPath.length + 1);
 }
 
 function decodeProjectHref(href: string) {
@@ -178,6 +227,16 @@ function getExternalResourceUrl(href: string) {
   }
 }
 
+function transformMarkdownUrl(url: string, key: string) {
+  // react-markdown deliberately strips unknown protocols. Keep local file URLs and
+  // Windows drive paths intact so the link renderer can safely resolve them against
+  // the active project; all other protocols still use the library's safe defaults.
+  if (key === "href" && (/^file:/i.test(url) || /^[A-Za-z]:(?:[\\/]|%5[Cc])/.test(url))) {
+    return url;
+  }
+  return defaultUrlTransform(url);
+}
+
 function openLocalFileLocation(projectPath: string, relativePath: string) {
   void openProjectFileLocation(projectPath, relativePath).catch((error) => {
     console.error("Failed to open local file location:", error);
@@ -205,11 +264,13 @@ function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMe
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm, [remarkAutoLinkProjectPaths, fileNameIndex]]}
+      urlTransform={transformMarkdownUrl}
       components={{
         a({ href, children, ...props }) {
-          const isLocalFile = href ? isProjectRelativeFileHref(href) : false;
-          if (href && isLocalFile && projectPath) {
-            const relativePath = resolveAutoLinkedPath(decodeProjectHref(href), fileNameIndex);
+          const relativePath = href && projectPath
+            ? resolveProjectFileHref(href, projectPath, fileNameIndex)
+            : null;
+          if (relativePath && projectPath) {
             return (
               <button
                 className="local-file-link"
@@ -243,7 +304,15 @@ function MarkdownMessage({ content, projectPath, projectFiles = [] }: MarkdownMe
           }
 
           return (
-            <a href={href} {...props}>
+            <a
+              href={href}
+              {...props}
+              onClick={(event) => {
+                // Never let an unrecognized Markdown link navigate the app WebView.
+                // Relative/local navigation reloads the SPA and loses the current UI state.
+                event.preventDefault();
+              }}
+            >
               {children}
             </a>
           );
