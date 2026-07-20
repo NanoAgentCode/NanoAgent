@@ -60,7 +60,7 @@ select:focus-visible {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   grid-template-areas: "sidebar chat";
   position: relative;
   height: 100vh;
