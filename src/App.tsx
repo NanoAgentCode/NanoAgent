@@ -696,6 +696,7 @@ function App() {
           executingToolMessageId={executingToolMessageId}
           messageToolCalls={messageToolCalls}
           attachmentProjectPath={attachmentProjectPath}
+          project={activeConversation ? projects.findConversationProject(activeConversation) : projects.activeProject}
           projectFiles={projectFiles}
           obs={obs}
           model={model}
@@ -711,6 +712,10 @@ function App() {
           removePendingImageAttachment={removePendingImageAttachment}
           insertPrompt={insertPrompt}
           handleDeleteRagFile={handleDeleteRagFile}
+          onOpenModelSettings={() => {
+            setActiveSettingsTab("model");
+            model.handleOpenModelConfig(setShowModelConfig);
+          }}
           setNotice={setNotice}
         />
       )}

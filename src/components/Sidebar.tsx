@@ -48,6 +48,20 @@ export default function Sidebar({
         </button>
       </div>
 
+      <button
+        className="sidebar-primary-action"
+        onClick={() => {
+          onMainViewChange("chat");
+          void handleNewConversation();
+        }}
+        aria-label={isCollapsed ? "新建对话" : undefined}
+        title={isCollapsed ? "新建对话" : undefined}
+        type="button"
+      >
+        <Plus size={17} />
+        {!isCollapsed && <span>新建对话</span>}
+      </button>
+
       <div className="sidebar-section projects">
         <div className="sidebar-section-header">
           <button

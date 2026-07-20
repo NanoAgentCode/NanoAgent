@@ -1,11 +1,28 @@
 import { useEffect, useRef } from "react";
-import { Activity, Bot, FileText, ImagePlus, Plus, SendHorizontal, X } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  BookOpen,
+  Bot,
+  Bug,
+  CheckCircle2,
+  FileText,
+  ImagePlus,
+  Lightbulb,
+  ListChecks,
+  Plus,
+  ScanSearch,
+  SendHorizontal,
+  Settings2,
+  Sparkles,
+  X
+} from "lucide-react";
 import MarkdownMessage from "./MarkdownMessage";
 import AgentRuntimePanel from "./AgentRuntimePanel";
 import { formatWebSearchBadge, renderMessageContent } from "../lib/appHelpers";
 import { parseToolCall, parseToolResult } from "../lib/messageHelpers";
 import type { ParsedToolCall } from "../lib/messageHelpers";
-import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation, ChatImageAttachment, ProjectFileEntry } from "../types";
+import type { AgentToolCall, PersistedMessage, RagFile, Item, Conversation, ChatImageAttachment, ProjectEntry, ProjectFileEntry } from "../types";
 import type { UseObservabilityReturn } from "../hooks/useObservability";
 import type { UseModelReturn } from "../hooks/useModel";
 
@@ -26,6 +43,7 @@ interface ChatPaneProps {
   executingToolMessageId: string | null;
   messageToolCalls: Record<string, AgentToolCall>;
   attachmentProjectPath: string;
+  project: ProjectEntry | null;
   projectFiles: ProjectFileEntry[];
   obs: UseObservabilityReturn;
   model: UseModelReturn;
@@ -41,7 +59,55 @@ interface ChatPaneProps {
   removePendingImageAttachment: (relativePath: string) => void;
   insertPrompt: (item: Item) => void;
   handleDeleteRagFile: (id: string) => Promise<void>;
+  onOpenModelSettings: () => void;
   setNotice: (message: string) => void;
+}
+
+const PROJECT_STARTER_ACTIONS = [
+  {
+    title: "快速了解项目",
+    description: "梳理用途、技术栈和关键入口",
+    prompt: "请先快速了解当前项目，概括它的用途、技术栈和主要目录，并告诉我最值得先关注的三个入口。",
+    icon: ScanSearch
+  },
+  {
+    title: "排查潜在问题",
+    description: "按优先级识别稳定性与维护风险",
+    prompt: "请检查当前项目中最可能影响稳定性或维护性的风险，按优先级给出证据和建议。",
+    icon: Bug
+  },
+  {
+    title: "规划开发任务",
+    description: "澄清目标、拆解步骤和验证方式",
+    prompt: "我准备开始一个开发任务。请根据当前项目上下文，帮我澄清目标、拆解步骤，并为每一步给出验证方式。",
+    icon: ListChecks
+  }
+] as const;
+
+const GENERAL_STARTER_ACTIONS = [
+  {
+    title: "梳理一个想法",
+    description: "从模糊想法提炼目标和下一步",
+    prompt: "我有一个还没完全想清楚的想法。请通过几个关键问题，帮我澄清目标、约束和下一步。",
+    icon: Lightbulb
+  },
+  {
+    title: "解释复杂内容",
+    description: "提炼核心概念、结论与误区",
+    prompt: "我会贴一段内容。请用清晰的结构解释其中的核心概念、关键结论和可能的误区。",
+    icon: BookOpen
+  },
+  {
+    title: "制定行动计划",
+    description: "把目标拆成可验证的执行步骤",
+    prompt: "我准备推进一件事。请先帮我澄清目标，再拆解成可执行步骤，并为每一步给出验证方式。",
+    icon: ListChecks
+  }
+] as const;
+
+function getProjectName(projectPath: string) {
+  const segments = projectPath.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] || "";
 }
 
 export default function ChatPane({
@@ -61,6 +127,7 @@ export default function ChatPane({
   executingToolMessageId,
   messageToolCalls,
   attachmentProjectPath,
+  project,
   projectFiles,
   obs,
   model,
@@ -76,11 +143,16 @@ export default function ChatPane({
   removePendingImageAttachment,
   insertPrompt,
   handleDeleteRagFile,
+  onOpenModelSettings,
   setNotice
 }: ChatPaneProps) {
   const runtimePanelRef = useRef<HTMLElement | null>(null);
   const runtimeToggleBtnRef = useRef<HTMLButtonElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const activeModel = model.models.find((item) => item.id === model.activeModelId);
+  const projectName = project?.name || getProjectName(project?.path || "");
+  const starterActions = projectName ? PROJECT_STARTER_ACTIONS : GENERAL_STARTER_ACTIONS;
 
   // AgentRuntime 打开时，点击面板和切换按钮之外的任意位置收起
   useEffect(() => {
@@ -111,6 +183,14 @@ export default function ChatPane({
       void handleImageFiles(files);
     }
     event.currentTarget.value = "";
+  }
+
+  async function handleStarterAction(prompt: string) {
+    await handleInputChange(prompt, prompt.length);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(prompt.length, prompt.length);
+    });
   }
 
   function getToolDisplayState(messageId: string, toolCall: ParsedToolCall) {
@@ -155,8 +235,11 @@ export default function ChatPane({
         <div>
           <Bot size={19} />
           <div className="chat-header-title">
-            <strong>本地智能助手</strong>
-            <span>私有记忆 · 项目上下文 · 工具协作</span>
+            <strong>{activeConversation?.title || "新对话"}</strong>
+            <span>
+              {activeModel?.name || "尚未选择模型"}
+              {projectName ? ` · ${projectName}` : " · 本地对话"}
+            </span>
           </div>
         </div>
         {activeConversationId && (
@@ -276,7 +359,50 @@ export default function ChatPane({
             </div>
           );
         })}
-        {messages.length === 0 && <div className="empty">在下方输入开始对话，记录将保存在本地</div>}
+        {messages.length === 0 && (
+          <section className="chat-welcome" aria-label="开始对话">
+            <div className="chat-welcome-mark">
+              <Sparkles size={16} />
+              <span>{projectName ? "项目上下文已就绪" : "本地工作区"}</span>
+            </div>
+            <h1>{projectName ? `从 ${projectName} 开始` : "今天想推进什么？"}</h1>
+            <p>
+              {projectName
+                ? "选择一个常用任务，我会把内容放入输入框供你确认；也可以直接描述目标。"
+                : "你可以直接开始对话，或先打开一个项目，让回答带上代码和文档上下文。"}
+            </p>
+            <div className="chat-starter-grid">
+              {starterActions.map((action) => {
+                const ActionIcon = action.icon;
+                return (
+                  <button
+                    key={action.title}
+                    className="chat-starter-card"
+                    onClick={() => void handleStarterAction(action.prompt)}
+                    type="button"
+                  >
+                    <ActionIcon size={18} />
+                    <span>
+                      <strong>{action.title}</strong>
+                      <small>{action.description}</small>
+                    </span>
+                    <ArrowRight size={15} className="chat-starter-arrow" />
+                  </button>
+                );
+              })}
+            </div>
+            <div className={`chat-ready-status ${activeModel ? "ready" : "warning"}`}>
+              {activeModel ? <CheckCircle2 size={15} /> : <Settings2 size={15} />}
+              <span>{activeModel ? `已选择 ${activeModel.name}` : "发送前需要先配置一个模型"}</span>
+              {!activeModel && (
+                <button onClick={onOpenModelSettings} type="button">
+                  配置模型
+                  <ArrowRight size={13} />
+                </button>
+              )}
+            </div>
+          </section>
+        )}
       </div>
 
       <div className={`chat-input${isRagDragging ? " rag-dragging" : ""}${uploadingImageAttachment ? " image-uploading" : ""}`}>
@@ -334,13 +460,20 @@ export default function ChatPane({
             ))}
           </div>
         )}
+        <div className="chat-composer-meta">
+          <label htmlFor="chat-composer">消息</label>
+          <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行 · 输入 <kbd>#</kbd> 使用提示词</span>
+        </div>
         <textarea
+          id="chat-composer"
+          ref={textareaRef}
           value={chatInput}
           onChange={(event) => void handleInputChange(event.target.value, event.target.selectionStart)}
           onContextMenu={(event) => event.preventDefault()}
           onKeyDown={handleChatInputKeyDown}
           onPaste={handleChatInputPaste}
-          placeholder="问点什么，或者梳理当前的思绪..."
+          aria-label="输入消息"
+          placeholder={activeModel ? "描述目标、粘贴错误信息，或输入 # 使用提示词…" : "可以先输入内容，发送前请在下方选择或配置模型…"}
         />
         <input
           ref={imageInputRef}
@@ -352,7 +485,7 @@ export default function ChatPane({
         />
         <div className="chat-input-footer">
           <div className="chat-input-left">
-            <select value={model.activeModelId} onChange={(event) => void model.handleActiveModelChange(event.target.value)}>
+            <select aria-label="当前对话模型" value={model.activeModelId} onChange={(event) => void model.handleActiveModelChange(event.target.value)}>
               <option value="">选择模型</option>
               {model.models.filter((m) => m.id !== "embedding-config").map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -370,10 +503,10 @@ export default function ChatPane({
             >
               <ImagePlus size={18} />
             </button>
-            <button className="project-add-chat-btn" aria-label="新对话" title="新对话" onClick={() => void handleNewConversation()} type="button">
+            <button className="project-add-chat-btn" aria-label="新建空白对话" title="新建空白对话" onClick={() => void handleNewConversation()} type="button">
               <Plus size={16} />
             </button>
-            <button className="chat-header-square send" aria-label="发送" title="发送" onClick={handleSendMessage} disabled={busy || (!chatInput.trim() && pendingImageAttachments.length === 0)} type="button">
+            <button className="chat-header-square send" aria-label="发送" title={busy ? "正在生成" : "发送（Enter）"} onClick={handleSendMessage} disabled={busy || (!chatInput.trim() && pendingImageAttachments.length === 0)} type="button">
               <SendHorizontal size={20} />
             </button>
           </div>
