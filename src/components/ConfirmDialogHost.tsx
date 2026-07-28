@@ -1,4 +1,5 @@
-import { AlertCircle, AlertTriangle, Info, X } from "lucide-react";
+import { Button, Group, Modal, Text, ThemeIcon } from "@mantine/core";
+import { AlertCircle, AlertTriangle, Info } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { registerConfirmActionHandler } from "../lib/dialogs";
 import type { DialogKind } from "../lib/dialogs";
@@ -24,7 +25,6 @@ const dialogIcons = {
 export default function ConfirmDialogHost() {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const pendingRef = useRef<PendingConfirm | null>(null);
-  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const close = useCallback((confirmed: boolean) => {
     const current = pendingRef.current;
@@ -55,65 +55,41 @@ export default function ConfirmDialogHost() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!pending) return;
-
-    const focusTimer = window.setTimeout(() => {
-      confirmButtonRef.current?.focus();
-    }, 0);
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        close(false);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.clearTimeout(focusTimer);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [close, pending]);
-
   if (!pending) {
     return null;
   }
 
   const Icon = dialogIcons[pending.kind];
   const copy = dialogCopy[pending.kind];
-
-  const tone = pending.kind === "info" ? "info" : "delete";
+  const color = pending.kind === "info" ? "nanoBlue" : pending.kind === "warning" ? "yellow" : "red";
 
   return (
-    <div className="modal-backdrop confirm-backdrop" onClick={() => close(false)}>
-      <section
-        className={`confirm-dialog modal-shell modal-shell--${tone} confirm-dialog--${pending.kind}`}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
-        aria-describedby="confirm-dialog-content"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header>
-          <div>
-            <Icon size={18} />
-            <strong id="confirm-dialog-title">{copy.title}</strong>
-          </div>
-          <button className="modal-close-btn" type="button" onClick={() => close(false)} aria-label="关闭" title="关闭">
-            <X size={16} />
-          </button>
-        </header>
-        <p id="confirm-dialog-content">{pending.content}</p>
-        <footer>
-          <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={() => close(false)}>
-            取消
-          </button>
-          <button ref={confirmButtonRef} className="modal-action-btn modal-action-btn--delete" type="button" onClick={() => close(true)}>
-            <Icon size={15} />
-            {copy.confirmLabel}
-          </button>
-        </footer>
-      </section>
-    </div>
+    <Modal
+      opened
+      onClose={() => close(false)}
+      size="sm"
+      title={
+        <Group gap="sm">
+          <ThemeIcon color={color} variant="light" size="md">
+            <Icon size={16} />
+          </ThemeIcon>
+          <Text fw={650}>{copy.title}</Text>
+        </Group>
+      }
+      closeOnClickOutside
+      closeOnEscape
+    >
+      <Text c="dimmed" size="sm" lh={1.6}>
+        {pending.content}
+      </Text>
+      <Group justify="flex-end" mt="xl">
+        <Button variant="default" onClick={() => close(false)}>
+          取消
+        </Button>
+        <Button color={color} leftSection={<Icon size={15} />} onClick={() => close(true)} autoFocus>
+          {copy.confirmLabel}
+        </Button>
+      </Group>
+    </Modal>
   );
 }

@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronRight, Database, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Server, Settings } from "lucide-react";
+import { ActionIcon, Button, Tooltip, UnstyledButton } from "@mantine/core";
 import type { Conversation, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "../hooks/useProjects";
 
@@ -37,30 +38,31 @@ export default function Sidebar({
     <aside className={isCollapsed ? "sidebar collapsed" : "sidebar"}>
       <div className="sidebar-topbar">
         {!isCollapsed && <p className="sidebar-slogan">本地优先，智能协作</p>}
-        <button
-          className="sidebar-collapse-btn"
-          onClick={onToggleCollapsed}
-          type="button"
-          aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
-          title={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
-        >
-          {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-        </button>
+        <Tooltip label={isCollapsed ? "展开侧边栏" : "收起侧边栏"} position="right" openDelay={450}>
+          <ActionIcon
+            className="sidebar-collapse-btn"
+            onClick={onToggleCollapsed}
+            variant="subtle"
+            color="gray"
+            aria-label={isCollapsed ? "展开侧边栏" : "收起侧边栏"}
+          >
+            {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </ActionIcon>
+        </Tooltip>
       </div>
 
-      <button
+      <Button
         className="sidebar-primary-action"
+        leftSection={isCollapsed ? undefined : <Plus size={17} />}
         onClick={() => {
           onMainViewChange("chat");
           void handleNewConversation();
         }}
         aria-label={isCollapsed ? "新建对话" : undefined}
         title={isCollapsed ? "新建对话" : undefined}
-        type="button"
       >
-        <Plus size={17} />
-        {!isCollapsed && <span>新建对话</span>}
-      </button>
+        {isCollapsed ? <Plus size={17} /> : "新建对话"}
+      </Button>
 
       <div className="sidebar-section projects">
         <div className="sidebar-section-header">
@@ -167,7 +169,7 @@ export default function Sidebar({
                     <div className="project-detail">
                       <div className="project-chat-list">
                         {projectChats.map((conversation) => (
-                          <button
+                          <UnstyledButton
                             key={conversation.id}
                             className={activeMainView === "chat" && conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
                             onClick={() => {
@@ -176,11 +178,10 @@ export default function Sidebar({
                               setActiveConversationId(conversation.id);
                             }}
                             onContextMenu={(e) => handleContextMenu(e, conversation)}
-                            type="button"
                           >
                             <MessageSquare size={14} className="chat-icon" />
                             <span className="chat-title">{conversation.title}</span>
-                          </button>
+                          </UnstyledButton>
                         ))}
                       </div>
                     </div>
@@ -218,7 +219,7 @@ export default function Sidebar({
         {projects.chatsSectionExpanded && (
           <div className="sidebar-chat-list">
             {conversations.map((conversation) => (
-              <button
+              <UnstyledButton
                 key={conversation.id}
                 className={activeMainView === "chat" && conversation.id === activeConversationId ? "sidebar-chat-item active" : "sidebar-chat-item"}
                 onClick={() => {
@@ -227,11 +228,10 @@ export default function Sidebar({
                 }}
                 onContextMenu={(e) => handleContextMenu(e, conversation)}
                 title={isCollapsed ? conversation.title : undefined}
-                type="button"
               >
                 <MessageSquare size={14} className="chat-icon" />
                 {!isCollapsed && <span className="chat-title">{conversation.title}</span>}
-              </button>
+              </UnstyledButton>
             ))}
             {!isCollapsed && conversations.length === 0 && <div className="empty">暂无对话</div>}
           </div>
@@ -239,24 +239,22 @@ export default function Sidebar({
       </div>
 
       <div className="sidebar-bottom-actions">
-        <button
+        <UnstyledButton
           className={activeMainView === "ops" ? "sidebar-bottom-item active" : "sidebar-bottom-item"}
           onClick={() => onMainViewChange("ops")}
           title={isCollapsed ? "服务器管理" : undefined}
-          type="button"
         >
           <Server size={18} />
           {!isCollapsed && <span>服务器管理</span>}
-        </button>
-        <button
+        </UnstyledButton>
+        <UnstyledButton
           className="sidebar-bottom-item settings-entry"
           onClick={onOpenSettings}
           title={isCollapsed ? "系统设置" : undefined}
-          type="button"
         >
           <Settings size={18} />
           {!isCollapsed && <span>系统设置</span>}
-        </button>
+        </UnstyledButton>
       </div>
     </aside>
   );

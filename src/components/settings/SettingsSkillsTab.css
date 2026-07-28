@@ -89,8 +89,9 @@
   transition: var(--control-transition);
 }
 .skills-add-btn:hover {
-  border-color: var(--accent-cyan); color: var(--control-text);
-  background: var(--option-bg-active);
+  border-color: var(--control-primary-border);
+  color: var(--accent-indigo);
+  background: var(--control-primary-soft-bg);
 }
 .skills-top-row {
   display: flex;
@@ -199,9 +200,9 @@
 }
 .skills-source-info-btn:hover,
 .skills-source-info-btn:focus-visible {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-  background: var(--bg-card);
+  border-color: var(--control-primary-border);
+  color: var(--accent-indigo);
+  background: var(--control-primary-soft-bg);
 }
 .skills-github-source {
   display: flex;

@@ -1,4 +1,5 @@
 import { Activity, Edit3, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { ActionIcon, PasswordInput, Select, TextInput, Tooltip, UnstyledButton } from "@mantine/core";
 import { normalizeModelDraft } from "../../hooks/useModel";
 import type { UseModelReturn } from "../../hooks/useModel";
 
@@ -15,9 +16,11 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
     <div className="settings-tab-content model-tab-content">
       <div className="model-header-row">
         <h3>LLM管理</h3>
-        <button className="model-action-btn model-icon-action model-action-btn--new" onClick={() => model.handleNewModelConfig(setShowModelConfig)} title="新建模型配置" aria-label="新建模型配置" type="button">
-          <Plus size={15} />
-        </button>
+        <Tooltip label="新建模型配置" openDelay={450}>
+          <ActionIcon variant="light" color="nanoBlue" onClick={() => model.handleNewModelConfig(setShowModelConfig)} aria-label="新建模型配置">
+            <Plus size={15} />
+          </ActionIcon>
+        </Tooltip>
       </div>
       <p className="description description--tight">配置用于聊天对话的大语言模型，供 AI 助手和会话调用。</p>
       <div className="model-config-grid llm-config-grid">
@@ -37,7 +40,7 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
               dotTitle = `连通性异常: ${statusInfo.message || ""}`;
             }
             return (
-              <button
+              <UnstyledButton
                 key={m.id}
                 className={m.id === model.activeModelId ? "model-config-row active" : "model-config-row"}
                 onClick={() => {
@@ -45,7 +48,6 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
                   void model.handleActiveModelChange(m.id);
                 }}
                 title={m.id === model.activeModelId ? "当前使用中" : "切换到此模型"}
-                type="button"
               >
                 <span className={`status-dot status-dot--${statusInfo.status}`} title={dotTitle} />
                 <div className="model-config-row-info">
@@ -55,7 +57,7 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
                   </div>
                   <span>{m.provider} / {m.model}</span>
                 </div>
-              </button>
+              </UnstyledButton>
             );
           })}
           {llmModels.length === 0 && <div className="empty">暂无大模型配置</div>}
@@ -63,29 +65,20 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
 
         <div className="model-config-form">
           <div className="model-form-card">
-            <label>
-              <span>配置名称</span>
-              <input value={model.modelDraft.name} onChange={(event) => model.setModelDraft({ ...model.modelDraft, name: event.target.value })} placeholder="例如：OpenAI 主账号" />
-            </label>
-            <label>
-              <span>协议类型</span>
-              <select value={model.modelDraft.provider} onChange={(event) => model.handleProviderChange(event.target.value)}>
-                <option value="openai-compatible">OpenAI 兼容协议</option>
-                <option value="anthropic">Anthropic 兼容协议</option>
-              </select>
-            </label>
-            <label>
-              <span>接口地址</span>
-              <input value={model.modelDraft.base_url} onChange={(event) => model.setModelDraft({ ...model.modelDraft, base_url: event.target.value })} placeholder="https://api.openai.com/v1" />
-            </label>
-            <label>
-              <span>模型标识</span>
-              <input value={model.modelDraft.model} onChange={(event) => model.setModelDraft({ ...model.modelDraft, model: event.target.value })} placeholder="gpt-4o-mini" />
-            </label>
-            <label>
-              <span>API Key</span>
-              <input value={model.modelDraft.api_key} type="password" onChange={(event) => model.setModelDraft({ ...model.modelDraft, api_key: event.target.value })} placeholder="用于对话模型调用" />
-            </label>
+            <TextInput label="配置名称" value={model.modelDraft.name} onChange={(event) => model.setModelDraft({ ...model.modelDraft, name: event.currentTarget.value })} placeholder="例如：OpenAI 主账号" />
+            <Select
+              label="协议类型"
+              value={model.modelDraft.provider}
+              data={[
+                { value: "openai-compatible", label: "OpenAI 兼容协议" },
+                { value: "anthropic", label: "Anthropic 兼容协议" }
+              ]}
+              onChange={(value) => value && model.handleProviderChange(value)}
+              allowDeselect={false}
+            />
+            <TextInput label="接口地址" value={model.modelDraft.base_url} onChange={(event) => model.setModelDraft({ ...model.modelDraft, base_url: event.currentTarget.value })} placeholder="https://api.openai.com/v1" />
+            <TextInput label="模型标识" value={model.modelDraft.model} onChange={(event) => model.setModelDraft({ ...model.modelDraft, model: event.currentTarget.value })} placeholder="gpt-4o-mini" />
+            <PasswordInput label="API Key" value={model.modelDraft.api_key} onChange={(event) => model.setModelDraft({ ...model.modelDraft, api_key: event.currentTarget.value })} placeholder="用于对话模型调用" />
           </div>
           <div className="modal-actions icon-actions icon-actions-bar">
             {model.llmTestStatus.status === "success" && (
@@ -99,15 +92,21 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
               </span>
             )}
             {(model.llmTestStatus.status === "idle" || model.llmTestStatus.status === "testing") && <div className="status-spacer" />}
-            <button className="model-action-btn model-icon-action model-action-btn--test" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} title={model.llmTestStatus.status === "testing" ? "测试中" : "测试连接"} aria-label={model.llmTestStatus.status === "testing" ? "测试中" : "测试连接"} type="button">
-              {model.llmTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
-            </button>
-            <button className="model-action-btn model-icon-action model-action-btn--save" onClick={model.handleSaveModel} title={isEditingModel ? "保存修改并使用" : "创建模型并使用"} aria-label={isEditingModel ? "保存修改并使用" : "创建模型并使用"} type="button">
-              {isEditingModel ? <Edit3 /> : <Save />}
-            </button>
-            <button className="model-action-btn model-icon-action model-action-btn--delete" title="删除模型" aria-label="删除模型" onClick={model.handleDeleteModel} disabled={!isEditingModel} type="button">
-              <Trash2 />
-            </button>
+            <Tooltip label={model.llmTestStatus.status === "testing" ? "测试中" : "测试连接"}>
+              <ActionIcon variant="default" onClick={model.handleTestLlm} disabled={model.llmTestStatus.status === "testing"} aria-label="测试连接">
+                {model.llmTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label={isEditingModel ? "保存修改并使用" : "创建模型并使用"}>
+              <ActionIcon variant="filled" color="nanoBlue" onClick={model.handleSaveModel} aria-label="保存模型">
+                {isEditingModel ? <Edit3 /> : <Save />}
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="删除模型">
+              <ActionIcon variant="light" color="red" aria-label="删除模型" onClick={model.handleDeleteModel} disabled={!isEditingModel}>
+                <Trash2 />
+              </ActionIcon>
+            </Tooltip>
           </div>
         </div>
       </div>

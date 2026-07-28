@@ -33,6 +33,15 @@ export default defineConfig({
             return "vendor-tauri";
           }
           if (
+            normalizedId.includes("@mantine") ||
+            normalizedId.includes("@floating-ui") ||
+            normalizedId.includes("react-remove-scroll") ||
+            normalizedId.includes("use-sidecar") ||
+            normalizedId.includes("clsx")
+          ) {
+            return undefined;
+          }
+          if (
             normalizedId.includes("react-markdown") ||
             normalizedId.includes("remark-") ||
             normalizedId.includes("micromark") ||

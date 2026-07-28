@@ -1,5 +1,13 @@
 import { useEffect, useRef } from "react";
 import {
+  ActionIcon as MantineActionIcon,
+  Button,
+  Select,
+  Textarea,
+  Tooltip,
+  UnstyledButton
+} from "@mantine/core";
+import {
   Activity,
   ArrowRight,
   BookOpen,
@@ -244,25 +252,29 @@ export default function ChatPane({
         </div>
         {activeConversationId && (
           <div className="chat-header-actions">
-            <button
-              ref={runtimeToggleBtnRef}
-              className={`chat-header-square ${obs.showChatRuntime ? "active" : ""}`}
-              aria-label="Agent Runtime 运行详情"
-              title="Agent Runtime 运行详情"
-              onClick={handleToggleRuntime}
-              type="button"
-            >
-              <Activity size={16} />
-            </button>
-            <button
-              className="icon chat-header-square"
-              aria-label="关闭当前会话"
-              title="关闭当前会话"
-              onClick={handleCloseConversation}
-              type="button"
-            >
-              <X size={16} />
-            </button>
+            <Tooltip label="Agent Runtime 运行详情" openDelay={450}>
+              <MantineActionIcon
+                ref={runtimeToggleBtnRef}
+                className={`chat-header-square ${obs.showChatRuntime ? "active" : ""}`}
+                variant={obs.showChatRuntime ? "light" : "subtle"}
+                color={obs.showChatRuntime ? "nanoBlue" : "gray"}
+                aria-label="Agent Runtime 运行详情"
+                onClick={handleToggleRuntime}
+              >
+                <Activity size={16} />
+              </MantineActionIcon>
+            </Tooltip>
+            <Tooltip label="关闭当前会话" openDelay={450}>
+              <MantineActionIcon
+                className="icon chat-header-square"
+                variant="subtle"
+                color="gray"
+                aria-label="关闭当前会话"
+                onClick={handleCloseConversation}
+              >
+                <X size={16} />
+              </MantineActionIcon>
+            </Tooltip>
           </div>
         )}
       </header>
@@ -375,11 +387,10 @@ export default function ChatPane({
               {starterActions.map((action) => {
                 const ActionIcon = action.icon;
                 return (
-                  <button
+                  <UnstyledButton
                     key={action.title}
                     className="chat-starter-card"
                     onClick={() => void handleStarterAction(action.prompt)}
-                    type="button"
                   >
                     <ActionIcon size={18} />
                     <span>
@@ -387,7 +398,7 @@ export default function ChatPane({
                       <small>{action.description}</small>
                     </span>
                     <ArrowRight size={15} className="chat-starter-arrow" />
-                  </button>
+                  </UnstyledButton>
                 );
               })}
             </div>
@@ -395,10 +406,9 @@ export default function ChatPane({
               {activeModel ? <CheckCircle2 size={15} /> : <Settings2 size={15} />}
               <span>{activeModel ? `已选择 ${activeModel.name}` : "发送前需要先配置一个模型"}</span>
               {!activeModel && (
-                <button onClick={onOpenModelSettings} type="button">
+                <Button variant="subtle" size="compact-sm" onClick={onOpenModelSettings} rightSection={<ArrowRight size={13} />}>
                   配置模型
-                  <ArrowRight size={13} />
-                </button>
+                </Button>
               )}
             </div>
           </section>
@@ -461,12 +471,12 @@ export default function ChatPane({
           </div>
         )}
         <div className="chat-composer-meta">
-          <label htmlFor="chat-composer">消息</label>
-          <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行 · 输入 <kbd>#</kbd> 使用提示词</span>
+          <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
         </div>
-        <textarea
+        <Textarea
           id="chat-composer"
           ref={textareaRef}
+          className="chat-composer-control"
           value={chatInput}
           onChange={(event) => void handleInputChange(event.target.value, event.target.selectionStart)}
           onContextMenu={(event) => event.preventDefault()}
@@ -485,30 +495,47 @@ export default function ChatPane({
         />
         <div className="chat-input-footer">
           <div className="chat-input-left">
-            <select aria-label="当前对话模型" value={model.activeModelId} onChange={(event) => void model.handleActiveModelChange(event.target.value)}>
-              <option value="">选择模型</option>
-              {model.models.filter((m) => m.id !== "embedding-config").map((m) => (
-                <option key={m.id} value={m.id}>{m.name}</option>
-              ))}
-            </select>
+            <Select
+              className="chat-model-select"
+              aria-label="当前对话模型"
+              placeholder="选择模型"
+              value={model.activeModelId || null}
+              data={model.models
+                .filter((item) => item.id !== "embedding-config")
+                .map((item) => ({ value: item.id, label: item.name }))}
+              onChange={(value) => void model.handleActiveModelChange(value || "")}
+              allowDeselect={false}
+              size="xs"
+            />
           </div>
           <div className="chat-input-actions">
-            <button
+            <Tooltip label={uploadingImageAttachment ? "图片上传中" : "添加图片"} openDelay={450}>
+              <MantineActionIcon
               className="chat-header-square ghost"
               aria-label="添加图片"
-              title={uploadingImageAttachment ? "图片上传中" : "添加图片"}
               onClick={() => imageInputRef.current?.click()}
               disabled={busy || uploadingImageAttachment}
-              type="button"
-            >
-              <ImagePlus size={18} />
-            </button>
-            <button className="project-add-chat-btn" aria-label="新建空白对话" title="新建空白对话" onClick={() => void handleNewConversation()} type="button">
-              <Plus size={16} />
-            </button>
-            <button className="chat-header-square send" aria-label="发送" title={busy ? "正在生成" : "发送（Enter）"} onClick={handleSendMessage} disabled={busy || (!chatInput.trim() && pendingImageAttachments.length === 0)} type="button">
-              <SendHorizontal size={20} />
-            </button>
+              variant="subtle"
+              >
+                <ImagePlus size={18} />
+              </MantineActionIcon>
+            </Tooltip>
+            <Tooltip label="新建空白对话" openDelay={450}>
+              <MantineActionIcon className="project-add-chat-btn" aria-label="新建空白对话" variant="subtle" color="gray" onClick={() => void handleNewConversation()}>
+                <Plus size={16} />
+              </MantineActionIcon>
+            </Tooltip>
+            <Tooltip label={busy ? "正在生成" : "发送（Enter）"} openDelay={450}>
+              <MantineActionIcon
+                className="chat-header-square send"
+                aria-label="发送"
+                variant="filled"
+                onClick={handleSendMessage}
+                disabled={busy || (!chatInput.trim() && pendingImageAttachments.length === 0)}
+              >
+                <SendHorizontal size={20} />
+              </MantineActionIcon>
+            </Tooltip>
           </div>
         </div>
       </div>

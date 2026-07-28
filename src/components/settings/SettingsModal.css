@@ -1,5 +1,20 @@
+.settings-modal-shell {
+  height: min(640px, calc(100vh - 48px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-modal-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+}
+
 .settings-modal-layout {
-  display: flex; flex: 1; min-height: 0; overflow: hidden;
+  display: flex; flex: 1; width: 100%; min-height: 0; overflow: hidden;
 }
 .settings-sidebar {
   width: 180px; border-right: 1px solid var(--border-color);
@@ -9,11 +24,11 @@
 }
 
 [data-theme="light"] .settings-sidebar {
-  background: linear-gradient(180deg, #ffffff 0%, #f6faff 100%);
+  background: #f8fafc;
 }
 
 [data-theme="dark"] .settings-sidebar {
-  background: linear-gradient(180deg, rgba(5, 8, 18, 0.98), rgba(11, 17, 32, 0.98));
+  background: var(--bg-sidebar);
 }
 .settings-content {
   flex: 1; display: flex; flex-direction: column;
@@ -22,27 +37,12 @@
 }
 
 [data-theme="light"] .settings-content {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  background: var(--bg-pane);
 }
 
 [data-theme="dark"] .settings-content {
-  background: linear-gradient(180deg, #111827 0%, #0b1120 100%);
+  background: var(--bg-pane);
 }
-.settings-nav-item {
-  display: inline-flex; align-items: center; gap: 10px;
-  width: 100%; min-height: 38px; padding: 0 12px;
-  border-radius: 8px; font-size: var(--font-size-lg); font-weight: 500;
-  color: var(--text-secondary); background: transparent;
-  text-align: left; border: 1px solid transparent;
-  transition: all 0.2s ease;
-}
-.settings-nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text-primary); }
-.settings-nav-item.active {
-  background: rgba(99,102,241,0.08); color: var(--accent-cyan);
-  font-weight: 600; border-color: rgba(99,102,241,0.2);
-  box-shadow: inset 3px 0 0 var(--accent-cyan);
-}
-.settings-nav-item svg { color: currentColor; flex-shrink: 0; }
 .theme-tab-content .theme-switcher { max-width: 500px; margin-top: 10px; }
 .archive-tab-content { overflow: hidden !important; }
 .archive-split-layout {
@@ -126,8 +126,9 @@
   color: var(--control-text); border-color: var(--control-border-hover);
 }
 .theme-switcher button.active {
-  background: var(--option-bg-active);
-  color: var(--accent-cyan); border-color: var(--option-border-active);
+  background: var(--control-primary-soft-bg);
+  color: var(--accent-indigo);
+  border-color: var(--control-primary-border);
 }
 .archived-list-column {
   padding: 16px;

@@ -29,11 +29,15 @@ export function useThemeMode() {
     applyDocumentTheme(initialTheme);
     return initialTheme;
   });
+  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() => {
+    return resolveThemeMode(readStoredThemeMode());
+  });
 
   useLayoutEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const applyTheme = () => {
       const resolvedTheme = applyDocumentTheme(themeMode);
+      setResolvedTheme(resolvedTheme);
       localStorage.setItem(THEME_STORAGE_KEY, themeMode);
 
       const tauriTheme = resolvedTheme === "light" ? "light" : "dark";
@@ -45,5 +49,5 @@ export function useThemeMode() {
     return () => media.removeEventListener("change", applyTheme);
   }, [themeMode]);
 
-  return { themeMode, setThemeMode };
+  return { themeMode, resolvedTheme, setThemeMode };
 }

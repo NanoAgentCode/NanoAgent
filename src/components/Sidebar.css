@@ -1,33 +1,28 @@
 .sidebar {
   grid-area: sidebar;
-  padding: 20px 14px 16px;
+  padding: 16px 12px 14px;
   background: var(--bg-sidebar);
-  gap: 15px;
+  gap: 14px;
   display: flex;
   flex-direction: column;
   transition: padding 0.18s ease;
 }
 .sidebar-topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 .sidebar-slogan {
   flex: 1;
   margin: 0;
-  padding: 1px 4px 15px;
-  border-bottom: 1px solid var(--border-color);
+  padding: 0 4px;
   color: var(--text-primary);
-  font-size: var(--font-size-display);
-  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.35;
   text-align: left;
-  letter-spacing: 0.02em;
-  background: linear-gradient(110deg, var(--text-primary) 8%, var(--accent-cyan) 72%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  letter-spacing: 0;
 }
 .sidebar-collapse-btn {
   display: inline-flex;
@@ -42,7 +37,7 @@
 }
 .sidebar-collapse-btn:hover {
   background: var(--control-bg-subtle);
-  color: var(--accent-cyan);
+  color: var(--accent-indigo);
 }
 .sidebar-primary-action {
   display: flex;
@@ -52,19 +47,18 @@
   width: 100%;
   min-height: 40px;
   padding: 0 14px;
-  border: 1px solid color-mix(in srgb, var(--accent-indigo) 76%, var(--border-color));
-  border-radius: 10px;
+  border: 1px solid var(--control-primary-bg);
+  border-radius: 8px;
   color: var(--control-primary-text);
-  background: var(--accent-indigo);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  background: var(--control-primary-bg);
+  box-shadow: none;
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
 }
 .sidebar-primary-action:hover {
-  border-color: var(--accent-cyan);
-  filter: brightness(1.06);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transform: translateY(-1px);
+  border-color: var(--control-primary-bg-hover);
+  background: var(--control-primary-bg-hover);
+  box-shadow: none;
 }
 .sidebar-primary-action:active {
   transform: var(--control-active-scale);
@@ -166,7 +160,7 @@
 .sidebar-chat-item.active {
   background: var(--option-bg-active);
   color: var(--accent-cyan);
-  border-color: var(--option-border-active);
+  border-color: transparent;
 }
 .sidebar-project-dot {
   width: 6px;
@@ -176,7 +170,7 @@
 }
 .sidebar-project-item.active .sidebar-project-dot {
   background: var(--accent-cyan);
-  box-shadow: 0 0 8px var(--accent-cyan);
+  box-shadow: none;
 }
 .sidebar-project-item .project-title {
   display: inline-flex;
@@ -243,16 +237,16 @@
   opacity: 1;
 }
 .project-expand-btn:hover {
-  color: var(--accent-cyan);
-  background: rgba(0, 240, 255, 0.1);
+  color: var(--accent-indigo);
+  background: var(--control-primary-soft-bg);
 }
 .project-remove-btn:hover {
   color: var(--accent-danger);
-  background: rgba(248, 113, 113, 0.12);
+  background: var(--control-danger-soft-bg);
 }
 .project-add-chat-btn:hover {
-  color: var(--accent-cyan);
-  background: rgba(0, 240, 255, 0.1);
+  color: var(--accent-indigo);
+  background: var(--control-primary-soft-bg);
 }
 .project-detail {
   display: flex;
@@ -276,6 +270,14 @@
   font-size: var(--type-code-size);
 }
 .project-empty {
+  justify-content: flex-start;
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: var(--font-size-sm);
+}
+.sidebar-chat-list > .empty {
+  justify-content: flex-start;
+  min-height: 40px;
   padding: 8px 10px;
   font-size: var(--font-size-sm);
 }
@@ -320,8 +322,8 @@
   transition: var(--control-transition);
 }
 .new-chat-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--accent-cyan);
+  background: var(--control-bg-subtle);
+  color: var(--accent-indigo);
 }
 .sidebar-bottom-actions {
   display: flex;
@@ -333,19 +335,14 @@
 }
 
 [data-theme="light"] .sidebar {
-  background: linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 100%);
-  box-shadow: inset -1px 0 0 rgba(131, 151, 177, 0.08);
-}
-
-[data-theme="light"] .sidebar-primary-action {
-  background: #1769cf;
-  border-color: #1769cf;
+  background: #f8fafc;
+  box-shadow: none;
 }
 
 [data-theme="light"] .sidebar-project-item.active,
 [data-theme="light"] .sidebar-chat-item.active {
   background: #edf5ff;
-  border-color: #9bc5ee;
+  border-color: transparent;
 }
 
 .sidebar-bottom-item {
@@ -387,7 +384,7 @@
 
 .sidebar-bottom-item.active {
   background: var(--option-bg-active);
-  border-color: var(--option-border-active);
+  border-color: transparent;
   color: var(--accent-cyan);
 }
 

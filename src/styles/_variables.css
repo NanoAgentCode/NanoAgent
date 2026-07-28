@@ -28,7 +28,7 @@
 
   --font-sans: "Inter", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", "Cascadia Code", "SFMono-Regular", Consolas, ui-monospace, monospace;
-  --font-size-2xs: 10px;
+  --font-size-2xs: 11px;
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-md: 13px;
@@ -36,7 +36,7 @@
   --font-size-xl: 14.5px;
   --font-size-title: 16px;
   --font-size-display: 18px;
-  --font-size-editor-title: 24px;
+  --font-size-editor-title: 20px;
   --type-sidebar-size: 13px;
   --type-sidebar-color: var(--text-secondary);
   --type-sidebar-muted-color: var(--text-muted);
@@ -77,6 +77,8 @@
   --control-primary-bg: var(--accent-indigo);
   --control-primary-bg-hover: var(--border-color-active);
   --control-primary-text: #ffffff;
+  --control-primary-soft-bg: rgba(96, 165, 250, 0.1);
+  --control-primary-border: rgba(96, 165, 250, 0.32);
   --control-primary-shadow: 0 8px 22px rgba(96, 165, 250, 0.28);
   --control-success-bg: var(--accent-emerald);
   --control-success-bg-hover: #6ee7b7;
@@ -205,6 +207,8 @@
   --text-main: var(--text-primary);
 
   --control-bg-subtle: rgba(17, 24, 39, 0.05);
+  --control-primary-soft-bg: rgba(37, 99, 235, 0.08);
+  --control-primary-border: rgba(37, 99, 235, 0.24);
   --control-primary-shadow: 0 8px 20px rgba(37, 99, 235, 0.18);
   --control-success-text: #ffffff;
   --control-success-shadow: 0 8px 20px rgba(5, 150, 105, 0.16);

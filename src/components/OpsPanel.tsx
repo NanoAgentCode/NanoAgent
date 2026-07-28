@@ -2,6 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { listen } from "@tauri-apps/api/event";
 import { CheckCircle2, Maximize2, Minimize2, Pencil, PlugZap, Plus, Save, Server, Terminal, Trash2, X } from "lucide-react";
 import {
+  ActionIcon,
+  Button,
+  Group,
+  Modal,
+  NumberInput,
+  PasswordInput,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  ThemeIcon,
+  Tooltip
+} from "@mantine/core";
+import {
   deleteOpsServer,
   listOpsServers,
   resizeOpsSshSession,
@@ -548,9 +562,11 @@ export default function OpsPanel({ setNotice }: OpsPanelProps) {
               <span>服务器列表</span>
               <small>{servers.length} 台</small>
             </div>
-            <button className="icon-text-btn compact" type="button" onClick={handleNewServer} title="新增服务器">
-              <Plus size={15} />
-            </button>
+            <Tooltip label="新增服务器" openDelay={450}>
+              <ActionIcon variant="light" color="nanoBlue" onClick={handleNewServer} aria-label="新增服务器">
+                <Plus size={15} />
+              </ActionIcon>
+            </Tooltip>
           </div>
           <div className="ops-server-items">
             {servers.map((server) => (
@@ -570,10 +586,10 @@ export default function OpsPanel({ setNotice }: OpsPanelProps) {
                   <strong>{server.name}</strong>
                   <span>{server.username}@{server.host}:{server.port}</span>
                 </div>
-                <button
+                <ActionIcon
                   className="ops-server-edit-btn"
-                  type="button"
-                  title="编辑服务器"
+                  variant="subtle"
+                  color="gray"
                   aria-label={`编辑 ${server.name}`}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -583,7 +599,7 @@ export default function OpsPanel({ setNotice }: OpsPanelProps) {
                   }}
                 >
                   <Pencil size={15} />
-                </button>
+                </ActionIcon>
               </div>
             ))}
             {servers.length === 0 && (
@@ -600,25 +616,24 @@ export default function OpsPanel({ setNotice }: OpsPanelProps) {
                 <strong>SSH 交互</strong>
               </div>
               <div className="ops-actions">
-                <button
-                  className="icon-text-btn compact"
-                  type="button"
+                <Tooltip label={terminalFullscreen ? "退出全屏" : "全屏"} openDelay={450}>
+                  <ActionIcon
+                  variant="subtle"
+                  color="gray"
                   onClick={toggleTerminalFullscreen}
                   aria-label={terminalFullscreen ? "退出全屏" : "全屏"}
-                  title={terminalFullscreen ? "退出全屏" : "全屏"}
                 >
                   {terminalFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                </button>
+                  </ActionIcon>
+                </Tooltip>
                 {sshSessionId ? (
-                  <button className="icon-text-btn danger-btn" type="button" onClick={() => void handleStopSshSession()}>
-                    <X size={16} />
-                    <span>断开</span>
-                  </button>
+                  <Button color="red" variant="light" leftSection={<X size={16} />} onClick={() => void handleStopSshSession()}>
+                    断开
+                  </Button>
                 ) : (
-                  <button className="icon-text-btn" type="button" onClick={() => void handleStartSshSession()} disabled={busyAction === "session" || !selectedServer}>
-                    <PlugZap size={16} />
-                    <span>{busyAction === "session" ? "连接中" : "连接"}</span>
-                  </button>
+                  <Button leftSection={<PlugZap size={16} />} onClick={() => void handleStartSshSession()} loading={busyAction === "session"} disabled={!selectedServer}>
+                    连接
+                  </Button>
                 )}
               </div>
             </div>
@@ -642,103 +657,79 @@ export default function OpsPanel({ setNotice }: OpsPanelProps) {
         */}
       </div>
       {showConfigDialog && (
-        <div className="modal-backdrop" onClick={() => setShowConfigDialog(false)}>
-          <section className={`ops-config-dialog modal-shell ${draft.id ? "modal-shell--edit" : "modal-shell--create"}`} onClick={(event) => event.stopPropagation()}>
-            <header className="ops-config-dialog-header">
-              <div>
+        <Modal
+          opened
+          onClose={() => setShowConfigDialog(false)}
+          size="lg"
+          title={
+            <Group gap="sm">
+              <ThemeIcon variant="light" color={draft.id ? "nanoBlue" : "teal"} size="md">
                 <Server size={18} />
-                <strong>{draft.id ? "编辑服务器" : "新增服务器"}</strong>
-              </div>
-              <button className="modal-close-btn" type="button" onClick={() => setShowConfigDialog(false)} aria-label="关闭" title="关闭">
-                <X size={16} />
-              </button>
-            </header>
+              </ThemeIcon>
+              <Text fw={650}>{draft.id ? "编辑服务器" : "新增服务器"}</Text>
+            </Group>
+          }
+        >
+          <Stack gap="lg">
 
             <div className="ops-form-grid">
-              <label>
-                <span>名称</span>
-                <input value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} placeholder="生产服务器" />
-              </label>
-              <label>
-                <span>主机</span>
-                <input value={draft.host} onChange={(event) => updateDraft("host", event.target.value)} placeholder="192.168.1.10 / example.com" />
-              </label>
-              <label>
-                <span>端口</span>
-                <input type="number" min={1} max={65535} value={draft.port || 22} onChange={(event) => updateDraft("port", Number(event.target.value) || 22)} />
-              </label>
-              <label>
-                <span>用户名</span>
-                <input value={draft.username} onChange={(event) => updateDraft("username", event.target.value)} placeholder="root / ubuntu" />
-              </label>
-              <label>
-                <span>认证方式</span>
-                <select value={draft.auth_method} onChange={(event) => updateDraft("auth_method", event.target.value)}>
-                  <option value="key">密钥路径</option>
-                  <option value="agent">SSH Agent / 本机配置</option>
-                  <option value="password">用户名密码</option>
-                </select>
-              </label>
+              <TextInput label="名称" value={draft.name} onChange={(event) => updateDraft("name", event.currentTarget.value)} placeholder="生产服务器" />
+              <TextInput label="主机" value={draft.host} onChange={(event) => updateDraft("host", event.currentTarget.value)} placeholder="192.168.1.10 / example.com" />
+              <NumberInput label="端口" min={1} max={65535} value={draft.port || 22} onChange={(value) => updateDraft("port", Number(value) || 22)} />
+              <TextInput label="用户名" value={draft.username} onChange={(event) => updateDraft("username", event.currentTarget.value)} placeholder="root / ubuntu" />
+              <Select
+                label="认证方式"
+                value={draft.auth_method}
+                data={[
+                  { value: "key", label: "密钥路径" },
+                  { value: "agent", label: "SSH Agent / 本机配置" },
+                  { value: "password", label: "用户名密码" }
+                ]}
+                onChange={(value) => value && updateDraft("auth_method", value)}
+                allowDeselect={false}
+              />
               {draft.auth_method === "password" ? (
-                <label>
-                  <span>密码</span>
-                  <input type="password" value={draft.password} onChange={(event) => updateDraft("password", event.target.value)} placeholder="服务器登录密码" />
-                </label>
+                <PasswordInput label="密码" value={draft.password} onChange={(event) => updateDraft("password", event.currentTarget.value)} placeholder="服务器登录密码" />
               ) : (
-                <label>
-                  <span>私钥路径</span>
-                  <input value={draft.key_path} onChange={(event) => updateDraft("key_path", event.target.value)} placeholder="C:\Users\...\id_rsa" />
-                </label>
+                <TextInput label="私钥路径" value={draft.key_path} onChange={(event) => updateDraft("key_path", event.currentTarget.value)} placeholder="C:\Users\...\id_rsa" />
               )}
-              <label className="ops-form-wide">
-                <span>默认远程目录</span>
-                <input value={draft.remote_dir} onChange={(event) => updateDraft("remote_dir", event.target.value)} placeholder="/opt/app/" />
-              </label>
+              <TextInput className="ops-form-wide" label="默认远程目录" value={draft.remote_dir} onChange={(event) => updateDraft("remote_dir", event.currentTarget.value)} placeholder="/opt/app/" />
             </div>
 
-            <footer className="ops-config-dialog-footer ops-dialog-actions">
+            <Group justify="flex-end">
               {draft.id && selectedServer && (
-                <button
-                  className="modal-action-btn modal-action-btn--delete"
-                  type="button"
+                <Button
+                  color="red"
+                  variant="light"
+                  leftSection={<Trash2 size={16} />}
                   onClick={handleDeleteServer}
-                  disabled={busyAction === "delete"}
-                  aria-label="删除"
-                  title="删除"
+                  loading={busyAction === "delete"}
+                  mr="auto"
                 >
-                  <Trash2 size={16} />
-                  <span>删除服务器</span>
-                </button>
+                  删除服务器
+                </Button>
               )}
-              <button
-                className="modal-action-btn modal-action-btn--secondary"
-                type="button"
+              <Button
+                variant="default"
+                leftSection={<CheckCircle2 size={16} />}
                 onClick={handleTestConnection}
-                disabled={busyAction === "ssh" || busyAction === "save"}
-                aria-label={busyAction === "ssh" ? "连接中" : "测试连接"}
-                title={busyAction === "ssh" ? "连接中" : "测试连接"}
-              >
-                <CheckCircle2 size={16} />
-                <span>{busyAction === "ssh" ? "连接中" : "测试连接"}</span>
-              </button>
-              <button className="modal-action-btn modal-action-btn--secondary" type="button" onClick={() => setShowConfigDialog(false)} aria-label="取消" title="取消">
-                <X size={16} />
-                <span>取消</span>
-              </button>
-              <button
-                className={draft.id ? "modal-action-btn modal-action-btn--edit" : "modal-action-btn modal-action-btn--create"}
-                type="button"
-                onClick={handleSaveServer}
+                loading={busyAction === "ssh"}
                 disabled={busyAction === "save"}
-                aria-label={busyAction === "save" ? "保存中" : "保存"}
-                title={busyAction === "save" ? "保存中" : "保存"}
               >
-                <Save size={16} />
-                <span>{busyAction === "save" ? "保存中" : draft.id ? "保存修改" : "创建服务器"}</span>
-              </button>
-            </footer>
-          </section>
-        </div>
+                测试连接
+              </Button>
+              <Button variant="default" onClick={() => setShowConfigDialog(false)}>取消</Button>
+              <Button
+                color="nanoBlue"
+                leftSection={<Save size={16} />}
+                onClick={handleSaveServer}
+                loading={busyAction === "save"}
+              >
+                {draft.id ? "保存修改" : "创建服务器"}
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
       )}
     </section>
   );

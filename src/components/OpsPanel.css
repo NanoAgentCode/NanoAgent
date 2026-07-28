@@ -187,8 +187,9 @@
 }
 
 .ops-server-edit-btn:hover {
-  color: var(--accent-cyan);
-  border-color: var(--accent-cyan);
+  color: var(--accent-indigo);
+  border-color: var(--control-primary-border);
+  background: var(--control-primary-soft-bg);
   opacity: 1;
 }
 

@@ -1,4 +1,5 @@
 import { Activity, Loader2, Save } from "lucide-react";
+import { Button, PasswordInput, Select, TextInput } from "@mantine/core";
 import type { UseModelReturn } from "../../hooks/useModel";
 
 interface SettingsEmbeddingTabProps {
@@ -13,24 +14,15 @@ export default function SettingsEmbeddingTab({ model }: SettingsEmbeddingTabProp
       <div className="embedding-config-card">
         <div className="model-config-form embedding-config-form">
           <div className="model-form-card">
-            <label>
-              <span>协议类型</span>
-              <select value={model.embeddingDraft.embedding_provider} onChange={(event) => model.handleEmbeddingProviderChange(event.target.value)} disabled>
-                <option value="openai-compatible">OpenAI 兼容协议</option>
-              </select>
-            </label>
-            <label>
-              <span>接口地址</span>
-              <input value={model.embeddingDraft.embedding_base_url} onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_base_url: event.target.value })} placeholder="https://api.openai.com/v1" />
-            </label>
-            <label>
-              <span>模型标识</span>
-              <input value={model.embeddingDraft.embedding_model} onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_model: event.target.value })} placeholder="text-embedding-3-small" />
-            </label>
-            <label>
-              <span>API Key</span>
-              <input value={model.embeddingDraft.embedding_api_key} type="password" onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_api_key: event.target.value })} placeholder="用于 RAG 向量化，可与大模型不同" />
-            </label>
+            <Select
+              label="协议类型"
+              value={model.embeddingDraft.embedding_provider}
+              data={[{ value: "openai-compatible", label: "OpenAI 兼容协议" }]}
+              disabled
+            />
+            <TextInput label="接口地址" value={model.embeddingDraft.embedding_base_url} onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_base_url: event.currentTarget.value })} placeholder="https://api.openai.com/v1" />
+            <TextInput label="模型标识" value={model.embeddingDraft.embedding_model} onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_model: event.currentTarget.value })} placeholder="text-embedding-3-small" />
+            <PasswordInput label="API Key" value={model.embeddingDraft.embedding_api_key} onChange={(event) => model.setEmbeddingDraft({ ...model.embeddingDraft, embedding_api_key: event.currentTarget.value })} placeholder="用于 RAG 向量化，可与大模型不同" />
           </div>
           <div className="modal-actions icon-actions icon-actions-bar">
             {model.embeddingTestStatus.status === "success" && (
@@ -44,12 +36,12 @@ export default function SettingsEmbeddingTab({ model }: SettingsEmbeddingTabProp
               </span>
             )}
             {(model.embeddingTestStatus.status === "idle" || model.embeddingTestStatus.status === "testing") && <div className="status-spacer" />}
-            <button className="icon-text-btn" onClick={model.handleTestEmbedding} disabled={model.embeddingTestStatus.status === "testing"} title="测试连接" type="button">
-              {model.embeddingTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />}
-            </button>
-            <button className="icon-text-btn success-btn" onClick={model.handleSaveEmbeddingModel} title="保存并使用" type="button">
-              <Save />
-            </button>
+            <Button variant="default" leftSection={model.embeddingTestStatus.status === "testing" ? <Loader2 className="svg-spin" /> : <Activity />} onClick={model.handleTestEmbedding} disabled={model.embeddingTestStatus.status === "testing"}>
+              测试连接
+            </Button>
+            <Button leftSection={<Save />} onClick={model.handleSaveEmbeddingModel}>
+              保存并使用
+            </Button>
           </div>
         </div>
       </div>

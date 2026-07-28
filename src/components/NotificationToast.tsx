@@ -1,4 +1,5 @@
-import { AlertCircle, AlertTriangle, CheckCircle, Info, X } from "lucide-react";
+import { Notification } from "@mantine/core";
+import { AlertCircle, AlertTriangle, CheckCircle, Info } from "lucide-react";
 
 interface NotificationToastProps {
   notice: string;
@@ -62,24 +63,21 @@ export default function NotificationToast({ notice, onClose }: NotificationToast
 
   const { content, type } = getNoticeData(notice);
   const Icon = icons[type];
+  const color = type === "error" ? "red" : type === "warning" ? "yellow" : type === "success" ? "teal" : "nanoBlue";
 
   return (
     <div className="notification-toast-container">
-      <div className={`notification-toast notification-toast--${type}`} role="status" aria-live="polite">
-        <span className="notification-toast-icon">
-          <Icon size={16} />
-        </span>
-        <div className="notification-toast-content">{content}</div>
-        <button
-          className="notification-toast-close"
-          type="button"
-          onClick={onClose}
-          aria-label="关闭提示"
-          title="关闭提示"
-        >
-          <X size={14} />
-        </button>
-      </div>
+      <Notification
+        className="notification-toast"
+        color={color}
+        icon={<Icon size={16} />}
+        onClose={onClose}
+        role="status"
+        aria-live="polite"
+        withBorder
+      >
+        {content}
+      </Notification>
     </div>
   );
 }

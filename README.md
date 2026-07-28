@@ -34,7 +34,7 @@ NanoAgent 是一个本地优先的桌面 AI 工作台，使用 Tauri v2、Rust�
 ## 技术栈
 
 - 桌面壳：Tauri v2
-- 前端：React 18、TypeScript、Vite、lucide-react、react-markdown、remark-gfm
+- 前端：React 18、TypeScript、Vite、Mantine 8、lucide-react、react-markdown、remark-gfm
 - 后端：Rust、Tokio、rusqlite、reqwest、serde、thiserror
 - 数据库：SQLite + WAL + FTS5
 - 模型：OpenAI-compatible Chat/Embeddings、Anthropic Messages API
@@ -109,6 +109,7 @@ temp/                              无项目上下文时的临时工作目录
 ```text
 src/                           React + TypeScript 前端
 src/api.ts                     Tauri command 调用封装
+src/theme.ts                   Mantine 主题与组件默认配置
 src/hooks/                     对话、模型、项目、RAG、MCP、Skills、Ops 等状态逻辑
 src/components/                聊天区、侧栏、设置页、观测面板、Ops 工作台等 UI
 src/lib/                       系统提示、工具解析、格式化和安全封装

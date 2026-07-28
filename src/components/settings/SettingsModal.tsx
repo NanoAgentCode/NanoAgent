@@ -1,6 +1,7 @@
 import {
-  Activity, Archive, Bot, Brain, Cpu, Monitor, Settings, Sparkles, Sun, X
+  Activity, Archive, Bot, Brain, Cpu, Monitor, Settings, Sparkles, Sun
 } from "lucide-react";
+import { Group, Modal, NavLink, Text, ThemeIcon } from "@mantine/core";
 import SettingsThemeTab from "./SettingsThemeTab";
 import SettingsMemoryTab from "./SettingsMemoryTab";
 import SettingsArchiveTab from "./SettingsArchiveTab";
@@ -64,86 +65,80 @@ export default function SettingsModal({
   handleRestoreConversation,
   handleDeleteArchivedConversation
 }: SettingsModalProps) {
-  if (!showModelConfig) return null;
-
   return (
-    <div className="modal-backdrop" onClick={() => setShowModelConfig(false)}>
-      <section className="modal-panel modal-shell modal-shell--settings" onClick={(event) => event.stopPropagation()}>
-        <header className="modal-header">
-          <div>
-            <Settings size={18} />
-            <strong>系统设置</strong>
-          </div>
-          <button className="modal-close-btn" onClick={() => setShowModelConfig(false)} aria-label="关闭" title="关闭">
-            <X size={16} />
-          </button>
-        </header>
-
+    <Modal
+      opened={showModelConfig}
+      onClose={() => setShowModelConfig(false)}
+      size="920px"
+      title={
+        <Group gap="sm">
+          <ThemeIcon variant="light" color="nanoBlue" size="md">
+            <Settings size={16} />
+          </ThemeIcon>
+          <Text fw={650}>系统设置</Text>
+        </Group>
+      }
+      classNames={{
+        content: "settings-modal-shell",
+        body: "settings-modal-body"
+      }}
+    >
         <div className="settings-modal-layout">
           <aside className="settings-sidebar">
-            <button
-              className={activeSettingsTab === "theme" ? "settings-nav-item active" : "settings-nav-item"}
+            <NavLink
+              active={activeSettingsTab === "theme"}
+              label="通用设置"
+              leftSection={<Sun size={16} />}
               onClick={() => setActiveSettingsTab("theme")}
-            >
-              <Sun size={16} />
-              <span>通用设置</span>
-            </button>
-            <button
-              className={activeSettingsTab === "memory" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "memory"}
+              label="记忆库"
+              leftSection={<Brain size={16} />}
               onClick={() => { setActiveSettingsTab("memory"); workspace.handleKindChange("memory"); }}
-            >
-              <Brain size={16} />
-              <span>记忆库</span>
-            </button>
-            <button
-              className={activeSettingsTab === "model" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "model"}
+              label="LLM 管理"
+              leftSection={<Bot size={16} />}
               onClick={() => setActiveSettingsTab("model")}
-            >
-              <Bot size={16} />
-              <span>LLM管理</span>
-            </button>
-            <button
-              className={activeSettingsTab === "embedding" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "embedding"}
+              label="嵌入模型"
+              leftSection={<Cpu size={16} />}
               onClick={() => { setActiveSettingsTab("embedding"); model.handleOpenEmbeddingConfig(); }}
-            >
-              <Cpu size={16} />
-              <span>嵌入模型</span>
-            </button>
-            <button
-              className={activeSettingsTab === "archive" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "archive"}
+              label="归档列表"
+              leftSection={<Archive size={16} />}
               onClick={() => setActiveSettingsTab("archive")}
-            >
-              <Archive size={16} />
-              <span>归档列表</span>
-            </button>
-            <button
-              className={activeSettingsTab === "observability" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "observability"}
+              label="链路追踪"
+              leftSection={<Activity size={16} />}
               onClick={() => setActiveSettingsTab("observability")}
-            >
-              <Activity size={16} />
-              <span>链路追踪</span>
-            </button>
-            <button
-              className={activeSettingsTab === "skills" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "skills"}
+              label="Skills 管理"
+              leftSection={<Sparkles size={16} />}
               onClick={() => setActiveSettingsTab("skills")}
-            >
-              <Sparkles size={16} />
-              <span>Skills管理</span>
-            </button>
-            <button
-              className={activeSettingsTab === "mcp" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "mcp"}
+              label="MCP 配置"
+              leftSection={<Monitor size={16} />}
               onClick={() => setActiveSettingsTab("mcp")}
-            >
-              <Monitor size={16} />
-              <span>MCP配置</span>
-            </button>
-            <button
-              className={activeSettingsTab === "environment" ? "settings-nav-item active" : "settings-nav-item"}
+            />
+            <NavLink
+              active={activeSettingsTab === "environment"}
+              label="环境依赖"
+              leftSection={<Settings size={16} />}
               onClick={() => setActiveSettingsTab("environment")}
-            >
-              <Settings size={16} />
-              <span>环境依赖</span>
-            </button>
+            />
           </aside>
 
           <div className="settings-content">
@@ -168,7 +163,6 @@ export default function SettingsModal({
             {activeSettingsTab === "environment" && <SettingsEnvironmentTab env={env} />}
           </div>
         </div>
-      </section>
-    </div>
+    </Modal>
   );
 }

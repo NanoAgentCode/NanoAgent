@@ -26,6 +26,7 @@ button.danger {
 button.primary {
   background: var(--control-primary-bg);
   color: var(--control-primary-text) !important;
+  border-color: var(--control-primary-bg);
 }
 .primary:hover:not(:disabled),
 button.primary:hover:not(:disabled) {
@@ -177,7 +178,7 @@ button.danger:active:not(:disabled) {
   min-height: var(--control-height-sm);
   padding: 0 12px;
   border-radius: var(--control-radius-md);
-  border: 1px solid var(--border-color-active);
+  border: 1px solid var(--control-border);
   background: var(--control-bg);
   color: var(--control-text);
   font-size: var(--font-size-md);
@@ -187,17 +188,17 @@ button.danger:active:not(:disabled) {
 .icon-text-btn svg { stroke: currentColor; stroke-width: 2.2; }
 .icon-text-btn:focus-visible {
   outline: none;
-  border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.18);
+  border-color: var(--control-border-hover);
+  box-shadow: var(--focus-ring);
 }
 .icon-text-btn:hover:not(:disabled) {
   background: var(--control-bg-hover);
-  border-color: var(--accent-cyan);
+  border-color: var(--control-border-hover);
 }
 .icon-text-btn:disabled {
   background: var(--control-bg-subtle);
   color: var(--text-muted);
-  border-color: var(--border-color-active);
+  border-color: var(--control-border);
   cursor: not-allowed;
   opacity: 0.5;
 }
