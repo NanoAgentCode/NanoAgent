@@ -20,8 +20,18 @@ pub struct ToolPolicyContext {
     pub allowed_mcp_tools: BTreeSet<McpToolScope>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum AuthorizedTool {
+    ReadFile,
+    WriteFile,
+    ExecuteCommand,
+    OcrImage,
+    Mcp(McpToolScope),
+}
+
 #[derive(Debug, Clone, Serialize)]
-pub struct ToolPolicyDecision {
+pub struct PolicyDecision {
+    pub authorized_tool: AuthorizedTool,
     pub tool_name: String,
     pub risk: String,
     pub requires_approval: bool,
@@ -29,7 +39,7 @@ pub struct ToolPolicyDecision {
     pub normalized_args: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 pub struct McpToolScope {
     pub server_id: String,
     pub tool_name: String,
@@ -82,99 +92,136 @@ pub fn evaluate_tool_call(
     tool_name: &str,
     args: &BTreeMap<String, String>,
     context: &ToolPolicyContext,
-) -> AppResult<ToolPolicyDecision> {
+) -> AppResult<PolicyDecision> {
     match tool_name {
-        "read_file" => {
-            let path = required_policy_arg(args, "path")?;
-            let normalized_path = validate_project_relative_path(&context.project_path, path)?;
-            let mut normalized_args = args.clone();
-            normalized_args.insert("path".to_string(), normalized_path);
-            Ok(decision(
-                tool_name,
-                "low",
-                true,
-                "project_file_read",
-                normalized_args,
-            ))
-        }
-        "write_file" => {
-            let path = required_policy_arg(args, "path")?;
-            let normalized_path = validate_project_relative_path(&context.project_path, path)?;
-            let mut normalized_args = args.clone();
-            normalized_args.insert("path".to_string(), normalized_path.clone());
-            Ok(decision(
-                tool_name,
-                risk_for_write_path(&normalized_path),
-                true,
-                "project_file_write",
-                normalized_args,
-            ))
-        }
-        "execute_command" => {
-            if !context.allow_command {
-                return Err(AppError::Message(
-                    "Bash Tool 技能已被禁用，请在设置中启用后再试。".to_string(),
-                ));
-            }
-            let command = required_policy_arg(args, "command")?;
-            let command_policy = evaluate_command(command)?;
-            let mut normalized_args = args.clone();
-            normalized_args.insert("command".to_string(), command.trim().to_string());
-            Ok(decision(
-                tool_name,
-                command_policy.risk,
-                true,
-                command_policy.reason,
-                normalized_args,
-            ))
-        }
-        "ocr_image" => {
-            let path = required_policy_arg(args, "path")?;
-            let normalized_path = validate_project_relative_path(&context.project_path, path)?;
-            let mut normalized_args = args.clone();
-            normalized_args.insert("path".to_string(), normalized_path);
-            Ok(decision(
-                tool_name,
-                "medium",
-                true,
-                "project_image_ocr",
-                normalized_args,
-            ))
-        }
-        name if name.starts_with("mcp__") => {
-            let scope = parse_mcp_tool_scope(name)?;
-            if !context.allowed_mcp_tools.contains(&scope) {
-                return Err(AppError::Message(format!(
-                    "MCP 工具未连接或未授权: {} / {}",
-                    scope.server_id, scope.tool_name
-                )));
-            }
-            Ok(decision(
-                tool_name,
-                risk_for_mcp_tool(&scope.tool_name),
-                true,
-                "mcp_tool_call_allowed",
-                args.clone(),
-            ))
-        }
+        "read_file" => evaluate_path_tool(
+            AuthorizedTool::ReadFile,
+            tool_name,
+            args,
+            context,
+            "low",
+            "project_file_read",
+        ),
+        "write_file" => evaluate_write_file(tool_name, args, context),
+        "execute_command" => evaluate_command_tool(tool_name, args, context),
+        "ocr_image" => evaluate_path_tool(
+            AuthorizedTool::OcrImage,
+            tool_name,
+            args,
+            context,
+            "medium",
+            "project_image_ocr",
+        ),
+        name if name.starts_with("mcp__") => evaluate_mcp_tool(name, args, context),
         _ => Err(AppError::Message(format!("unknown tool: {tool_name}"))),
     }
 }
 
 fn decision(
+    authorized_tool: AuthorizedTool,
     tool_name: &str,
     risk: &str,
     requires_approval: bool,
     reason: &str,
     normalized_args: BTreeMap<String, String>,
-) -> ToolPolicyDecision {
-    ToolPolicyDecision {
+) -> PolicyDecision {
+    PolicyDecision {
+        authorized_tool,
         tool_name: tool_name.to_string(),
         risk: risk.to_string(),
         requires_approval,
         reason: reason.to_string(),
         normalized_args,
     }
+}
+
+fn evaluate_path_tool(
+    authorized_tool: AuthorizedTool,
+    tool_name: &str,
+    args: &BTreeMap<String, String>,
+    context: &ToolPolicyContext,
+    risk: &str,
+    reason: &str,
+) -> AppResult<PolicyDecision> {
+    let path = required_policy_arg(args, "path")?;
+    let normalized_path = validate_project_relative_path(&context.project_path, path)?;
+    let mut normalized_args = args.clone();
+    normalized_args.insert("path".to_string(), normalized_path);
+    Ok(decision(
+        authorized_tool,
+        tool_name,
+        risk,
+        true,
+        reason,
+        normalized_args,
+    ))
+}
+
+fn evaluate_write_file(
+    tool_name: &str,
+    args: &BTreeMap<String, String>,
+    context: &ToolPolicyContext,
+) -> AppResult<PolicyDecision> {
+    let path = required_policy_arg(args, "path")?;
+    let normalized_path = validate_project_relative_path(&context.project_path, path)?;
+    let risk = risk_for_write_path(&normalized_path);
+    let mut normalized_args = args.clone();
+    normalized_args.insert("path".to_string(), normalized_path);
+    Ok(decision(
+        AuthorizedTool::WriteFile,
+        tool_name,
+        risk,
+        true,
+        "project_file_write",
+        normalized_args,
+    ))
+}
+
+fn evaluate_command_tool(
+    tool_name: &str,
+    args: &BTreeMap<String, String>,
+    context: &ToolPolicyContext,
+) -> AppResult<PolicyDecision> {
+    if !context.allow_command {
+        return Err(AppError::Message(
+            "Bash Tool 技能已被禁用，请在设置中启用后再试。".to_string(),
+        ));
+    }
+    let command = required_policy_arg(args, "command")?;
+    let command_policy = evaluate_command(command)?;
+    let mut normalized_args = args.clone();
+    normalized_args.insert("command".to_string(), command.trim().to_string());
+    Ok(decision(
+        AuthorizedTool::ExecuteCommand,
+        tool_name,
+        command_policy.risk,
+        true,
+        command_policy.reason,
+        normalized_args,
+    ))
+}
+
+fn evaluate_mcp_tool(
+    tool_name: &str,
+    args: &BTreeMap<String, String>,
+    context: &ToolPolicyContext,
+) -> AppResult<PolicyDecision> {
+    let scope = parse_mcp_tool_scope(tool_name)?;
+    if !context.allowed_mcp_tools.contains(&scope) {
+        return Err(AppError::Message(format!(
+            "MCP 工具未连接或未授权: {} / {}",
+            scope.server_id, scope.tool_name
+        )));
+    }
+    let risk = risk_for_mcp_tool(&scope.tool_name);
+    Ok(decision(
+        AuthorizedTool::Mcp(scope),
+        tool_name,
+        risk,
+        true,
+        "mcp_tool_call_allowed",
+        args.clone(),
+    ))
 }
 
 fn required_policy_arg<'a>(args: &'a BTreeMap<String, String>, name: &str) -> AppResult<&'a str> {
@@ -492,6 +539,7 @@ mod tests {
             decision.normalized_args.get("path").map(String::as_str),
             Some("README.md")
         );
+        assert_eq!(decision.authorized_tool, AuthorizedTool::ReadFile);
     }
 
     #[test]
@@ -517,6 +565,7 @@ mod tests {
         .expect("readonly command should be allowed");
 
         assert_eq!(decision.risk, "medium");
+        assert_eq!(decision.authorized_tool, AuthorizedTool::ExecuteCommand);
     }
 
     #[test]
@@ -547,5 +596,25 @@ mod tests {
 
         assert_eq!(decision.risk, "external");
         assert!(decision.requires_approval);
+        assert_eq!(
+            decision.authorized_tool,
+            AuthorizedTool::Mcp(McpToolScope {
+                server_id: "server".to_string(),
+                tool_name: "tool".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn unknown_tools_cannot_receive_an_authorized_target() {
+        let root = test_project();
+        let result = evaluate_tool_call(
+            "new_tool_without_policy",
+            &BTreeMap::new(),
+            &context(&root, true),
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unknown tool"));
     }
 }

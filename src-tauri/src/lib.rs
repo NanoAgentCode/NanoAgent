@@ -1759,17 +1759,21 @@ async fn execute_registered_tool(
             allowed_mcp_tools,
         ),
     )?;
-    let args = policy_decision.normalized_args;
+    let tool_policy::PolicyDecision {
+        authorized_tool,
+        normalized_args: args,
+        ..
+    } = policy_decision;
 
-    match tool_call.name.as_str() {
-        "read_file" => {
+    match authorized_tool {
+        tool_policy::AuthorizedTool::ReadFile => {
             let relative_path = required_tool_arg(&args, "path")?;
             let content = read_project_text(project_path, relative_path)?;
             Ok(format!(
                 "读取文件 {relative_path} 成功，内容如下：\n\n```\n{content}\n```"
             ))
         }
-        "write_file" => {
+        tool_policy::AuthorizedTool::WriteFile => {
             let relative_path = required_tool_arg(&args, "path")?;
             let content = required_tool_arg(&args, "content")?;
             write_project_text(project_path, relative_path, content)?;
@@ -1778,7 +1782,7 @@ async fn execute_registered_tool(
                 content.chars().count()
             ))
         }
-        "execute_command" => {
+        tool_policy::AuthorizedTool::ExecuteCommand => {
             let command = required_tool_arg(&args, "command")?;
             let root = project_root(project_path)?;
             let output = shell::run_project_command(&root, command, tavily_api_key).await?;
@@ -1786,7 +1790,7 @@ async fn execute_registered_tool(
                 "命令执行成功，输出结果如下：\n\n```\n{output}\n```"
             ))
         }
-        "ocr_image" => {
+        tool_policy::AuthorizedTool::OcrImage => {
             let relative_path = required_tool_arg(&args, "path")?;
             let output_format = args
                 .get("output_format")
@@ -1798,8 +1802,9 @@ async fn execute_registered_tool(
                 "OCR 识别完成（PP-OCRv6 small），图片：{relative_path}\n\n```text\n{output}\n```"
             ))
         }
-        name if name.starts_with("mcp__") => {
-            let (server_id, tool_name) = parse_mcp_tool_name(name)?;
+        tool_policy::AuthorizedTool::Mcp(scope) => {
+            let server_id = scope.server_id;
+            let tool_name = scope.tool_name;
             let arguments_json = args.get("arguments").cloned().unwrap_or_else(|| {
                 serde_json::to_string(&args).unwrap_or_else(|_| "{}".to_string())
             });
@@ -1848,28 +1853,7 @@ async fn execute_registered_tool(
                 result.content_json
             ))
         }
-        _ => Err(crate::error::AppError::Message(format!(
-            "unknown tool: {}",
-            tool_call.name
-        ))),
     }
-}
-
-fn parse_mcp_tool_name(name: &str) -> AppResult<(String, String)> {
-    let rest = name
-        .strip_prefix("mcp__")
-        .ok_or_else(|| crate::error::AppError::Message("invalid mcp tool name".to_string()))?;
-    let (server_id, tool_name) = rest.split_once("__").ok_or_else(|| {
-        crate::error::AppError::Message(
-            "mcp tool name must be mcp__server_id__tool_name".to_string(),
-        )
-    })?;
-    if server_id.trim().is_empty() || tool_name.trim().is_empty() {
-        return Err(crate::error::AppError::Message(
-            "mcp tool name must include server id and tool name".to_string(),
-        ));
-    }
-    Ok((server_id.to_string(), tool_name.to_string()))
 }
 
 fn required_tool_arg<'a>(
