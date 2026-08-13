@@ -11,6 +11,11 @@ body {
   font-family: var(--font-sans);
 }
 
+#root,
+#root * {
+  font-weight: var(--font-weight-regular) !important;
+}
+
 /* Custom Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
