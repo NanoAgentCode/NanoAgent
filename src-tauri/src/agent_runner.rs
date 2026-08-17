@@ -1,19 +1,10 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
+use crate::core::plugin::PluginRegistry;
 use crate::error::{AppError, AppResult};
-use crate::tool_policy;
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AgentToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub risk: String,
-    pub requires_approval: bool,
-    pub parameters_json: String,
-}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentModelOutputResolution {
@@ -41,67 +32,10 @@ pub struct ParsedToolCall {
     pub args: BTreeMap<String, String>,
 }
 
-pub fn tool_definitions() -> Vec<AgentToolDefinition> {
-    tool_policy::built_in_tool_policies()
-        .into_iter()
-        .map(|policy| AgentToolDefinition {
-            name: policy.name.to_string(),
-            description: policy.description.to_string(),
-            risk: policy.risk.to_string(),
-            requires_approval: policy.requires_approval,
-            parameters_json: tool_parameters_json(policy.name).to_string(),
-        })
-        .collect()
-}
-
-fn tool_parameters_json(name: &str) -> Value {
-    match name {
-        "read_file" => json!({
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": { "type": "string", "description": "Project-relative file path." }
-            }
-        }),
-        "write_file" => json!({
-            "type": "object",
-            "required": ["path", "content"],
-            "properties": {
-                "path": { "type": "string", "description": "Project-relative file path." },
-                "content": { "type": "string", "description": "Complete file contents to write." }
-            }
-        }),
-        "execute_command" => json!({
-            "type": "object",
-            "required": ["command"],
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Command line to execute. On Windows, NanoAgent automatically runs obvious PowerShell syntax with PowerShell and obvious cmd syntax with cmd.exe."
-                }
-            }
-        }),
-        "ocr_image" => json!({
-            "type": "object",
-            "required": ["path"],
-            "properties": {
-                "path": { "type": "string", "description": "Project-relative image path." },
-                "output_format": {
-                    "type": "string",
-                    "enum": ["text", "raw"],
-                    "description": "Return compact recognized text or raw PaddleOCR output. Defaults to text."
-                }
-            }
-        }),
-        _ => json!({ "type": "object" }),
-    }
-}
-
-pub fn is_known_tool(name: &str) -> bool {
-    tool_definitions().iter().any(|tool| tool.name == name) || name.starts_with("mcp__")
-}
-
-pub fn parse_tool_call(content: &str) -> AppResult<Option<ParsedToolCall>> {
+pub fn parse_tool_call(
+    plugins: &PluginRegistry,
+    content: &str,
+) -> AppResult<Option<ParsedToolCall>> {
     let Some(open_start) = content.find("<tool_call") else {
         return Ok(None);
     };
@@ -112,7 +46,7 @@ pub fn parse_tool_call(content: &str) -> AppResult<Option<ParsedToolCall>> {
     let open_tag = &content[open_start..=open_end];
     let name = parse_name_attribute(open_tag)
         .ok_or_else(|| AppError::Message("tool_call missing name attribute".to_string()))?;
-    if !is_known_tool(&name) {
+    if !plugins.owns_agent_tool(&name) {
         return Err(AppError::Message(format!("unknown tool: {name}")));
     }
 
@@ -124,7 +58,7 @@ pub fn parse_tool_call(content: &str) -> AppResult<Option<ParsedToolCall>> {
         .ok_or_else(|| AppError::Message("tool_call closing tag is missing".to_string()))?;
     let body = &content[body_start..body_end];
     let args = parse_arg_tags(body);
-    validate_tool_args(&name, &args)?;
+    plugins.validate_agent_tool_args(&name, &args)?;
 
     Ok(Some(ParsedToolCall { name, args }))
 }
@@ -148,32 +82,6 @@ pub fn parse_args_json(args_json: &str) -> AppResult<BTreeMap<String, String>> {
 
 pub fn args_to_json(args: &BTreeMap<String, String>) -> AppResult<String> {
     serde_json::to_string(args).map_err(AppError::from)
-}
-
-pub fn validate_tool_args(name: &str, args: &BTreeMap<String, String>) -> AppResult<()> {
-    match name {
-        "read_file" => require_arg(args, "path").map(|_| ()),
-        "write_file" => {
-            require_arg(args, "path")?;
-            require_arg(args, "content")?;
-            Ok(())
-        }
-        "execute_command" => require_arg(args, "command").map(|_| ()),
-        "ocr_image" => {
-            require_arg(args, "path")?;
-            if let Some(output_format) = args.get("output_format") {
-                let output_format = output_format.trim();
-                if !output_format.is_empty() && output_format != "text" && output_format != "raw" {
-                    return Err(AppError::Message(
-                        "ocr_image output_format must be text or raw".to_string(),
-                    ));
-                }
-            }
-            Ok(())
-        }
-        name if name.starts_with("mcp__") => Ok(()),
-        _ => Err(AppError::Message(format!("unknown tool: {name}"))),
-    }
 }
 
 pub fn summarize(content: &str, max_chars: usize) -> String {
@@ -231,11 +139,4 @@ fn parse_arg_tags(body: &str) -> BTreeMap<String, String> {
         cursor = value_end + close_tag.len();
     }
     args
-}
-
-fn require_arg<'a>(args: &'a BTreeMap<String, String>, name: &str) -> AppResult<&'a str> {
-    args.get(name)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| AppError::Message(format!("missing tool argument: {name}")))
 }

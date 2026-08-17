@@ -1,17 +1,7 @@
-import {
-  Activity, Archive, Bot, Brain, Cpu, Monitor, Settings, Sparkles, Sun
-} from "lucide-react";
+import { Settings } from "lucide-react";
 import { Group, Modal, NavLink, Text, ThemeIcon } from "@mantine/core";
-import SettingsThemeTab from "./SettingsThemeTab";
-import SettingsMemoryTab from "./SettingsMemoryTab";
-import SettingsArchiveTab from "./SettingsArchiveTab";
-import SettingsModelTab from "./SettingsModelTab";
-import SettingsEmbeddingTab from "./SettingsEmbeddingTab";
-import SettingsSkillsTab from "./SettingsSkillsTab";
-import SettingsObservabilityTab from "./SettingsObservabilityTab";
-import SettingsMcpTab from "./SettingsMcpTab";
-import SettingsEnvironmentTab from "./SettingsEnvironmentTab";
 import type { Conversation, ThemeMode, SettingsTab, PersistedMessage } from "../../types";
+import type { AppPluginRegistry, SettingsPluginContext } from "../../core/plugins";
 import type { UseWorkspaceReturn } from "../../hooks/useWorkspace";
 import type { UseMemoryReturn } from "../../hooks/useMemory";
 import type { UseModelReturn } from "../../hooks/useModel";
@@ -21,6 +11,7 @@ import type { UseEnvReturn } from "../../hooks/useEnv";
 import type { UseObservabilityReturn } from "../../hooks/useObservability";
 
 interface SettingsModalProps {
+  plugins: AppPluginRegistry;
   showModelConfig: boolean;
   setShowModelConfig: (show: boolean) => void;
   activeSettingsTab: SettingsTab;
@@ -44,6 +35,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({
+  plugins,
   showModelConfig,
   setShowModelConfig,
   activeSettingsTab,
@@ -65,6 +57,27 @@ export default function SettingsModal({
   handleRestoreConversation,
   handleDeleteArchivedConversation
 }: SettingsModalProps) {
+  const context: SettingsPluginContext = {
+    close: () => setShowModelConfig(false),
+    themeMode,
+    setThemeMode,
+    workspace,
+    memory,
+    workspaceRef,
+    model,
+    skills,
+    mcp,
+    env,
+    obs,
+    archivedConversations,
+    previewArchivedId,
+    previewMessages,
+    loadArchivedPreview,
+    handleRestoreConversation,
+    handleDeleteArchivedConversation
+  };
+  const activeContribution = plugins.findSettings(activeSettingsTab) ?? plugins.settings[0];
+
   return (
     <Modal
       opened={showModelConfig}
@@ -85,82 +98,25 @@ export default function SettingsModal({
     >
         <div className="settings-modal-layout">
           <aside className="settings-sidebar">
-            <NavLink
-              active={activeSettingsTab === "theme"}
-              label="通用设置"
-              leftSection={<Sun size={16} />}
-              onClick={() => setActiveSettingsTab("theme")}
-            />
-            <NavLink
-              active={activeSettingsTab === "memory"}
-              label="记忆库"
-              leftSection={<Brain size={16} />}
-              onClick={() => { setActiveSettingsTab("memory"); workspace.handleKindChange("memory"); }}
-            />
-            <NavLink
-              active={activeSettingsTab === "model"}
-              label="LLM 管理"
-              leftSection={<Bot size={16} />}
-              onClick={() => setActiveSettingsTab("model")}
-            />
-            <NavLink
-              active={activeSettingsTab === "embedding"}
-              label="嵌入模型"
-              leftSection={<Cpu size={16} />}
-              onClick={() => { setActiveSettingsTab("embedding"); model.handleOpenEmbeddingConfig(); }}
-            />
-            <NavLink
-              active={activeSettingsTab === "archive"}
-              label="归档列表"
-              leftSection={<Archive size={16} />}
-              onClick={() => setActiveSettingsTab("archive")}
-            />
-            <NavLink
-              active={activeSettingsTab === "observability"}
-              label="链路追踪"
-              leftSection={<Activity size={16} />}
-              onClick={() => setActiveSettingsTab("observability")}
-            />
-            <NavLink
-              active={activeSettingsTab === "skills"}
-              label="Skills 管理"
-              leftSection={<Sparkles size={16} />}
-              onClick={() => setActiveSettingsTab("skills")}
-            />
-            <NavLink
-              active={activeSettingsTab === "mcp"}
-              label="MCP 配置"
-              leftSection={<Monitor size={16} />}
-              onClick={() => setActiveSettingsTab("mcp")}
-            />
-            <NavLink
-              active={activeSettingsTab === "environment"}
-              label="环境依赖"
-              leftSection={<Settings size={16} />}
-              onClick={() => setActiveSettingsTab("environment")}
-            />
+            {plugins.settings.map((contribution) => {
+              const Icon = contribution.icon;
+              return (
+                <NavLink
+                  key={contribution.id}
+                  active={activeContribution?.id === contribution.id}
+                  label={contribution.label}
+                  leftSection={<Icon size={16} />}
+                  onClick={() => {
+                    setActiveSettingsTab(contribution.id);
+                    contribution.onActivate?.(context);
+                  }}
+                />
+              );
+            })}
           </aside>
 
           <div className="settings-content">
-            {activeSettingsTab === "theme" && <SettingsThemeTab themeMode={themeMode} setThemeMode={setThemeMode} />}
-            {activeSettingsTab === "memory" && <SettingsMemoryTab workspace={workspace} memory={memory} workspaceRef={workspaceRef as React.Ref<HTMLElement>} />}
-            {activeSettingsTab === "archive" && (
-              <SettingsArchiveTab
-                archivedConversations={archivedConversations}
-                previewArchivedId={previewArchivedId}
-                previewMessages={previewMessages}
-                tempDir={skills.tempDir}
-                loadArchivedPreview={loadArchivedPreview}
-                handleRestoreConversation={handleRestoreConversation}
-                handleDeleteArchivedConversation={handleDeleteArchivedConversation}
-              />
-            )}
-            {activeSettingsTab === "model" && <SettingsModelTab model={model} setShowModelConfig={setShowModelConfig} />}
-            {activeSettingsTab === "embedding" && <SettingsEmbeddingTab model={model} />}
-            {activeSettingsTab === "skills" && <SettingsSkillsTab skills={skills} />}
-            {activeSettingsTab === "observability" && <SettingsObservabilityTab obs={obs} />}
-            {activeSettingsTab === "mcp" && <SettingsMcpTab mcp={mcp} />}
-            {activeSettingsTab === "environment" && <SettingsEnvironmentTab env={env} />}
+            {activeContribution?.render(context)}
           </div>
         </div>
     </Modal>

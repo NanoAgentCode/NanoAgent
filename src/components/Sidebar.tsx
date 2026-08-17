@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronRight, Database, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Server, Settings } from "lucide-react";
+import { ChevronDown, ChevronRight, Database, Folder, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Settings } from "lucide-react";
 import { ActionIcon, Button, Tooltip, UnstyledButton } from "@mantine/core";
 import type { Conversation, ProjectEntry } from "../types";
 import type { UseProjectsReturn } from "../hooks/useProjects";
+import type { MainViewContribution } from "../core/plugins";
 
 interface SidebarProps {
   projects: UseProjectsReturn;
@@ -13,8 +14,9 @@ interface SidebarProps {
   handleContextMenu: (e: React.MouseEvent, conversation: Conversation) => void;
   handleProjectContextMenu: (e: React.MouseEvent, project: ProjectEntry) => void;
   onOpenSettings: () => void;
-  activeMainView: "chat" | "ops";
-  onMainViewChange: (view: "chat" | "ops") => void;
+  activeMainView: string;
+  onMainViewChange: (view: string) => void;
+  pluginMainViews: readonly MainViewContribution[];
   isCollapsed: boolean;
   onToggleCollapsed: () => void;
 }
@@ -31,6 +33,7 @@ export default function Sidebar({
   onOpenSettings,
   activeMainView,
   onMainViewChange,
+  pluginMainViews,
   isCollapsed,
   onToggleCollapsed
 }: SidebarProps) {
@@ -239,14 +242,20 @@ export default function Sidebar({
       </div>
 
       <div className="sidebar-bottom-actions">
-        <UnstyledButton
-          className={activeMainView === "ops" ? "sidebar-bottom-item active" : "sidebar-bottom-item"}
-          onClick={() => onMainViewChange("ops")}
-          title={isCollapsed ? "服务器管理" : undefined}
-        >
-          <Server size={18} />
-          {!isCollapsed && <span>服务器管理</span>}
-        </UnstyledButton>
+        {pluginMainViews.map((view) => {
+          const Icon = view.icon;
+          return (
+            <UnstyledButton
+              key={view.id}
+              className={activeMainView === view.id ? "sidebar-bottom-item active" : "sidebar-bottom-item"}
+              onClick={() => onMainViewChange(view.id)}
+              title={isCollapsed ? view.label : undefined}
+            >
+              <Icon size={18} />
+              {!isCollapsed && <span>{view.label}</span>}
+            </UnstyledButton>
+          );
+        })}
         <UnstyledButton
           className="sidebar-bottom-item settings-entry"
           onClick={onOpenSettings}

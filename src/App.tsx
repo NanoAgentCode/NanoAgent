@@ -46,6 +46,7 @@ import ChatPane from "./components/ChatPane";
 import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import NotificationToast from "./components/NotificationToast";
 import { nanoTheme } from "./theme";
+import { appPlugins } from "./plugins/builtin";
 import { confirmAction } from "./lib/dialogs";
 import {
   getStoredCloseAction,
@@ -61,11 +62,8 @@ import type {
   SettingsTab
 } from "./types";
 
-type MainView = "chat" | "ops";
-
 const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
 
-const OpsPanel = lazy(() => import("./components/OpsPanel"));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal"));
 
 function App() {
@@ -76,7 +74,7 @@ function App() {
   const [notice, setNotice] = useState("");
   const [showModelConfig, setShowModelConfig] = useState(false);
   const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>("theme");
-  const [activeMainView, setActiveMainView] = useState<MainView>("chat");
+  const [activeMainView, setActiveMainView] = useState("chat");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
   });
@@ -164,6 +162,8 @@ function App() {
     return getStoredCloseSkipPrompt();
   });
   const closePromptOpenRef = useRef(false);
+  const activePluginView = appPlugins.findMainView(activeMainView);
+  const ActivePluginView = activePluginView?.component;
 
   const performCloseAction = useCallback(async (action: CloseAction) => {
     try {
@@ -467,6 +467,7 @@ function App() {
         onOpenSettings={() => model.handleOpenModelConfig(setShowModelConfig)}
         activeMainView={activeMainView}
         onMainViewChange={setActiveMainView}
+        pluginMainViews={appPlugins.mainViews}
         isCollapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
       />
@@ -622,6 +623,7 @@ function App() {
       {showModelConfig && (
         <Suspense fallback={null}>
           <SettingsModal
+            plugins={appPlugins}
             showModelConfig={showModelConfig}
             setShowModelConfig={setShowModelConfig}
             activeSettingsTab={activeSettingsTab}
@@ -646,9 +648,9 @@ function App() {
         </Suspense>
       )}
 
-      {activeMainView === "ops" ? (
+      {ActivePluginView ? (
         <Suspense fallback={null}>
-          <OpsPanel setNotice={setNotice} />
+          <ActivePluginView setNotice={setNotice} />
         </Suspense>
       ) : (
         <ChatPane

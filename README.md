@@ -110,10 +110,14 @@ temp/                              无项目上下文时的临时工作目录
 src/                           React + TypeScript 前端
 src/api.ts                     Tauri command 调用封装
 src/theme.ts                   Mantine 主题与组件默认配置
+src/core/plugins.tsx           前端插件契约与微内核注册表
+src/plugins/builtin.tsx        内置 UI 插件装配
 src/hooks/                     对话、模型、项目、RAG、MCP、Skills、Ops 等状态逻辑
 src/components/                聊天区、侧栏、设置页、观测面板、Ops 工作台等 UI
 src/lib/                       系统提示、工具解析、格式化和安全封装
 src-tauri/src/lib.rs           Tauri command 注册、应用状态和启动流程
+src-tauri/src/core/plugin.rs   后端插件契约、清单与 Agent 工具扩展点
+src-tauri/src/plugins.rs       内置后端插件装配
 src-tauri/src/db.rs            主业务 SQLite 数据访问
 src-tauri/src/code_index.rs    项目代码实体、关系和片段索引
 src-tauri/src/project_index.rs 项目文档片段索引与通用项目索引查询
@@ -134,5 +138,6 @@ docs/                          系统设计、运维和学习路线文档
 - 可点击资源：模型输出项目文件名或相对路径时，前端基于当前项目文件索引生成可点击链接；裸文件名只在能从项目索引解析时补全。
 - 项目优先检索：代码类问题优先使用代码实体/关系索引，文档和普通文件问题优先使用项目文档索引，再回退到普通文件列表或工具读取。
 - 用户审批：高风险工具调用必须先形成可见的 tool call，再由用户确认执行。
-- 可扩展：模型、MCP、Skills、观测 sink 和 Agent 工具都保留扩展边界。
+- 微内核：应用壳、状态、权限和能力调度保持稳定；主视图、设置页与 Agent 工具通过显式插件注册表扩展。
+- 可审计插件：插件随应用静态编译，启动时校验 ID/工具冲突，工具执行仍统一经过策略和用户审批。
 - 非阻塞观测：观测写入失败只记录错误，不阻断主业务流程。

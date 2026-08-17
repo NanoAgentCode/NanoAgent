@@ -1,5 +1,6 @@
 mod agent_runner;
 mod code_index;
+mod core;
 mod db;
 mod error;
 mod file_content;
@@ -8,6 +9,7 @@ mod logging;
 mod mcp;
 mod models;
 mod observability;
+mod plugins;
 mod project_files;
 mod project_index;
 mod rag;
@@ -27,11 +29,10 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use agent_runner::{
-    AgentModelOutputResolution, AgentToolDefinition, AgentToolExecution, AgentToolExecutionRequest,
-};
+use agent_runner::{AgentModelOutputResolution, AgentToolExecution, AgentToolExecutionRequest};
 use base64::Engine as _;
 use chrono::Utc;
+use core::plugin::{AgentToolDefinition, PluginManifest, PluginRegistry};
 use db::Database;
 use error::AppResult;
 use llm::{send_chat_completion, send_chat_completion_stream};
@@ -73,6 +74,7 @@ pub(crate) struct AppState {
     observability: Mutex<ObservabilityPipeline>,
     runtime: Mutex<RuntimeStore>,
     mcp: Mutex<McpClientManager>,
+    plugins: PluginRegistry,
     ops_ssh_sessions: Mutex<HashMap<String, OpsSshSessionHandle>>,
 }
 
@@ -1591,8 +1593,15 @@ async fn reject_agent_tool_call(
 }
 
 #[tauri::command]
-async fn list_agent_tool_definitions() -> AppResult<Vec<AgentToolDefinition>> {
-    Ok(agent_runner::tool_definitions())
+async fn list_plugins(state: State<'_, AppState>) -> AppResult<Vec<PluginManifest>> {
+    Ok(state.plugins.manifests())
+}
+
+#[tauri::command]
+async fn list_agent_tool_definitions(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<AgentToolDefinition>> {
+    Ok(state.plugins.agent_tool_definitions())
 }
 
 #[tauri::command]
@@ -1604,7 +1613,7 @@ async fn resolve_agent_model_output(
     step_kind: Option<String>,
     input_summary: Option<String>,
 ) -> AppResult<AgentModelOutputResolution> {
-    let parsed = match agent_runner::parse_tool_call(&content) {
+    let parsed = match agent_runner::parse_tool_call(&state.plugins, &content) {
         Ok(parsed) => parsed,
         Err(err) => {
             let runtime = state.runtime.lock().await;
@@ -1744,7 +1753,9 @@ async fn execute_registered_tool(
     tavily_api_key: Option<&str>,
 ) -> AppResult<String> {
     let args = agent_runner::parse_args_json(&tool_call.args_json)?;
-    agent_runner::validate_tool_args(&tool_call.name, &args)?;
+    state
+        .plugins
+        .validate_agent_tool_args(&tool_call.name, &args)?;
     let allowed_mcp_tools = if tool_call.name.starts_with("mcp__") {
         state.mcp.lock().await.allowed_tool_scopes()
     } else {
@@ -2877,11 +2888,14 @@ pub fn run() {
                 }
             };
 
+            let plugins = plugins::built_in_registry().map_err(|err| err.to_string())?;
+
             app.manage(AppState {
                 db: Mutex::new(db),
                 observability: Mutex::new(observability),
                 runtime: Mutex::new(runtime),
                 mcp: Mutex::new(McpClientManager::default()),
+                plugins,
                 ops_ssh_sessions: Mutex::new(HashMap::new()),
             });
             Ok(())
@@ -2959,6 +2973,7 @@ pub fn run() {
             approve_agent_tool_call,
             reject_agent_tool_call,
             list_agent_tool_definitions,
+            list_plugins,
             resolve_agent_model_output,
             execute_agent_tool_call,
             check_env,

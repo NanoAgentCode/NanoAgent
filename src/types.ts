@@ -513,6 +513,13 @@ export interface AgentToolExecution {
   result_text: string;
 }
 
+export interface BackendPluginManifest {
+  id: string;
+  name: string;
+  version: string;
+  capabilities: string[];
+}
+
 export interface AgentEventLogEntry {
   id: string;
   run_id: string;
@@ -548,13 +555,4 @@ export interface AgentRunTimeline {
 
 export type WorkspaceView = ItemKind | "all" | "memory";
 export type ThemeMode = "system" | "light" | "dark";
-export type SettingsTab =
-  | "memory"
-  | "theme"
-  | "archive"
-  | "model"
-  | "embedding"
-  | "skills"
-  | "mcp"
-  | "observability"
-  | "environment";
+export type SettingsTab = string;

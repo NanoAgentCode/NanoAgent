@@ -36,6 +36,7 @@ import type {
   AgentToolCall,
   AgentToolCallDraft,
   AgentToolDefinition,
+  BackendPluginManifest,
   AgentModelOutputResolution,
   AgentToolExecution,
   AgentToolExecutionRequest,
@@ -510,6 +511,10 @@ export function rejectAgentToolCall(id: string, reason?: string | null) {
 
 export function listAgentToolDefinitions() {
   return invoke<AgentToolDefinition[]>("list_agent_tool_definitions");
+}
+
+export function listPlugins() {
+  return invoke<BackendPluginManifest[]>("list_plugins");
 }
 
 export function resolveAgentModelOutput(
