@@ -106,7 +106,8 @@
 .settings-tab-content .model-config-list {
   border-top: 0; border-bottom: 0; border-left: 0; max-height: none;
 }
-.settings-tab-content .model-config-form { overflow-y: auto; }
+.settings-tab-content .model-config-form { min-height: 0; overflow-y: auto; }
+.settings-tab-content .llm-config-grid .model-config-form { overflow: hidden; }
 .model-config-row-flex { display: flex; align-items: center; gap: 10px; }
 .theme-section { display: grid; gap: 14px; margin-top: 6px; }
 .theme-switcher { display: flex; gap: 8px; }

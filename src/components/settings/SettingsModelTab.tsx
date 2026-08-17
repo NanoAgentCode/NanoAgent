@@ -76,9 +76,9 @@ export default function SettingsModelTab({ model, setShowModelConfig }: Settings
               onChange={(value) => value && model.handleProviderChange(value)}
               allowDeselect={false}
             />
-            <TextInput label="接口地址" value={model.modelDraft.base_url} onChange={(event) => model.setModelDraft({ ...model.modelDraft, base_url: event.currentTarget.value })} placeholder="https://api.openai.com/v1" />
-            <TextInput label="模型标识" value={model.modelDraft.model} onChange={(event) => model.setModelDraft({ ...model.modelDraft, model: event.currentTarget.value })} placeholder="gpt-4o-mini" />
-            <PasswordInput label="API Key" value={model.modelDraft.api_key} onChange={(event) => model.setModelDraft({ ...model.modelDraft, api_key: event.currentTarget.value })} placeholder="用于对话模型调用" />
+            <TextInput className="model-field--wide" label="接口地址" value={model.modelDraft.base_url} onChange={(event) => model.setModelDraft({ ...model.modelDraft, base_url: event.currentTarget.value })} placeholder="https://api.openai.com/v1" />
+            <TextInput className="model-field--wide" label="模型标识" value={model.modelDraft.model} onChange={(event) => model.setModelDraft({ ...model.modelDraft, model: event.currentTarget.value })} placeholder="gpt-4o-mini" />
+            <PasswordInput className="model-field--wide" label="API Key" value={model.modelDraft.api_key} onChange={(event) => model.setModelDraft({ ...model.modelDraft, api_key: event.currentTarget.value })} placeholder="用于对话模型调用" />
           </div>
           <div className="modal-actions icon-actions icon-actions-bar">
             {model.llmTestStatus.status === "success" && (
