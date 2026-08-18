@@ -1,5 +1,5 @@
 use std::env;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use uuid::Uuid;
@@ -10,7 +10,7 @@ use crate::error::{AppError, AppResult};
 use crate::llm::stream_chat_completion;
 use crate::models::{
     ChatMessage, ChatStreamEvent, ChatStreamRequest, Conversation, ConversationDraft, MessageDraft,
-    ModelConfig,
+    ModelConfig, ModelConfigDraft,
 };
 use crate::project_files::{list_project_files, project_root};
 use crate::project_index::{build_document_index, DOCUMENT_INDEXER};
@@ -20,6 +20,79 @@ const EMBEDDING_CONFIG_ID: &str = "embedding-config";
 const CODE_MATCH_LIMIT: i64 = 8;
 const DOCUMENT_MATCH_LIMIT: i64 = 6;
 const MAX_HISTORY_MESSAGES: usize = 20;
+
+const ANSI_RESET: &str = "\x1b[0m";
+const ANSI_BOLD_CYAN: &str = "\x1b[1;36m";
+const ANSI_BOLD_GREEN: &str = "\x1b[1;32m";
+const ANSI_BOLD_RED: &str = "\x1b[1;31m";
+const ANSI_BLUE: &str = "\x1b[34m";
+const ANSI_CYAN: &str = "\x1b[36m";
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_YELLOW: &str = "\x1b[33m";
+const ANSI_DIM: &str = "\x1b[2m";
+
+#[derive(Clone, Copy)]
+struct CliTheme {
+    enabled: bool,
+}
+
+impl CliTheme {
+    fn stdout() -> Self {
+        Self::new(io::stdout().is_terminal())
+    }
+
+    fn stderr() -> Self {
+        Self::new(io::stderr().is_terminal())
+    }
+
+    fn new(is_terminal: bool) -> Self {
+        Self {
+            enabled: is_terminal
+                && env::var_os("NO_COLOR").is_none()
+                && env::var("TERM").map_or(true, |term| term != "dumb"),
+        }
+    }
+
+    fn paint(self, text: impl AsRef<str>, color: &str) -> String {
+        if self.enabled {
+            format!("{color}{}{ANSI_RESET}", text.as_ref())
+        } else {
+            text.as_ref().to_string()
+        }
+    }
+
+    fn brand(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_BOLD_CYAN)
+    }
+
+    fn prompt(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_BOLD_GREEN)
+    }
+
+    fn error(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_BOLD_RED)
+    }
+
+    fn label(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_BLUE)
+    }
+
+    fn success(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_GREEN)
+    }
+
+    fn command(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_YELLOW)
+    }
+
+    fn accent(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_CYAN)
+    }
+
+    fn muted(self, text: impl AsRef<str>) -> String {
+        self.paint(text, ANSI_DIM)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SessionMode {
@@ -62,7 +135,8 @@ pub fn run() -> i32 {
     let options = match parse_args(env::args().skip(1)) {
         Ok(options) => options,
         Err(err) => {
-            eprintln!("nano: {err}\n");
+            print_error(&err);
+            eprintln!();
             print_help();
             return 2;
         }
@@ -83,7 +157,7 @@ pub fn run() -> i32 {
     {
         Ok(runtime) => runtime,
         Err(err) => {
-            eprintln!("nano: 无法启动异步运行时: {err}");
+            print_error(&format!("无法启动异步运行时: {err}"));
             return 1;
         }
     };
@@ -91,7 +165,7 @@ pub fn run() -> i32 {
     match runtime.block_on(run_session(options)) {
         Ok(()) => 0,
         Err(err) => {
-            eprintln!("nano: {err}");
+            print_error(&err.to_string());
             1
         }
     }
@@ -202,12 +276,7 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
         None => Vec::new(),
     };
 
-    let models = chat_models(&db)?;
-    if models.is_empty() {
-        return Err(AppError::Message(
-            "没有可用的聊天模型，请先在 NanoAgent 桌面端的设置中添加模型".to_string(),
-        ));
-    }
+    let models = ensure_chat_models(&db, configure_initial_model)?;
     let saved_model_id = resumed_conversation
         .as_ref()
         .and_then(|conversation| conversation.model_config_id.as_deref());
@@ -247,7 +316,7 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
     loop {
-        print!("nano> ");
+        print!("{} ", CliTheme::stdout().prompt("nano>"));
         io::stdout().flush()?;
         let Some(line) = lines.next() else {
             println!();
@@ -268,9 +337,9 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
             history.clear();
             if project.is_some() {
                 conversation_id = None;
-                println!("已结束当前会话，下一条消息将创建新项目会话。");
+                print_success("已结束当前会话，下一条消息将创建新项目会话。");
             } else {
-                println!("已清空当前临时上下文。");
+                print_success("已清空当前临时上下文。");
             }
             continue;
         }
@@ -285,9 +354,12 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
                     if let Some(id) = conversation_id.as_deref() {
                         db.update_conversation_model(id, Some(&active_model.id))?;
                     }
-                    println!("已切换到 {} ({})", active_model.name, active_model.model);
+                    print_success(&format!(
+                        "已切换到 {} ({})",
+                        active_model.name, active_model.model
+                    ));
                 }
-                Err(err) => eprintln!("nano: {err}"),
+                Err(err) => print_error(&err.to_string()),
             }
             continue;
         }
@@ -303,7 +375,7 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
         )
         .await
         {
-            eprintln!("nano: {err}");
+            print_error(&err.to_string());
         }
     }
     Ok(())
@@ -369,6 +441,115 @@ fn chat_models(db: &Database) -> AppResult<Vec<ModelConfig>> {
         .collect())
 }
 
+fn ensure_chat_models<F>(db: &Database, configure: F) -> AppResult<Vec<ModelConfig>>
+where
+    F: FnOnce(&Database) -> AppResult<ModelConfig>,
+{
+    let models = chat_models(db)?;
+    if !models.is_empty() {
+        return Ok(models);
+    }
+    configure(db)?;
+    chat_models(db)
+}
+
+fn configure_initial_model(db: &Database) -> AppResult<ModelConfig> {
+    if !io::stdin().is_terminal() {
+        return Err(AppError::Message(
+            "尚未配置聊天模型。请在交互式终端运行 nano 完成首次配置，或在 NanoAgent 桌面端的“设置 > 模型”中添加模型"
+                .to_string(),
+        ));
+    }
+
+    let theme = CliTheme::stdout();
+    println!("{}", theme.brand("◆ NanoAgent 首次配置"));
+    println!(
+        "{}",
+        theme.muted("尚未发现聊天模型。完成下面几项配置后即可开始使用。")
+    );
+    println!();
+
+    let provider_choice = loop {
+        println!("  {}", theme.label("模型协议"));
+        println!("    {}  OpenAI 兼容协议", theme.command("1"));
+        println!("    {}  Anthropic 兼容协议", theme.command("2"));
+        let value = prompt_line(&theme, "请选择", Some("1"))?;
+        match value.as_str() {
+            "1" => break "openai-compatible",
+            "2" => break "anthropic",
+            _ => println!("  {} 请输入 1 或 2。", theme.command("!")),
+        }
+    };
+    let (default_name, default_url, default_model) = match provider_choice {
+        "anthropic" => (
+            "Anthropic",
+            "https://api.anthropic.com",
+            "claude-3-5-sonnet-latest",
+        ),
+        _ => ("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini"),
+    };
+    let name = prompt_line(&theme, "配置名称", Some(default_name))?;
+    let base_url = prompt_line(&theme, "接口地址", Some(default_url))?;
+    let model = prompt_line(&theme, "模型名称", Some(default_model))?;
+    let api_key = loop {
+        let prompt = format!("  {} ", theme.prompt("API Key（隐藏输入）:"));
+        let value = rpassword::prompt_password(prompt)
+            .map_err(|err| AppError::Message(format!("读取 API Key 失败: {err}")))?;
+        let value = value.trim().to_string();
+        if !value.is_empty() || base_url.contains("localhost") {
+            break value;
+        }
+        println!("  {} 远程模型需要填写 API Key。", theme.command("!"));
+    };
+
+    let config = db.save_model_config(ModelConfigDraft {
+        id: None,
+        name,
+        provider: provider_choice.to_string(),
+        base_url,
+        model,
+        api_key,
+        embedding_provider: String::new(),
+        embedding_base_url: String::new(),
+        embedding_model: String::new(),
+        embedding_api_key: String::new(),
+    })?;
+    println!();
+    println!(
+        "{} {} ({})",
+        theme.success("✓ 模型配置已保存："),
+        config.name,
+        config.model
+    );
+    println!();
+    Ok(config)
+}
+
+fn prompt_line(theme: &CliTheme, label: &str, default: Option<&str>) -> AppResult<String> {
+    match default {
+        Some(default) => print!(
+            "  {} {} ",
+            theme.prompt(&format!("{label}:")),
+            theme.muted(&format!("[{default}]"))
+        ),
+        None => print!("  {} ", theme.prompt(&format!("{label}:"))),
+    }
+    io::stdout().flush()?;
+    let mut value = String::new();
+    let read = io::stdin().read_line(&mut value)?;
+    if read == 0 {
+        return Err(AppError::Message("首次配置已取消".to_string()));
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        default
+            .map(str::to_string)
+            .ok_or_else(|| AppError::Message(format!("{label}不能为空")))
+    } else {
+        Ok(value.to_string())
+    }
+}
+
 fn resolve_model(models: &[ModelConfig], selector: Option<&str>) -> AppResult<ModelConfig> {
     let selected = match selector.map(str::trim).filter(|value| !value.is_empty()) {
         None => models.first(),
@@ -400,14 +581,14 @@ fn resolve_session_model(
         if let Some(model) = models.iter().find(|model| model.id == saved_model_id) {
             return Ok(model.clone());
         }
-        eprintln!("nano: 已保存的模型配置不存在，已切换到默认模型");
+        print_warning("已保存的模型配置不存在，已切换到默认模型");
     }
     resolve_model(models, None)
 }
 
 fn rebuild_project_indexes(db: &Database, root: &Path) -> AppResult<()> {
     let canonical = root.to_string_lossy().to_string();
-    eprintln!("nano: 正在索引项目 {}", display_project_path(root));
+    print_status(&format!("正在索引项目 {}", display_project_path(root)));
     let code = build_project_code_index(root, &canonical)?;
     db.replace_code_index(
         &canonical,
@@ -425,7 +606,7 @@ fn rebuild_project_indexes(db: &Database, root: &Path) -> AppResult<()> {
         &documents.chunks,
         None,
     )?;
-    eprintln!("nano: 项目索引已就绪");
+    print_status("项目索引已就绪");
     Ok(())
 }
 
@@ -477,7 +658,7 @@ async fn ask(
     };
     let mut answer = String::new();
     let mut stream_error = None;
-    print!("\nnano: ");
+    print!("\n{} ", CliTheme::stdout().brand("nano:"));
     io::stdout().flush()?;
     stream_chat_completion(model.clone(), request, |event| {
         match event {
@@ -653,39 +834,65 @@ fn print_banner(
     project: Option<&Path>,
     resumed_conversation: Option<&Conversation>,
 ) {
-    println!("Nano CLI · {} ({})", model.name, model.model);
+    let theme = CliTheme::stdout();
+    println!(
+        "{} {}",
+        theme.brand("◆ Nano CLI"),
+        theme.accent(&format!("· {} ({})", model.name, model.model))
+    );
     match project {
         Some(path) => {
-            println!("项目：{}", display_project_path(path));
+            println!("{} {}", theme.label("项目："), display_project_path(path));
             match resumed_conversation {
                 Some(conversation) => println!(
-                    "会话：已恢复 {} · {}",
-                    short_session_id(&conversation.id),
-                    conversation.title
+                    "{} {} {} · {}",
+                    theme.label("会话："),
+                    theme.success("已恢复"),
+                    theme.command(short_session_id(&conversation.id)),
+                    conversation.title,
                 ),
-                None => println!("会话：新会话（首次发送消息时保存）"),
+                None => println!(
+                    "{} {}",
+                    theme.label("会话："),
+                    "新会话（首次发送消息时保存）"
+                ),
             }
         }
-        None => println!("模式：普通临时对话（不保存会话）"),
+        None => println!("{} {}", theme.label("模式："), "普通临时对话（不保存会话）"),
     }
-    println!("输入 /help 查看命令，/exit 退出。\n");
+    println!(
+        "{}\n",
+        theme.muted(&format!(
+            "输入 {} 查看命令，{} 退出。",
+            theme.command("/help"),
+            theme.command("/exit")
+        ))
+    );
 }
 
 fn print_sessions(sessions: &[Conversation]) {
+    let theme = CliTheme::stdout();
     if sessions.is_empty() {
-        println!("当前项目没有可恢复的会话。");
+        println!("{} 当前项目没有可恢复的会话。", theme.command("!"));
         return;
     }
-    println!("当前项目可恢复会话：");
+    println!("{}", theme.brand("当前项目可恢复会话"));
     for session in sessions {
         println!(
             "{}  {}  {}",
-            short_session_id(&session.id),
-            session.updated_at.format("%Y-%m-%d %H:%M"),
+            theme.command(short_session_id(&session.id)),
+            theme.muted(session.updated_at.format("%Y-%m-%d %H:%M").to_string()),
             session.title
         );
     }
-    println!("\n使用 nano --resume <会话ID> 恢复，或 nano --continue 恢复最近会话。");
+    println!(
+        "\n{}",
+        theme.muted(&format!(
+            "使用 {} 恢复，或 {} 恢复最近会话。",
+            theme.command("nano --resume <会话ID>"),
+            theme.command("nano --continue")
+        ))
+    );
 }
 
 fn short_session_id(id: &str) -> &str {
@@ -711,27 +918,108 @@ fn display_project_path(path: &Path) -> String {
 }
 
 fn print_models(models: &[ModelConfig], active: &ModelConfig) {
+    let theme = CliTheme::stdout();
     for model in models {
-        let marker = if model.id == active.id { "*" } else { " " };
+        let marker = if model.id == active.id {
+            theme.success("●")
+        } else {
+            theme.muted("○")
+        };
         println!(
             "{marker} {} · {} · id={}",
-            model.name, model.model, model.id
+            model.name,
+            theme.accent(&model.model),
+            theme.muted(&model.id)
         );
     }
 }
 
 fn print_interactive_help() {
-    println!("/help          显示交互命令");
-    println!("/clear         清空当前进程内的对话上下文");
-    println!("/model         查看可用模型");
-    println!("/model <名称>  切换模型（也可使用模型 ID 或模型名）");
-    println!("/exit          退出 nano");
+    let theme = CliTheme::stdout();
+    println!("{}", theme.brand("交互命令"));
+    for (command, description) in [
+        ("/help", "显示交互命令"),
+        ("/clear", "结束当前项目会话或清空临时上下文"),
+        ("/model", "查看可用模型"),
+        ("/model <名称>", "按配置名称、模型名或 ID 切换模型"),
+        ("/exit", "退出 nano"),
+    ] {
+        println!(
+            "  {} {}",
+            theme.command(format!("{command:<18}")),
+            description
+        );
+    }
 }
 
 fn print_help() {
-    println!(
-        "NanoAgent 终端交互客户端\n\n用法:\n  nano [选项] [问题]\n\n默认行为:\n  在当前目录启动项目问答，并将项目会话保存到 NanoAgent 本地数据库。\n\n选项:\n  -C, --project <目录>  指定项目目录\n      --temp            启动不绑定项目、不保存历史的临时对话\n      --continue        恢复当前项目最近会话\n      --resume <会话ID> 恢复当前项目指定会话（支持唯一前缀）\n      --sessions        列出当前项目可恢复会话\n  -p, --prompt <问题>   单次提问后退出\n  -m, --model <模型>    按名称、模型名或 ID 选择模型\n      --no-index        使用已有项目索引，不在启动时重建\n      --data-dir <目录> 覆盖 NanoAgent 应用数据目录\n  -h, --help            显示帮助\n  -V, --version         显示版本\n\n示例:\n  nano\n  nano --continue\n  nano --sessions\n  nano --resume 1234abcd\n  nano --project D:\\workspace\\demo --continue\n  nano --temp\n  nano -p \"这个项目的启动入口在哪里？\"\n  nano --temp -p \"帮我写一个周报提纲\""
-    );
+    let theme = CliTheme::stdout();
+    println!("{}", theme.brand("◆ NanoAgent 终端交互客户端"));
+    println!();
+    println!("{}", theme.label("用法"));
+    println!("  {}", theme.command("nano [选项] [问题]"));
+    println!();
+    println!("{}", theme.label("默认行为"));
+    println!("  在当前目录启动项目问答，并将项目会话保存到 NanoAgent 本地数据库。");
+    println!("  首次使用且没有聊天模型时，将引导完成模型配置。");
+    println!();
+    println!("{}", theme.label("选项"));
+    for (option, description) in [
+        ("-C, --project <目录>", "指定项目目录"),
+        ("    --temp", "启动不绑定项目、不保存历史的临时对话"),
+        ("    --continue", "恢复当前项目最近会话"),
+        (
+            "    --resume <会话ID>",
+            "恢复当前项目指定会话（支持唯一前缀）",
+        ),
+        ("    --sessions", "列出当前项目可恢复会话"),
+        ("-p, --prompt <问题>", "单次提问后退出"),
+        ("-m, --model <模型>", "按名称、模型名或 ID 选择模型"),
+        ("    --no-index", "使用已有项目索引，不在启动时重建"),
+        ("    --data-dir <目录>", "覆盖 NanoAgent 应用数据目录"),
+        ("-h, --help", "显示帮助"),
+        ("-V, --version", "显示版本"),
+    ] {
+        println!(
+            "  {} {}",
+            theme.command(format!("{option:<25}")),
+            description
+        );
+    }
+    println!();
+    println!("{}", theme.label("示例"));
+    for example in [
+        "nano",
+        "nano --continue",
+        "nano --sessions",
+        "nano --resume 1234abcd",
+        r"nano --project D:\workspace\demo --continue",
+        "nano --temp",
+        "nano -p \"这个项目的启动入口在哪里？\"",
+        "nano --temp -p \"帮我写一个周报提纲\"",
+    ] {
+        println!("  {}", theme.command(example));
+    }
+}
+
+fn print_error(message: &str) {
+    let theme = CliTheme::stderr();
+    eprintln!("{} {message}", theme.error("✗ nano:"));
+}
+
+fn print_warning(message: &str) {
+    let theme = CliTheme::stderr();
+    eprintln!("{} {message}", theme.command("! nano:"));
+}
+
+fn print_status(message: &str) {
+    let theme = CliTheme::stderr();
+    eprintln!("{} {message}", theme.accent("• nano:"));
+}
+
+fn print_success(message: &str) {
+    let theme = CliTheme::stdout();
+    println!("{} {message}", theme.success("✓"));
 }
 
 #[cfg(test)]
@@ -787,6 +1075,53 @@ mod tests {
         let error = parse_args(args(&["--temp", "--continue"]))
             .expect_err("temporary recovery should fail");
         assert!(error.contains("--temp 不支持"));
+    }
+
+    #[test]
+    fn first_use_model_setup_runs_only_when_chat_models_are_missing() {
+        let root = env::temp_dir().join(format!("nano-cli-model-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("temporary directory should be created");
+        let db = Database::open(root.join("nano-test.sqlite3")).expect("database should open");
+        let mut setup_called = false;
+
+        let models = ensure_chat_models(&db, |db| {
+            setup_called = true;
+            db.save_model_config(ModelConfigDraft {
+                id: Some("first-model".to_string()),
+                name: "First model".to_string(),
+                provider: "openai-compatible".to_string(),
+                base_url: "http://localhost:11434/v1".to_string(),
+                model: "local-model".to_string(),
+                api_key: String::new(),
+                embedding_provider: String::new(),
+                embedding_base_url: String::new(),
+                embedding_model: String::new(),
+                embedding_api_key: String::new(),
+            })
+        })
+        .expect("first-use setup should create a model");
+
+        assert!(setup_called);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "first-model");
+
+        let existing = ensure_chat_models(&db, |_| {
+            panic!("setup must not run when a chat model already exists")
+        })
+        .expect("existing model should be reused");
+        assert_eq!(existing.len(), 1);
+
+        drop(db);
+        std::fs::remove_dir_all(root).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn cli_theme_adds_colors_only_when_enabled() {
+        let colored = CliTheme { enabled: true }.brand("Nano");
+        let plain = CliTheme { enabled: false }.brand("Nano");
+
+        assert_eq!(colored, "\x1b[1;36mNano\x1b[0m");
+        assert_eq!(plain, "Nano");
     }
 
     #[test]
