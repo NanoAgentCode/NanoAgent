@@ -9,8 +9,8 @@ use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::llm::stream_chat_completion;
 use crate::models::{
-    ChatMessage, ChatStreamEvent, ChatStreamRequest, Conversation, ConversationDraft, MessageDraft,
-    ModelConfig, ModelConfigDraft,
+    ChatMessage, ChatStreamEvent, ChatStreamRequest, Conversation, ConversationDraft, Message,
+    MessageDraft, ModelConfig, ModelConfigDraft, ProjectFileEntry,
 };
 use crate::project_files::{list_project_files, project_root};
 use crate::project_index::{build_document_index, DOCUMENT_INDEXER};
@@ -110,6 +110,8 @@ struct CliOptions {
     continue_latest: bool,
     resume: Option<String>,
     list_sessions: bool,
+    show_session: Option<String>,
+    list_files: bool,
     help: bool,
     version: bool,
 }
@@ -125,6 +127,8 @@ impl Default for CliOptions {
             continue_latest: false,
             resume: None,
             list_sessions: false,
+            show_session: None,
+            list_files: false,
             help: false,
             version: false,
         }
@@ -204,6 +208,8 @@ where
             "--continue" => options.continue_latest = true,
             "--resume" => options.resume = Some(next_value(&mut args, &arg)?),
             "--sessions" => options.list_sessions = true,
+            "--show" => options.show_session = Some(next_value(&mut args, &arg)?),
+            "--files" => options.list_files = true,
             _ if arg.starts_with('-') => return Err(format!("未知参数: {arg}")),
             _ => {
                 if options.prompt.is_some() {
@@ -215,17 +221,27 @@ where
     }
 
     if matches!(options.mode, SessionMode::Temporary)
-        && (options.continue_latest || options.resume.is_some() || options.list_sessions)
+        && (options.continue_latest
+            || options.resume.is_some()
+            || options.list_sessions
+            || options.show_session.is_some()
+            || options.list_files)
     {
-        return Err("--temp 不支持会话恢复或会话列表".to_string());
+        return Err("--temp 不支持项目会话或项目文件操作".to_string());
     }
     if options.continue_latest && options.resume.is_some() {
         return Err("--continue 与 --resume 不能同时使用".to_string());
     }
-    if options.list_sessions
+    let inspection_count = usize::from(options.list_sessions)
+        + usize::from(options.show_session.is_some())
+        + usize::from(options.list_files);
+    if inspection_count > 1 {
+        return Err("--sessions、--show 与 --files 不能同时使用".to_string());
+    }
+    if inspection_count > 0
         && (options.continue_latest || options.resume.is_some() || options.prompt.is_some())
     {
-        return Err("--sessions 不能与恢复参数或问题同时使用".to_string());
+        return Err("查看或列表参数不能与恢复参数或问题同时使用".to_string());
     }
 
     Ok(options)
@@ -259,6 +275,26 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
     if options.list_sessions {
         let sessions = db.list_conversations(project_session_path.as_deref())?;
         print_sessions(&sessions);
+        return Ok(());
+    }
+    if let Some(selector) = options.show_session.as_deref() {
+        let conversation = resolve_requested_conversation(
+            &db,
+            project_session_path.as_deref(),
+            false,
+            Some(selector),
+        )?
+        .ok_or_else(|| AppError::Message("未找到指定会话".to_string()))?;
+        let messages = db.list_messages(&conversation.id)?;
+        print_conversation(&conversation, &messages);
+        return Ok(());
+    }
+    if options.list_files {
+        let root = project
+            .as_deref()
+            .ok_or_else(|| AppError::Message("--files 需要项目目录".to_string()))?;
+        let files = list_project_files(root.to_string_lossy().to_string()).await?;
+        print_project_files(root, &files);
         return Ok(());
     }
 
@@ -895,6 +931,66 @@ fn print_sessions(sessions: &[Conversation]) {
     );
 }
 
+fn print_conversation(conversation: &Conversation, messages: &[Message]) {
+    let theme = CliTheme::stdout();
+    println!("{}", theme.brand("会话详情"));
+    println!("{} {}", theme.label("ID："), conversation.id);
+    println!("{} {}", theme.label("标题："), conversation.title);
+    println!(
+        "{} {}",
+        theme.label("更新时间："),
+        conversation.updated_at.format("%Y-%m-%d %H:%M:%S")
+    );
+    if let Some(model_id) = conversation.model_config_id.as_deref() {
+        println!("{} {}", theme.label("模型配置："), model_id);
+    }
+    println!();
+    if messages.is_empty() {
+        println!("{} 当前会话还没有消息。", theme.command("!"));
+        return;
+    }
+    for message in messages {
+        let role = match message.role.as_str() {
+            "user" => theme.prompt("你"),
+            "assistant" => theme.brand("nano"),
+            other => theme.accent(other),
+        };
+        println!(
+            "{} {}",
+            role,
+            theme.muted(message.created_at.format("%Y-%m-%d %H:%M:%S").to_string())
+        );
+        println!("{}\n", message.content);
+    }
+}
+
+fn print_project_files(root: &Path, files: &[ProjectFileEntry]) {
+    let theme = CliTheme::stdout();
+    println!(
+        "{} {}",
+        theme.brand("项目文件"),
+        theme.muted(display_project_path(root))
+    );
+    if files.is_empty() {
+        println!("{} 当前项目没有可显示的文件。", theme.command("!"));
+        return;
+    }
+    for file in files {
+        if file.is_dir {
+            println!("{}/", file.path);
+        } else if let Some(size) = file.size {
+            println!("{}  {}", file.path, theme.muted(format!("{size} B")));
+        } else {
+            println!("{}", file.path);
+        }
+    }
+    println!(
+        "\n{} 共 {} 项（最多显示 300 项）。",
+        theme.muted("·"),
+        files.len()
+    );
+}
+
 fn short_session_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
 }
@@ -973,6 +1069,8 @@ fn print_help() {
             "恢复当前项目指定会话（支持唯一前缀）",
         ),
         ("    --sessions", "列出当前项目可恢复会话"),
+        ("    --show <会话ID>", "查看指定会话详情和历史消息"),
+        ("    --files", "列出当前项目文件"),
         ("-p, --prompt <问题>", "单次提问后退出"),
         ("-m, --model <模型>", "按名称、模型名或 ID 选择模型"),
         ("    --no-index", "使用已有项目索引，不在启动时重建"),
@@ -992,6 +1090,8 @@ fn print_help() {
         "nano",
         "nano --continue",
         "nano --sessions",
+        "nano --show 1234abcd",
+        "nano --files",
         "nano --resume 1234abcd",
         r"nano --project D:\workspace\demo --continue",
         "nano --temp",
@@ -1068,6 +1168,12 @@ mod tests {
 
         let list_options = parse_args(args(&["--sessions"])).expect("sessions should parse");
         assert!(list_options.list_sessions);
+
+        let show_options = parse_args(args(&["--show", "1234abcd"])).expect("show should parse");
+        assert_eq!(show_options.show_session.as_deref(), Some("1234abcd"));
+
+        let file_options = parse_args(args(&["--files"])).expect("files should parse");
+        assert!(file_options.list_files);
     }
 
     #[test]
@@ -1075,6 +1181,75 @@ mod tests {
         let error = parse_args(args(&["--temp", "--continue"]))
             .expect_err("temporary recovery should fail");
         assert!(error.contains("--temp 不支持"));
+
+        let error = parse_args(args(&["--temp", "--files"]))
+            .expect_err("temporary file listing should fail");
+        assert!(error.contains("--temp 不支持"));
+    }
+
+    #[test]
+    fn rejects_conflicting_inspection_options() {
+        let error = parse_args(args(&["--sessions", "--files"]))
+            .expect_err("inspection options should be exclusive");
+        assert!(error.contains("不能同时使用"));
+
+        let error = parse_args(args(&["--show", "1234abcd", "question"]))
+            .expect_err("show and prompt should be exclusive");
+        assert!(error.contains("不能与恢复参数或问题同时使用"));
+    }
+
+    #[test]
+    fn inspection_commands_do_not_require_a_model() {
+        let root = env::temp_dir().join(format!("nano-cli-inspect-{}", Uuid::new_v4()));
+        let project = root.join("project");
+        let data_dir = root.join("data");
+        std::fs::create_dir_all(&project).expect("temporary project should be created");
+        std::fs::create_dir_all(&data_dir).expect("temporary data directory should be created");
+        std::fs::write(project.join("README.md"), "# demo")
+            .expect("temporary project file should be written");
+
+        let canonical_project =
+            project_root(&project.to_string_lossy()).expect("project should resolve");
+        let project_path = display_project_path(&canonical_project);
+        let db = Database::open(data_dir.join("nano-agent.sqlite3")).expect("database should open");
+        let conversation = db
+            .create_conversation(ConversationDraft {
+                title: Some("Inspect me".to_string()),
+                model_config_id: None,
+                project_path: Some(project_path),
+            })
+            .expect("conversation should be created");
+        db.append_message(MessageDraft {
+            conversation_id: conversation.id.clone(),
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            metadata: None,
+        })
+        .expect("message should persist");
+        drop(db);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+        runtime
+            .block_on(run_session(CliOptions {
+                mode: SessionMode::Project(project.clone()),
+                data_dir: Some(data_dir.clone()),
+                show_session: Some(short_session_id(&conversation.id).to_string()),
+                ..CliOptions::default()
+            }))
+            .expect("show should work without a model");
+        runtime
+            .block_on(run_session(CliOptions {
+                mode: SessionMode::Project(project),
+                data_dir: Some(data_dir),
+                list_files: true,
+                ..CliOptions::default()
+            }))
+            .expect("file listing should work without a model");
+
+        std::fs::remove_dir_all(root).expect("temporary files should be removed");
     }
 
     #[test]
