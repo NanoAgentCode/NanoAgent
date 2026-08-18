@@ -123,10 +123,25 @@ pub async fn send_chat_completion_stream(
     config: ModelConfig,
     request: ChatStreamRequest,
 ) -> AppResult<()> {
+    stream_chat_completion(config, request, |event| {
+        app.emit("chat-stream", event)
+            .map_err(|err| AppError::Message(err.to_string()))
+    })
+    .await
+}
+
+pub async fn stream_chat_completion<F>(
+    config: ModelConfig,
+    request: ChatStreamRequest,
+    emit: F,
+) -> AppResult<()>
+where
+    F: FnMut(ChatStreamEvent) -> AppResult<()>,
+{
     if is_anthropic_provider(&config.provider) {
-        send_anthropic_chat_completion_stream(app, config, request).await
+        send_anthropic_chat_completion_stream(config, request, emit).await
     } else {
-        send_openai_chat_completion_stream(app, config, request).await
+        send_openai_chat_completion_stream(config, request, emit).await
     }
 }
 
@@ -275,13 +290,16 @@ async fn send_anthropic_chat_completion(
     Ok(ChatResponse { content })
 }
 
-async fn send_openai_chat_completion_stream(
-    app: AppHandle,
+async fn send_openai_chat_completion_stream<F>(
     config: ModelConfig,
     request: ChatStreamRequest,
-) -> AppResult<()> {
+    mut emit: F,
+) -> AppResult<()>
+where
+    F: FnMut(ChatStreamEvent) -> AppResult<()>,
+{
     if let Err(err) = ensure_api_key(&config) {
-        emit_stream_error(&app, &request.request_id, &err.to_string());
+        emit_stream_error(&mut emit, &request.request_id, &err.to_string());
         return Err(err);
     }
 
@@ -302,16 +320,19 @@ async fn send_openai_chat_completion_stream(
         builder = builder.bearer_auth(config.api_key);
     }
 
-    stream_sse_response(app, request.request_id, builder, StreamProvider::OpenAi).await
+    stream_sse_response(request.request_id, builder, StreamProvider::OpenAi, emit).await
 }
 
-async fn send_anthropic_chat_completion_stream(
-    app: AppHandle,
+async fn send_anthropic_chat_completion_stream<F>(
     config: ModelConfig,
     request: ChatStreamRequest,
-) -> AppResult<()> {
+    mut emit: F,
+) -> AppResult<()>
+where
+    F: FnMut(ChatStreamEvent) -> AppResult<()>,
+{
     if let Err(err) = ensure_api_key(&config) {
-        emit_stream_error(&app, &request.request_id, &err.to_string());
+        emit_stream_error(&mut emit, &request.request_id, &err.to_string());
         return Err(err);
     }
 
@@ -329,19 +350,22 @@ async fn send_anthropic_chat_completion_stream(
         .header("anthropic-version", "2023-06-01")
         .json(&payload);
 
-    stream_sse_response(app, request.request_id, builder, StreamProvider::Anthropic).await
+    stream_sse_response(request.request_id, builder, StreamProvider::Anthropic, emit).await
 }
 
-async fn stream_sse_response(
-    app: AppHandle,
+async fn stream_sse_response<F>(
     request_id: String,
     builder: reqwest::RequestBuilder,
     provider: StreamProvider,
-) -> AppResult<()> {
+    mut emit: F,
+) -> AppResult<()>
+where
+    F: FnMut(ChatStreamEvent) -> AppResult<()>,
+{
     let response = match builder.send().await {
         Ok(response) => response,
         Err(err) => {
-            emit_stream_error(&app, &request_id, &err.to_string());
+            emit_stream_error(&mut emit, &request_id, &err.to_string());
             return Err(AppError::from(err));
         }
     };
@@ -350,7 +374,7 @@ async fn stream_sse_response(
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
         emit_stream_error(
-            &app,
+            &mut emit,
             &request_id,
             &format!("model request failed with {status}: {text}"),
         );
@@ -367,7 +391,7 @@ async fn stream_sse_response(
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(err) => {
-                emit_stream_error(&app, &request_id, &err.to_string());
+                emit_stream_error(&mut emit, &request_id, &err.to_string());
                 return Err(AppError::from(err));
             }
         };
@@ -376,25 +400,27 @@ async fn stream_sse_response(
         while let Some(line_end) = buffer.find('\n') {
             let line = buffer[..line_end].trim().to_string();
             buffer = buffer[line_end + 1..].to_string();
-            process_sse_line(&app, &request_id, &line, provider)?;
+            process_sse_line(&mut emit, &request_id, &line, provider)?;
         }
     }
 
     if !buffer.trim().is_empty() {
-        process_sse_line(&app, &request_id, buffer.trim(), provider)?;
+        process_sse_line(&mut emit, &request_id, buffer.trim(), provider)?;
     }
 
-    app.emit("chat-stream", ChatStreamEvent::Done { request_id })
-        .map_err(|err| AppError::Message(err.to_string()))?;
+    emit(ChatStreamEvent::Done { request_id })?;
     Ok(())
 }
 
-fn process_sse_line(
-    app: &AppHandle,
+fn process_sse_line<F>(
+    emit: &mut F,
     request_id: &str,
     line: &str,
     provider: StreamProvider,
-) -> AppResult<()> {
+) -> AppResult<()>
+where
+    F: FnMut(ChatStreamEvent) -> AppResult<()>,
+{
     if line.is_empty() || line.starts_with(':') || !line.starts_with("data:") {
         return Ok(());
     }
@@ -421,8 +447,7 @@ fn process_sse_line(
             },
         };
 
-        app.emit("chat-stream", event)
-            .map_err(|err| AppError::Message(err.to_string()))?;
+        emit(event)?;
     }
 
     Ok(())
@@ -544,12 +569,12 @@ enum StreamProvider {
     Anthropic,
 }
 
-fn emit_stream_error(app: &AppHandle, request_id: &str, message: &str) {
-    let _ = app.emit(
-        "chat-stream",
-        ChatStreamEvent::Error {
-            request_id: request_id.to_string(),
-            message: message.to_string(),
-        },
-    );
+fn emit_stream_error<F>(emit: &mut F, request_id: &str, message: &str)
+where
+    F: FnMut(ChatStreamEvent) -> AppResult<()>,
+{
+    let _ = emit(ChatStreamEvent::Error {
+        request_id: request_id.to_string(),
+        message: message.to_string(),
+    });
 }

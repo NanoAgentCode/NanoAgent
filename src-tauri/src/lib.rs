@@ -1,4 +1,5 @@
 mod agent_runner;
+mod cli;
 mod code_index;
 mod core;
 mod db;
@@ -3002,4 +3003,8 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running NanoAgent");
+}
+
+pub fn run_cli() -> i32 {
+    cli::run()
 }

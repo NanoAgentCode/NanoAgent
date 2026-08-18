@@ -12,7 +12,7 @@ use crate::models::{
 use crate::project_files::project_root;
 use crate::AppState;
 
-const DOCUMENT_INDEXER: &str = "document";
+pub(crate) const DOCUMENT_INDEXER: &str = "document";
 const MAX_DOCUMENT_FILES: usize = 600;
 const MAX_DOCUMENT_FILE_BYTES: u64 = 1024 * 1024;
 const MAX_EMBEDDED_DOCUMENT_CHUNKS: usize = 500;
@@ -90,12 +90,12 @@ pub async fn search_project_index(
     )
 }
 
-struct DocumentIndex {
-    file_count: i64,
-    chunks: Vec<ProjectIndexChunk>,
+pub(crate) struct DocumentIndex {
+    pub(crate) file_count: i64,
+    pub(crate) chunks: Vec<ProjectIndexChunk>,
 }
 
-fn build_document_index(root: &Path, project_path: &str) -> AppResult<DocumentIndex> {
+pub(crate) fn build_document_index(root: &Path, project_path: &str) -> AppResult<DocumentIndex> {
     let mut files = Vec::new();
     collect_document_files(root, &mut files)?;
 

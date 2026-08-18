@@ -138,11 +138,11 @@ pub async fn search_code_index(
     )
 }
 
-struct ProjectCodeIndex {
-    file_count: i64,
-    entities: Vec<CodeEntity>,
-    relations: Vec<CodeRelation>,
-    chunks: Vec<CodeChunk>,
+pub(crate) struct ProjectCodeIndex {
+    pub(crate) file_count: i64,
+    pub(crate) entities: Vec<CodeEntity>,
+    pub(crate) relations: Vec<CodeRelation>,
+    pub(crate) chunks: Vec<CodeChunk>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,7 +154,10 @@ struct PendingRelation {
     line: i64,
 }
 
-fn build_project_code_index(root: &Path, project_path: &str) -> AppResult<ProjectCodeIndex> {
+pub(crate) fn build_project_code_index(
+    root: &Path,
+    project_path: &str,
+) -> AppResult<ProjectCodeIndex> {
     let mut files = Vec::new();
     collect_code_files(root, root, &mut files)?;
 

@@ -15,6 +15,7 @@ NanoAgent 是一个本地优先的桌面 AI 工作台，使用 Tauri v2、Rust�
 - 项目工作区：创建项目目录、打开项目时构建轻量文件索引、浏览文件树、读写/重命名/删除项目文件、执行项目命令。
 - 智能文件链接：聊天 Markdown 中的项目相对路径、裸文件名和已有文件链接会自动解析为项目内真实相对路径；外部 URL 会弹出到系统浏览器，避免应用内跳转。
 - Agent 运行时：记录 run、step、tool call，支持用户审批后执行文件读写、命令、OCR 和 MCP 工具。
+- `nano` 终端客户端：复用桌面端模型配置和 Rust LLM 后端，支持当前目录/指定目录的项目问答，以及不保存会话的普通临时对话。
 - MCP 管理：支持 stdio、SSE、streamable HTTP，连接后把工具注入模型上下文。
 - Skills 管理：同步 Anthropic Skills、维护本地 Skills 目录，并在系统提示中注入启用技能。
 - Ops 工作台：管理 SSH 服务器、测试连接、上传文件、打开交互式 SSH 终端。
@@ -68,6 +69,20 @@ npm.cmd run tauri dev
 npm.cmd run dev
 ```
 
+安装 `nano` 命令行客户端（Windows）：
+
+```powershell
+npm.cmd run install:nano
+```
+
+安装完成后打开新终端，直接运行：
+
+```powershell
+nano
+```
+
+`nano` 默认以当前目录作为项目并在启动时更新代码/文档索引；使用 `nano --temp` 启动不绑定项目、不保存会话的普通临时对话。详见[构建、配置与运维](docs/构建配置与运维.md#2-nano-终端客户端)。
+
 类型检查和前端构建：
 
 ```bash
@@ -116,6 +131,8 @@ src/hooks/                     对话、模型、项目、RAG、MCP、Skills、O
 src/components/                聊天区、侧栏、设置页、观测面板、Ops 工作台等 UI
 src/lib/                       系统提示、工具解析、格式化和安全封装
 src-tauri/src/lib.rs           Tauri command 注册、应用状态和启动流程
+src-tauri/src/cli.rs           nano 终端交互、模型选择和项目问答上下文
+src-tauri/src/bin/nano.rs      nano 命令行二进制入口
 src-tauri/src/core/plugin.rs   后端插件契约、清单与 Agent 工具扩展点
 src-tauri/src/plugins.rs       内置后端插件装配
 src-tauri/src/db.rs            主业务 SQLite 数据访问
@@ -127,6 +144,7 @@ src-tauri/src/llm.rs           Chat、streaming 和 embeddings 请求
 src-tauri/src/mcp.rs           MCP client manager 与传输实现
 src-tauri/src/agent_runner.rs  Agent 工具定义与 tool_call 解析
 scripts/build-installer.ps1    Windows 打包脚本
+scripts/install-cli.ps1        构建 nano.exe、安装到用户目录并配置 PATH
 docs/                          系统设计、运维和学习路线文档
 ```
 

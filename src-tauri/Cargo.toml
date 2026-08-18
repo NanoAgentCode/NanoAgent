@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A local productivity client for notes, search, and external LLMs."
 authors = ["NanoAgent"]
 edition = "2021"
+default-run = "nano-agent"
 
 [lib]
 name = "nano_agent_lib"
@@ -23,7 +24,7 @@ rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
-tokio = { version = "1", features = ["io-util", "process", "sync", "time"] }
+tokio = { version = "1", features = ["io-util", "process", "rt-multi-thread", "sync", "time"] }
 thiserror = "1"
 futures-util = "0.3"
 pdf_oxide = "0.3"
