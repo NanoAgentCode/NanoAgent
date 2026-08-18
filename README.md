@@ -12,15 +12,15 @@ NanoAgent 是一个本地优先的桌面 AI 工作台，使用 Tauri v2、Rust�
 - 项目索引中心：为项目构建可插拔索引，当前包含代码实体/关系索引和文档片段索引，代码、配置、说明、数据文件问答会优先召回项目级上下文。
 - 图片附件和 OCR：图片保存到 `.nano-agent/uploads/images/`，消息中渲染缩略图，点击可预览，并可通过 `ocr_image` 调用本机 PaddleOCR。
 - 归档预览：设置页的 Archive 预览复用普通聊天的消息渲染链路，项目会话使用 `project_path`，普通会话回退到 app data 下的 `temp/`。
-- 项目工作区：创建项目目录、打开项目时构建轻量文件索引、浏览文件树、读写/重命名/删除项目文件、执行项目命令。
+- 项目工作区：添加或打开已有项目目录、构建轻量文件索引、浏览文件树、读写/重命名/删除项目文件、执行项目命令。
 - 智能文件链接：聊天 Markdown 中的项目相对路径、裸文件名和已有文件链接会自动解析为项目内真实相对路径；外部 URL 会弹出到系统浏览器，避免应用内跳转。
 - Agent 运行时：记录 run、step、tool call，支持用户审批后执行文件读写、命令、OCR 和 MCP 工具。
 - `nano` 终端客户端：复用桌面端模型配置、会话存储和 Rust LLM 后端，支持项目问答、退出后恢复项目会话，以及不保存历史的普通临时对话。
 - MCP 管理：支持 stdio、SSE、streamable HTTP，连接后把工具注入模型上下文。
 - Skills 管理：同步 Anthropic Skills、维护本地 Skills 目录，并在系统提示中注入启用技能。
 - Ops 工作台：管理 SSH 服务器、测试连接、上传文件、打开交互式 SSH 终端。
-- 独立观测链路：LLM、MCP、Ops、部分工具和数据库操作写入 `nano-agent-observability.sqlite3`，可在设置中查看和清理。
-- 深色、浅色、跟随系统主题，以及系统托盘最小化。
+- 独立诊断链路：LLM、MCP、Ops、部分工具和数据库操作写入 `nano-agent-observability.sqlite3`；系统操作日志按天写入 `logs/` 并保留 7 天。
+- 深色、浅色、跟随系统主题，以及可配置的关闭行为、系统托盘和 Windows 开机自启动。
 
 ## 文档
 
@@ -112,7 +112,8 @@ npm.cmd run package:win
 nano-agent.sqlite3                 主业务数据
 nano-agent-runtime.sqlite3         Agent 运行时数据
 nano-agent-observability.sqlite3   观测数据
-settings.json                      Tavily 等轻量应用设置
+settings.json                      Tavily API key
+logs/                              按天滚动的系统操作日志（保留 7 天）
 skills/                            本地 Skills 目录
 temp/                              无项目上下文时的临时工作目录
 ```
@@ -140,9 +141,10 @@ src-tauri/src/code_index.rs    项目代码实体、关系和片段索引
 src-tauri/src/project_index.rs 项目文档片段索引与通用项目索引查询
 src-tauri/src/runtime.rs       Agent run/step/tool call 运行时存储
 src-tauri/src/observability.rs 观测 sink/pipeline 与观测库
+src-tauri/src/logging.rs       按天写入并自动清理的系统操作日志
 src-tauri/src/llm.rs           Chat、streaming 和 embeddings 请求
 src-tauri/src/mcp.rs           MCP client manager 与传输实现
-src-tauri/src/agent_runner.rs  Agent 工具定义与 tool_call 解析
+src-tauri/src/agent_runner.rs  XML tool_call 解析与运行时结果模型
 scripts/build-installer.ps1    Windows 打包脚本
 scripts/install-cli.ps1        构建 nano.exe、安装到用户目录并配置 PATH
 docs/                          系统设计、运维和学习路线文档
