@@ -11,7 +11,6 @@ import {
   Activity,
   ArrowRight,
   BookOpen,
-  Bot,
   Bug,
   CheckCircle2,
   FileText,
@@ -241,10 +240,11 @@ export default function ChatPane({
     <aside className="chat-pane">
       <header className="chat-header">
         <div>
-          <Bot size={19} />
+          <span className="nano-brand-mark chat-brand-mark" aria-hidden="true"><i /></span>
           <div className="chat-header-title">
             <strong>{activeConversation?.title || "新对话"}</strong>
             <span>
+              <i className="model-status-dot" aria-hidden="true" />
               {activeModel?.name || "尚未选择模型"}
               {projectName ? ` · ${projectName}` : " · 本地对话"}
             </span>

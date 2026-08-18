@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
   --bg-app: #070b12;
@@ -26,7 +26,7 @@
   --bg-main: var(--bg-pane);
   --text-main: var(--text-primary);
 
-  --font-sans: "Inter", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: "Manrope", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", "Cascadia Code", "SFMono-Regular", Consolas, ui-monospace, monospace;
   --font-size-2xs: 11px;
   --font-size-xs: 11px;
@@ -181,18 +181,18 @@
 }
 
 [data-theme="light"] {
-  --bg-app: #f3f7fb;
-  --bg-sidebar: #fbfdff;
+  --bg-app: #eaf3fb;
+  --bg-sidebar: #03172f;
   --bg-pane: #ffffff;
-  --bg-editor: #f6f9fd;
+  --bg-editor: #f4f8fc;
   --bg-card: #ffffff;
   --bg-card-hover: #edf6ff;
-  --border-color: #dbe6f2;
+  --border-color: #d7e4f0;
   --border-color-active: #0ea5e9;
   --border-color-focus: #0284c7;
-  --text-primary: #172033;
-  --text-secondary: #52647a;
-  --text-muted: #8ca0b3;
+  --text-primary: #102b50;
+  --text-secondary: #526985;
+  --text-muted: #8ba0b7;
 
   --accent-cyan: #0284c7;
   --accent-indigo: #2563eb;
@@ -238,7 +238,7 @@
   --notification-error-text: var(--accent-danger);
 
   /* Chat & Render colors */
-  --chat-pane-bg: #f3f7fb;
+  --chat-pane-bg: #eef5fb;
   --chat-assistant-bg: #ffffff;
   --chat-assistant-border: #e2e8f0;
   --chat-assistant-text: #0f172a;

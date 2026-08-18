@@ -24,7 +24,7 @@ export interface MainViewContribution {
   id: string;
   label: string;
   icon: LucideIcon;
-  component: LazyExoticComponent<ComponentType<MainViewProps>>;
+  component: ComponentType<MainViewProps> | LazyExoticComponent<ComponentType<MainViewProps>>;
 }
 
 export interface SettingsPluginContext {

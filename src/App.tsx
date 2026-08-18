@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -45,6 +45,7 @@ import Sidebar from "./components/Sidebar";
 import ChatPane from "./components/ChatPane";
 import ConfirmDialogHost from "./components/ConfirmDialogHost";
 import NotificationToast from "./components/NotificationToast";
+import SettingsModal from "./components/settings/SettingsModal";
 import { nanoTheme } from "./theme";
 import { appPlugins } from "./plugins/builtin";
 import { confirmAction } from "./lib/dialogs";
@@ -63,8 +64,6 @@ import type {
 } from "./types";
 
 const SIDEBAR_COLLAPSED_KEY = "nano-agent-sidebar-collapsed";
-
-const SettingsModal = lazy(() => import("./components/settings/SettingsModal"));
 
 function App() {
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -621,31 +620,29 @@ function App() {
       )}
 
       {showModelConfig && (
-        <Suspense fallback={null}>
-          <SettingsModal
-            plugins={appPlugins}
-            showModelConfig={showModelConfig}
-            setShowModelConfig={setShowModelConfig}
-            activeSettingsTab={activeSettingsTab}
-            setActiveSettingsTab={setActiveSettingsTab}
-            themeMode={themeMode}
-            setThemeMode={setThemeMode}
-            workspace={workspace}
-            memory={memory}
-            workspaceRef={workspaceRef}
-            model={model}
-            skills={skills}
-            mcp={mcp}
-            env={env}
-            obs={obs}
-            archivedConversations={archivedConversations}
-            previewArchivedId={previewArchivedId}
-            previewMessages={previewMessages}
-            loadArchivedPreview={loadArchivedPreview}
-            handleRestoreConversation={handleRestoreConversation}
-            handleDeleteArchivedConversation={handleDeleteArchivedConversation}
-          />
-        </Suspense>
+        <SettingsModal
+          plugins={appPlugins}
+          showModelConfig={showModelConfig}
+          setShowModelConfig={setShowModelConfig}
+          activeSettingsTab={activeSettingsTab}
+          setActiveSettingsTab={setActiveSettingsTab}
+          themeMode={themeMode}
+          setThemeMode={setThemeMode}
+          workspace={workspace}
+          memory={memory}
+          workspaceRef={workspaceRef}
+          model={model}
+          skills={skills}
+          mcp={mcp}
+          env={env}
+          obs={obs}
+          archivedConversations={archivedConversations}
+          previewArchivedId={previewArchivedId}
+          previewMessages={previewMessages}
+          loadArchivedPreview={loadArchivedPreview}
+          handleRestoreConversation={handleRestoreConversation}
+          handleDeleteArchivedConversation={handleDeleteArchivedConversation}
+        />
       )}
 
       {ActivePluginView ? (

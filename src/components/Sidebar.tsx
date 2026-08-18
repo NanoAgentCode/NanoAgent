@@ -40,7 +40,10 @@ export default function Sidebar({
   return (
     <aside className={isCollapsed ? "sidebar collapsed" : "sidebar"}>
       <div className="sidebar-topbar">
-        {!isCollapsed && <p className="sidebar-slogan">本地优先，智能协作</p>}
+        <div className="sidebar-brand" aria-label="NanoAgent">
+          <span className="nano-brand-mark" aria-hidden="true"><i /></span>
+          {!isCollapsed && <p className="sidebar-slogan">本地优先，智能协作</p>}
+        </div>
         <Tooltip label={isCollapsed ? "展开侧边栏" : "收起侧边栏"} position="right" openDelay={450}>
           <ActionIcon
             className="sidebar-collapse-btn"

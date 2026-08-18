@@ -19,9 +19,9 @@ export const nanoTheme = createTheme({
     nanoBlue
   },
   defaultRadius: "md",
-  fontFamily: '"Segoe UI Variable", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+  fontFamily: '"Manrope", "Noto Sans SC", "Microsoft YaHei", sans-serif',
   headings: {
-    fontFamily: '"Segoe UI Variable Display", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+    fontFamily: '"Manrope", "Noto Sans SC", "Microsoft YaHei", sans-serif',
     fontWeight: "650"
   },
   cursorType: "pointer",

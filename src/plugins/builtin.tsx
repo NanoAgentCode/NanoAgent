@@ -1,17 +1,15 @@
-import { lazy } from "react";
 import { Activity, Archive, Bot, Brain, Cpu, Monitor, Server, Settings, Sparkles, Sun } from "lucide-react";
 import { AppPluginRegistry, type FrontendPlugin } from "../core/plugins";
-
-const OpsPanel = lazy(() => import("../components/OpsPanel"));
-const SettingsThemeTab = lazy(() => import("../components/settings/SettingsThemeTab"));
-const SettingsMemoryTab = lazy(() => import("../components/settings/SettingsMemoryTab"));
-const SettingsArchiveTab = lazy(() => import("../components/settings/SettingsArchiveTab"));
-const SettingsModelTab = lazy(() => import("../components/settings/SettingsModelTab"));
-const SettingsEmbeddingTab = lazy(() => import("../components/settings/SettingsEmbeddingTab"));
-const SettingsSkillsTab = lazy(() => import("../components/settings/SettingsSkillsTab"));
-const SettingsObservabilityTab = lazy(() => import("../components/settings/SettingsObservabilityTab"));
-const SettingsMcpTab = lazy(() => import("../components/settings/SettingsMcpTab"));
-const SettingsEnvironmentTab = lazy(() => import("../components/settings/SettingsEnvironmentTab"));
+import OpsPanel from "../components/OpsPanel";
+import SettingsThemeTab from "../components/settings/SettingsThemeTab";
+import SettingsMemoryTab from "../components/settings/SettingsMemoryTab";
+import SettingsArchiveTab from "../components/settings/SettingsArchiveTab";
+import SettingsModelTab from "../components/settings/SettingsModelTab";
+import SettingsEmbeddingTab from "../components/settings/SettingsEmbeddingTab";
+import SettingsSkillsTab from "../components/settings/SettingsSkillsTab";
+import SettingsObservabilityTab from "../components/settings/SettingsObservabilityTab";
+import SettingsMcpTab from "../components/settings/SettingsMcpTab";
+import SettingsEnvironmentTab from "../components/settings/SettingsEnvironmentTab";
 
 const coreUiPlugin: FrontendPlugin = {
   manifest: {
