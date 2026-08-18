@@ -8,7 +8,10 @@ use crate::code_index::build_project_code_index;
 use crate::db::Database;
 use crate::error::{AppError, AppResult};
 use crate::llm::stream_chat_completion;
-use crate::models::{ChatMessage, ChatStreamEvent, ChatStreamRequest, ModelConfig};
+use crate::models::{
+    ChatMessage, ChatStreamEvent, ChatStreamRequest, Conversation, ConversationDraft, MessageDraft,
+    ModelConfig,
+};
 use crate::project_files::{list_project_files, project_root};
 use crate::project_index::{build_document_index, DOCUMENT_INDEXER};
 
@@ -31,6 +34,9 @@ struct CliOptions {
     model: Option<String>,
     data_dir: Option<PathBuf>,
     rebuild_index: bool,
+    continue_latest: bool,
+    resume: Option<String>,
+    list_sessions: bool,
     help: bool,
     version: bool,
 }
@@ -43,6 +49,9 @@ impl Default for CliOptions {
             model: None,
             data_dir: None,
             rebuild_index: true,
+            continue_latest: false,
+            resume: None,
+            list_sessions: false,
             help: false,
             version: false,
         }
@@ -118,6 +127,9 @@ where
             "-m" | "--model" => options.model = Some(next_value(&mut args, &arg)?),
             "--data-dir" => options.data_dir = Some(PathBuf::from(next_value(&mut args, &arg)?)),
             "--no-index" => options.rebuild_index = false,
+            "--continue" => options.continue_latest = true,
+            "--resume" => options.resume = Some(next_value(&mut args, &arg)?),
+            "--sessions" => options.list_sessions = true,
             _ if arg.starts_with('-') => return Err(format!("未知参数: {arg}")),
             _ => {
                 if options.prompt.is_some() {
@@ -126,6 +138,20 @@ where
                 options.prompt = Some(arg);
             }
         }
+    }
+
+    if matches!(options.mode, SessionMode::Temporary)
+        && (options.continue_latest || options.resume.is_some() || options.list_sessions)
+    {
+        return Err("--temp 不支持会话恢复或会话列表".to_string());
+    }
+    if options.continue_latest && options.resume.is_some() {
+        return Err("--continue 与 --resume 不能同时使用".to_string());
+    }
+    if options.list_sessions
+        && (options.continue_latest || options.resume.is_some() || options.prompt.is_some())
+    {
+        return Err("--sessions 不能与恢复参数或问题同时使用".to_string());
     }
 
     Ok(options)
@@ -141,48 +167,85 @@ where
 }
 
 async fn run_session(options: CliOptions) -> AppResult<()> {
-    let data_dir = match options.data_dir {
+    let data_dir = match options.data_dir.clone() {
         Some(path) => path,
         None => default_app_data_dir()?,
     };
     std::fs::create_dir_all(&data_dir)?;
     let db = Database::open(data_dir.join("nano-agent.sqlite3"))?;
+    let project = match &options.mode {
+        SessionMode::Temporary => None,
+        SessionMode::Project(path) => {
+            let root = project_root(&path.to_string_lossy())?;
+            Some(root)
+        }
+    };
+    let project_session_path = project.as_deref().map(display_project_path);
+
+    if options.list_sessions {
+        let sessions = db.list_conversations(project_session_path.as_deref())?;
+        print_sessions(&sessions);
+        return Ok(());
+    }
+
+    let resumed_conversation = resolve_requested_conversation(
+        &db,
+        project_session_path.as_deref(),
+        options.continue_latest,
+        options.resume.as_deref(),
+    )?;
+    let mut conversation_id = resumed_conversation
+        .as_ref()
+        .map(|conversation| conversation.id.clone());
+    let mut history = match conversation_id.as_deref() {
+        Some(id) => load_conversation_history(&db, id)?,
+        None => Vec::new(),
+    };
+
     let models = chat_models(&db)?;
     if models.is_empty() {
         return Err(AppError::Message(
             "没有可用的聊天模型，请先在 NanoAgent 桌面端的设置中添加模型".to_string(),
         ));
     }
-    let mut active_model = resolve_model(&models, options.model.as_deref())?;
-
-    let project = match options.mode {
-        SessionMode::Temporary => None,
-        SessionMode::Project(path) => {
-            let root = project_root(&path.to_string_lossy())?;
-            if options.rebuild_index {
-                rebuild_project_indexes(&db, &root)?;
-            }
-            Some(root)
+    let saved_model_id = resumed_conversation
+        .as_ref()
+        .and_then(|conversation| conversation.model_config_id.as_deref());
+    let mut active_model =
+        resolve_session_model(&models, options.model.as_deref(), saved_model_id)?;
+    if let Some(id) = conversation_id.as_deref() {
+        if options.model.is_some() || saved_model_id != Some(active_model.id.as_str()) {
+            db.update_conversation_model(id, Some(&active_model.id))?;
         }
-    };
+    }
 
-    if let Some(prompt) = options.prompt {
-        let mut history = Vec::new();
+    if let Some(root) = project.as_deref() {
+        if options.rebuild_index {
+            rebuild_project_indexes(&db, root)?;
+        }
+    }
+
+    if let Some(prompt) = options.prompt.as_deref() {
         ask(
             &db,
             &active_model,
             project.as_deref(),
+            project_session_path.as_deref(),
+            &mut conversation_id,
             &mut history,
-            &prompt,
+            prompt,
         )
         .await?;
         return Ok(());
     }
 
-    print_banner(&active_model, project.as_deref());
+    print_banner(
+        &active_model,
+        project.as_deref(),
+        resumed_conversation.as_ref(),
+    );
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
-    let mut history = Vec::new();
     loop {
         print!("nano> ");
         io::stdout().flush()?;
@@ -203,7 +266,12 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
         }
         if input == "/clear" {
             history.clear();
-            println!("已清空当前临时上下文。");
+            if project.is_some() {
+                conversation_id = None;
+                println!("已结束当前会话，下一条消息将创建新项目会话。");
+            } else {
+                println!("已清空当前临时上下文。");
+            }
             continue;
         }
         if input == "/model" {
@@ -214,6 +282,9 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
             match resolve_model(&models, Some(selector.trim())) {
                 Ok(model) => {
                     active_model = model;
+                    if let Some(id) = conversation_id.as_deref() {
+                        db.update_conversation_model(id, Some(&active_model.id))?;
+                    }
                     println!("已切换到 {} ({})", active_model.name, active_model.model);
                 }
                 Err(err) => eprintln!("nano: {err}"),
@@ -221,11 +292,73 @@ async fn run_session(options: CliOptions) -> AppResult<()> {
             continue;
         }
 
-        if let Err(err) = ask(&db, &active_model, project.as_deref(), &mut history, &input).await {
+        if let Err(err) = ask(
+            &db,
+            &active_model,
+            project.as_deref(),
+            project_session_path.as_deref(),
+            &mut conversation_id,
+            &mut history,
+            &input,
+        )
+        .await
+        {
             eprintln!("nano: {err}");
         }
     }
     Ok(())
+}
+
+fn resolve_requested_conversation(
+    db: &Database,
+    project_path: Option<&str>,
+    continue_latest: bool,
+    resume: Option<&str>,
+) -> AppResult<Option<Conversation>> {
+    if !continue_latest && resume.is_none() {
+        return Ok(None);
+    }
+    let conversations = db.list_conversations(project_path)?;
+    if continue_latest {
+        return conversations.into_iter().next().map(Some).ok_or_else(|| {
+            AppError::Message("当前项目没有可恢复的会话；使用 nano 开始新会话".to_string())
+        });
+    }
+
+    let selector = resume.unwrap_or_default().trim();
+    let exact = conversations
+        .iter()
+        .find(|conversation| conversation.id == selector)
+        .cloned();
+    if exact.is_some() {
+        return Ok(exact);
+    }
+    let prefix_matches = conversations
+        .into_iter()
+        .filter(|conversation| conversation.id.starts_with(selector))
+        .collect::<Vec<_>>();
+    match prefix_matches.as_slice() {
+        [conversation] => Ok(Some(conversation.clone())),
+        [] => Err(AppError::Message(format!(
+            "当前项目未找到会话 {selector}；使用 nano --sessions 查看会话"
+        ))),
+        _ => Err(AppError::Message(format!(
+            "会话 ID 前缀 {selector} 不唯一，请提供更多字符"
+        ))),
+    }
+}
+
+fn load_conversation_history(db: &Database, conversation_id: &str) -> AppResult<Vec<ChatMessage>> {
+    let messages = db.list_messages(conversation_id)?;
+    let skip = messages.len().saturating_sub(MAX_HISTORY_MESSAGES);
+    Ok(messages
+        .into_iter()
+        .skip(skip)
+        .map(|message| ChatMessage {
+            role: message.role,
+            content: message.content,
+        })
+        .collect())
 }
 
 fn chat_models(db: &Database) -> AppResult<Vec<ModelConfig>> {
@@ -253,6 +386,23 @@ fn resolve_model(models: &[ModelConfig], selector: Option<&str>) -> AppResult<Mo
                 .unwrap_or_default()
         ))
     })
+}
+
+fn resolve_session_model(
+    models: &[ModelConfig],
+    requested: Option<&str>,
+    saved_model_id: Option<&str>,
+) -> AppResult<ModelConfig> {
+    if requested.is_some() {
+        return resolve_model(models, requested);
+    }
+    if let Some(saved_model_id) = saved_model_id {
+        if let Some(model) = models.iter().find(|model| model.id == saved_model_id) {
+            return Ok(model.clone());
+        }
+        eprintln!("nano: 已保存的模型配置不存在，已切换到默认模型");
+    }
+    resolve_model(models, None)
 }
 
 fn rebuild_project_indexes(db: &Database, root: &Path) -> AppResult<()> {
@@ -283,6 +433,8 @@ async fn ask(
     db: &Database,
     model: &ModelConfig,
     project: Option<&Path>,
+    project_session_path: Option<&str>,
+    conversation_id: &mut Option<String>,
     history: &mut Vec<ChatMessage>,
     input: &str,
 ) -> AppResult<()> {
@@ -291,6 +443,25 @@ async fn ask(
         role: "user".to_string(),
         content: input.to_string(),
     };
+    if let Some(project_session_path) = project_session_path {
+        if conversation_id.is_none() {
+            let conversation = db.create_conversation(ConversationDraft {
+                title: Some("New chat".to_string()),
+                model_config_id: Some(model.id.clone()),
+                project_path: Some(project_session_path.to_string()),
+            })?;
+            *conversation_id = Some(conversation.id);
+        }
+        let persistent_id = conversation_id
+            .as_deref()
+            .ok_or_else(|| AppError::Message("创建项目会话后未获得会话 ID".to_string()))?;
+        db.append_message(MessageDraft {
+            conversation_id: persistent_id.to_string(),
+            role: user_message.role.clone(),
+            content: user_message.content.clone(),
+            metadata: None,
+        })?;
+    }
     let mut messages = Vec::with_capacity(history.len() + 2);
     messages.push(system);
     messages.extend(history.iter().cloned());
@@ -328,11 +499,23 @@ async fn ask(
     if answer.trim().is_empty() {
         return Err(AppError::Message("模型返回了空响应".to_string()));
     }
-    history.push(user_message);
-    history.push(ChatMessage {
+    let assistant_message = ChatMessage {
         role: "assistant".to_string(),
         content: answer,
-    });
+    };
+    if project_session_path.is_some() {
+        let persistent_id = conversation_id
+            .as_deref()
+            .ok_or_else(|| AppError::Message("保存项目会话时缺少会话 ID".to_string()))?;
+        db.append_message(MessageDraft {
+            conversation_id: persistent_id.to_string(),
+            role: assistant_message.role.clone(),
+            content: assistant_message.content.clone(),
+            metadata: None,
+        })?;
+    }
+    history.push(user_message);
+    history.push(assistant_message);
     if history.len() > MAX_HISTORY_MESSAGES {
         let drain_count = history.len() - MAX_HISTORY_MESSAGES;
         history.drain(0..drain_count);
@@ -351,9 +534,12 @@ async fn build_system_message(
         .map(|memory| format!("- {}: {}", memory.title, memory.content))
         .collect::<Vec<_>>()
         .join("\n");
-    let mut sections = vec![
-        "你是 NanoAgent 的终端助手。回答应准确、简明、可执行。当前会话只保存在进程内，退出后不会写入对话历史。".to_string(),
-    ];
+    let session_instruction = if project.is_some() {
+        "你是 NanoAgent 的终端助手。回答应准确、简明、可执行。当前项目会话会保存到 NanoAgent 本地数据库，可在退出后恢复。"
+    } else {
+        "你是 NanoAgent 的终端助手。回答应准确、简明、可执行。当前临时会话只保存在进程内，退出后不会写入对话历史。"
+    };
+    let mut sections = vec![session_instruction.to_string()];
     if !memory_context.is_empty() {
         sections.push(format!(
             "用户相关记忆（仅在与问题有关时使用）：\n{memory_context}"
@@ -462,13 +648,48 @@ fn default_app_data_dir() -> AppResult<PathBuf> {
     }
 }
 
-fn print_banner(model: &ModelConfig, project: Option<&Path>) {
+fn print_banner(
+    model: &ModelConfig,
+    project: Option<&Path>,
+    resumed_conversation: Option<&Conversation>,
+) {
     println!("Nano CLI · {} ({})", model.name, model.model);
     match project {
-        Some(path) => println!("项目：{}", display_project_path(path)),
+        Some(path) => {
+            println!("项目：{}", display_project_path(path));
+            match resumed_conversation {
+                Some(conversation) => println!(
+                    "会话：已恢复 {} · {}",
+                    short_session_id(&conversation.id),
+                    conversation.title
+                ),
+                None => println!("会话：新会话（首次发送消息时保存）"),
+            }
+        }
         None => println!("模式：普通临时对话（不保存会话）"),
     }
     println!("输入 /help 查看命令，/exit 退出。\n");
+}
+
+fn print_sessions(sessions: &[Conversation]) {
+    if sessions.is_empty() {
+        println!("当前项目没有可恢复的会话。");
+        return;
+    }
+    println!("当前项目可恢复会话：");
+    for session in sessions {
+        println!(
+            "{}  {}  {}",
+            short_session_id(&session.id),
+            session.updated_at.format("%Y-%m-%d %H:%M"),
+            session.title
+        );
+    }
+    println!("\n使用 nano --resume <会话ID> 恢复，或 nano --continue 恢复最近会话。");
+}
+
+fn short_session_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
 }
 
 fn display_project_path(path: &Path) -> String {
@@ -509,7 +730,7 @@ fn print_interactive_help() {
 
 fn print_help() {
     println!(
-        "NanoAgent 终端交互客户端\n\n用法:\n  nano [选项] [问题]\n\n默认行为:\n  在当前目录启动项目问答交互。会话仅保存在当前进程中。\n\n选项:\n  -C, --project <目录>  指定项目目录\n      --temp            启动不绑定项目的普通临时对话\n  -p, --prompt <问题>   单次提问后退出\n  -m, --model <模型>    按名称、模型名或 ID 选择模型\n      --no-index        使用已有项目索引，不在启动时重建\n      --data-dir <目录> 覆盖 NanoAgent 应用数据目录\n  -h, --help            显示帮助\n  -V, --version         显示版本\n\n示例:\n  nano\n  nano --project D:\\workspace\\demo\n  nano --temp\n  nano -p \"这个项目的启动入口在哪里？\"\n  nano --temp -p \"帮我写一个周报提纲\""
+        "NanoAgent 终端交互客户端\n\n用法:\n  nano [选项] [问题]\n\n默认行为:\n  在当前目录启动项目问答，并将项目会话保存到 NanoAgent 本地数据库。\n\n选项:\n  -C, --project <目录>  指定项目目录\n      --temp            启动不绑定项目、不保存历史的临时对话\n      --continue        恢复当前项目最近会话\n      --resume <会话ID> 恢复当前项目指定会话（支持唯一前缀）\n      --sessions        列出当前项目可恢复会话\n  -p, --prompt <问题>   单次提问后退出\n  -m, --model <模型>    按名称、模型名或 ID 选择模型\n      --no-index        使用已有项目索引，不在启动时重建\n      --data-dir <目录> 覆盖 NanoAgent 应用数据目录\n  -h, --help            显示帮助\n  -V, --version         显示版本\n\n示例:\n  nano\n  nano --continue\n  nano --sessions\n  nano --resume 1234abcd\n  nano --project D:\\workspace\\demo --continue\n  nano --temp\n  nano -p \"这个项目的启动入口在哪里？\"\n  nano --temp -p \"帮我写一个周报提纲\""
     );
 }
 
@@ -546,6 +767,164 @@ mod tests {
         let error = parse_args(args(&["--temp", "--project", "."]))
             .expect_err("conflicting modes should fail");
         assert!(error.contains("不能同时使用"));
+    }
+
+    #[test]
+    fn parses_session_recovery_options() {
+        let continue_options = parse_args(args(&["--continue"])).expect("continue should parse");
+        assert!(continue_options.continue_latest);
+
+        let resume_options =
+            parse_args(args(&["--resume", "1234abcd"])).expect("resume should parse");
+        assert_eq!(resume_options.resume.as_deref(), Some("1234abcd"));
+
+        let list_options = parse_args(args(&["--sessions"])).expect("sessions should parse");
+        assert!(list_options.list_sessions);
+    }
+
+    #[test]
+    fn temporary_mode_rejects_session_recovery() {
+        let error = parse_args(args(&["--temp", "--continue"]))
+            .expect_err("temporary recovery should fail");
+        assert!(error.contains("--temp 不支持"));
+    }
+
+    #[test]
+    fn restores_persisted_project_conversation_history() {
+        let root = env::temp_dir().join(format!("nano-cli-session-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("temporary directory should be created");
+        let db = Database::open(root.join("nano-test.sqlite3")).expect("database should open");
+        let project_path = "D:\\workspace\\demo";
+        let conversation = db
+            .create_conversation(ConversationDraft {
+                title: Some("New chat".to_string()),
+                model_config_id: None,
+                project_path: Some(project_path.to_string()),
+            })
+            .expect("conversation should be created");
+        db.append_message(MessageDraft {
+            conversation_id: conversation.id.clone(),
+            role: "user".to_string(),
+            content: "first question".to_string(),
+            metadata: None,
+        })
+        .expect("user message should persist");
+        db.append_message(MessageDraft {
+            conversation_id: conversation.id.clone(),
+            role: "assistant".to_string(),
+            content: "first answer".to_string(),
+            metadata: None,
+        })
+        .expect("assistant message should persist");
+
+        let resumed = resolve_requested_conversation(&db, Some(project_path), true, None)
+            .expect("latest conversation should resolve")
+            .expect("conversation should exist");
+        let history =
+            load_conversation_history(&db, &resumed.id).expect("conversation history should load");
+        let prefix = short_session_id(&conversation.id);
+        let resumed_by_prefix =
+            resolve_requested_conversation(&db, Some(project_path), false, Some(prefix))
+                .expect("conversation prefix should resolve")
+                .expect("conversation should exist");
+
+        assert_eq!(resumed.id, conversation.id);
+        assert_eq!(resumed_by_prefix.id, conversation.id);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].content, "first question");
+        assert_eq!(history[1].content, "first answer");
+        drop(db);
+        std::fs::remove_dir_all(root).expect("temporary directory should be removed");
+    }
+
+    #[test]
+    fn project_ask_creates_and_persists_a_restorable_conversation() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let root = env::temp_dir().join(format!("nano-cli-ask-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("temporary project should be created");
+        let db = Database::open(root.join("nano-test.sqlite3")).expect("database should open");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("mock server should bind");
+        let address = listener.local_addr().expect("mock address should resolve");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("mock request should arrive");
+            let mut request = [0u8; 8192];
+            let _ = stream
+                .read(&mut request)
+                .expect("request should be readable");
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"saved answer\"}}]}\n\n",
+                "data: [DONE]\n\n"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("mock response should be written");
+        });
+        let now = chrono::Utc::now();
+        let model = ModelConfig {
+            id: "mock-model".to_string(),
+            name: "Mock".to_string(),
+            provider: "openai-compatible".to_string(),
+            base_url: format!("http://{address}/v1"),
+            model: "mock".to_string(),
+            api_key: "test".to_string(),
+            embedding_provider: String::new(),
+            embedding_base_url: String::new(),
+            embedding_model: String::new(),
+            embedding_api_key: String::new(),
+            created_at: now,
+            updated_at: now,
+        };
+        db.save_model_config(crate::models::ModelConfigDraft {
+            id: Some(model.id.clone()),
+            name: model.name.clone(),
+            provider: model.provider.clone(),
+            base_url: model.base_url.clone(),
+            model: model.model.clone(),
+            api_key: model.api_key.clone(),
+            embedding_provider: String::new(),
+            embedding_base_url: String::new(),
+            embedding_model: String::new(),
+            embedding_api_key: String::new(),
+        })
+        .expect("model config should persist for the conversation foreign key");
+        let project_path = display_project_path(&root);
+        let mut conversation_id = None;
+        let mut history = Vec::new();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime
+            .block_on(ask(
+                &db,
+                &model,
+                Some(&root),
+                Some(&project_path),
+                &mut conversation_id,
+                &mut history,
+                "first question",
+            ))
+            .expect("project question should complete");
+        server.join().expect("mock server should finish");
+
+        let conversation_id = conversation_id.expect("conversation should be created");
+        let messages = db
+            .list_messages(&conversation_id)
+            .expect("messages should load");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content, "first question");
+        assert_eq!(messages[1].content, "saved answer");
+        assert_eq!(history.len(), 2);
+        drop(db);
+        std::fs::remove_dir_all(root).expect("temporary project should be removed");
     }
 
     #[test]
