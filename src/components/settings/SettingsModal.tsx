@@ -82,7 +82,7 @@ export default function SettingsModal({
     <Modal
       opened={showModelConfig}
       onClose={() => setShowModelConfig(false)}
-      size="920px"
+      size="1024px"
       title={
         <Group gap="sm">
           <ThemeIcon variant="light" color="nanoBlue" size="md">
