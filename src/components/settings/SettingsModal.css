@@ -1,6 +1,8 @@
 .settings-modal-shell {
-  height: min(640px, calc(100vh - 48px));
-  max-height: calc(100vh - 48px);
+  width: 1024px;
+  max-width: none;
+  height: 640px;
+  max-height: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;

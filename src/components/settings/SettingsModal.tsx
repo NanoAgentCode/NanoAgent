@@ -1,5 +1,6 @@
 import { Settings } from "lucide-react";
 import { Group, Modal, NavLink, Text, ThemeIcon } from "@mantine/core";
+import { useViewportSize } from "@mantine/hooks";
 import type { Conversation, ThemeMode, SettingsTab, PersistedMessage } from "../../types";
 import type { AppPluginRegistry, SettingsPluginContext } from "../../core/plugins";
 import type { UseWorkspaceReturn } from "../../hooks/useWorkspace";
@@ -34,6 +35,21 @@ interface SettingsModalProps {
   handleDeleteArchivedConversation: (conversation: Conversation) => Promise<void>;
 }
 
+const SETTINGS_MODAL_WIDTH = 1024;
+const SETTINGS_MODAL_HEIGHT = 640;
+const SETTINGS_MODAL_HORIZONTAL_MARGIN = 32;
+const SETTINGS_MODAL_VERTICAL_MARGIN = 48;
+
+function getSettingsModalScale(viewportWidth: number, viewportHeight: number) {
+  if (viewportWidth <= 0 || viewportHeight <= 0) return 1;
+
+  return Math.min(
+    1,
+    (viewportWidth - SETTINGS_MODAL_HORIZONTAL_MARGIN) / SETTINGS_MODAL_WIDTH,
+    (viewportHeight - SETTINGS_MODAL_VERTICAL_MARGIN) / SETTINGS_MODAL_HEIGHT
+  );
+}
+
 export default function SettingsModal({
   plugins,
   showModelConfig,
@@ -57,6 +73,8 @@ export default function SettingsModal({
   handleRestoreConversation,
   handleDeleteArchivedConversation
 }: SettingsModalProps) {
+  const viewport = useViewportSize();
+  const modalScale = getSettingsModalScale(viewport.width, viewport.height);
   const context: SettingsPluginContext = {
     close: () => setShowModelConfig(false),
     themeMode,
@@ -83,6 +101,7 @@ export default function SettingsModal({
       opened={showModelConfig}
       onClose={() => setShowModelConfig(false)}
       size="1024px"
+      styles={{ content: { zoom: modalScale } }}
       title={
         <Group gap="sm">
           <ThemeIcon variant="light" color="nanoBlue" size="md">
