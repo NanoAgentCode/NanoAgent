@@ -69,13 +69,13 @@ npm.cmd run tauri dev
 npm.cmd run dev
 ```
 
-安装 `nano` 命令行客户端（Windows）：
+安装 `nano` 命令行客户端（Windows）：运行 `npm.cmd run package:win` 后，双击下面生成的独立安装器：
 
-```powershell
-npm.cmd run install:nano
+```text
+src-tauri\target\release\bundle\cli\NanoAgent-CLI_0.1.0_x64-setup.exe
 ```
 
-安装完成后打开新终端，直接运行：
+安装器无需管理员权限，会将 CLI 释放到 `%USERPROFILE%\.nano` 并把该目录加入当前用户的 `PATH`。安装完成后打开新终端，即可在任意目录直接运行：
 
 ```powershell
 nano
@@ -102,7 +102,7 @@ Windows 打包：
 npm.cmd run package:win
 ```
 
-`package:win` 会调用 `scripts/build-installer.ps1`，加载 Visual Studio x64 构建环境，修正 Windows 下 Git `link.exe` 抢占 MSVC `link.exe` 的 PATH 问题，然后执行 Tauri build。常见产物包括 `src-tauri/target/release/nano-agent.exe`、NSIS 安装包和 MSI 安装包。
+`package:win` 会调用 `scripts/build-installer.ps1`，加载 Visual Studio x64 构建环境，修正 Windows 下 Git `link.exe` 抢占 MSVC `link.exe` 的 PATH 问题，然后构建 CLI、Tauri 桌面端及安装包。常见产物包括 `nano.exe`、独立 CLI 安装器、`nano-agent.exe`、桌面端 NSIS 安装包和 MSI 安装包。
 
 ## 数据位置
 

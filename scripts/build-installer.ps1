@@ -49,18 +49,59 @@ try {
 
   Write-Host "==> Using linker: $((Get-Command link.exe -ErrorAction SilentlyContinue).Source)"
 
+  $TauriDir = Join-Path $Root "src-tauri"
+  Write-Host "==> Building nano CLI"
+  Push-Location $TauriDir
+  try {
+    & cargo.exe build --release --bin nano
+  } finally {
+    Pop-Location
+  }
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "CLI build failed. Exit code: $LASTEXITCODE"
+  }
+
+  Write-Host "==> Building NanoAgent desktop app and installers"
   & cmd.exe /d /s /c 'npm.cmd run tauri build'
 
   if ($LASTEXITCODE -ne 0) {
     throw "Tauri build failed. Exit code: $LASTEXITCODE"
   }
 
-  $BundleDir = Join-Path $Root "src-tauri\target\release\bundle"
+  $ReleaseDir = Join-Path $Root "src-tauri\target\release"
+  $CliExe = Join-Path $ReleaseDir "nano.exe"
+  $DesktopExe = Join-Path $ReleaseDir "nano-agent.exe"
+  $BundleDir = Join-Path $ReleaseDir "bundle"
+  $CliInstallerDir = Join-Path $BundleDir "cli"
+  $Version = (Get-Content -LiteralPath (Join-Path $Root "src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json).version
+  $CliInstaller = Join-Path $CliInstallerDir "NanoAgent-CLI_${Version}_x64-setup.exe"
+  $NsisRoot = Join-Path $env:LOCALAPPDATA "tauri\NSIS"
+  $MakeNsis = Join-Path $NsisRoot "makensis.exe"
+
+  if (-not (Test-Path -LiteralPath $CliExe)) {
+    throw "CLI executable was not found: $CliExe"
+  }
+  if (-not (Test-Path -LiteralPath $MakeNsis)) {
+    throw "NSIS compiler was not found after Tauri build: $MakeNsis"
+  }
+
+  New-Item -ItemType Directory -Path $CliInstallerDir -Force | Out-Null
+  Write-Host "==> Building NanoAgent CLI installer"
+  & $MakeNsis /V2 "/DCLI_EXE=$CliExe" "/DPATH_HELPER=$(Join-Path $Root 'scripts\update-user-path.ps1')" "/DOUTPUT_FILE=$CliInstaller" "/DPRODUCT_VERSION=$Version" "/DAPP_ICON=$(Join-Path $Root 'src-tauri\icons\icon.ico')" (Join-Path $Root "scripts\nano-cli-installer.nsi")
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "CLI installer build failed. Exit code: $LASTEXITCODE"
+  }
+
   $Nsis = Get-ChildItem -LiteralPath (Join-Path $BundleDir "nsis") -Filter "*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
   $Msi = Get-ChildItem -LiteralPath (Join-Path $BundleDir "msi") -Filter "*.msi" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
   Write-Host ""
   Write-Host "==> Build completed"
+  Write-Host "CLI : $CliExe"
+  Write-Host "CLI installer: $CliInstaller"
+  Write-Host "App : $DesktopExe"
   if ($Nsis) {
     Write-Host "NSIS: $($Nsis.FullName)"
   }
