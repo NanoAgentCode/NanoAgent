@@ -745,7 +745,7 @@ async fn build_system_message(
     project: Option<&Path>,
     query: &str,
 ) -> AppResult<ChatMessage> {
-    let memories = db.list_relevant_memories(query, Some(8))?;
+    let memories = crate::memory::retrieve_for_cli(db, query, 8).await?;
     let memory_context = memories
         .iter()
         .map(|memory| format!("- {}: {}", memory.title, memory.content))

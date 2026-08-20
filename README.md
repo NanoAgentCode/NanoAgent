@@ -4,7 +4,7 @@ NanoAgent 是一个本地优先的桌面 AI 工作台，使用 Tauri v2、Rust�
 
 ## 核心能力
 
-- 本地笔记、提示词和长期记忆管理，支持 SQLite FTS5 全文检索。
+- 本地笔记、提示词和长期记忆管理；长期记忆使用 SQLite 关系表、FTS5、sqlite-vec 嵌入式向量索引和轻量知识图谱进行混合召回。
 - 持久化 AI 对话，支持归档、恢复、删除、项目作用域隔离和会话级模型选择。
 - OpenAI-compatible Chat/Embeddings、Anthropic Messages API，以及 Ollama/OpenRouter 等兼容服务。
 - 流式回复、reasoning/thinking 片段展示和长对话上下文压缩。
@@ -37,7 +37,7 @@ NanoAgent 是一个本地优先的桌面 AI 工作台，使用 Tauri v2、Rust�
 - 桌面壳：Tauri v2
 - 前端：React 18、TypeScript、Vite、Mantine 8、lucide-react、react-markdown、remark-gfm
 - 后端：Rust、Tokio、rusqlite、reqwest、serde、thiserror
-- 数据库：SQLite + WAL + FTS5
+- 数据库：SQLite + WAL + FTS5 + sqlite-vec
 - 模型：OpenAI-compatible Chat/Embeddings、Anthropic Messages API
 - 扩展：MCP、Skills、本地 Agent 工具、PaddleOCR
 - 运维：SSH/SFTP、Windows NSIS/MSI 打包
@@ -143,6 +143,7 @@ src-tauri/src/runtime.rs       Agent run/step/tool call 运行时存储
 src-tauri/src/observability.rs 观测 sink/pipeline 与观测库
 src-tauri/src/logging.rs       按天写入并自动清理的系统操作日志
 src-tauri/src/llm.rs           Chat、streaming 和 embeddings 请求
+src-tauri/src/memory.rs        长期记忆 embedding 编排与混合召回入口
 src-tauri/src/mcp.rs           MCP client manager 与传输实现
 src-tauri/src/agent_runner.rs  XML tool_call 解析与运行时结果模型
 scripts/build-installer.ps1    Windows 打包脚本

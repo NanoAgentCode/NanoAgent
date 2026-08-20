@@ -8,6 +8,7 @@ mod file_content;
 mod llm;
 mod logging;
 mod mcp;
+mod memory;
 mod models;
 mod observability;
 mod plugins;
@@ -41,9 +42,8 @@ use mcp::{McpClientManager, McpServerView, McpToolCallRequest, McpToolCallResult
 use models::{
     ChatImageAttachment, ChatImageAttachmentPreview, ChatImageAttachmentRequest, ChatMessage,
     ChatRequest, ChatResponse, ChatStreamRequest, Conversation, ConversationDraft, Item, ItemDraft,
-    ItemPatch, McpServerConfig, McpServerDraft, Memory, MemoryDraft, MemoryPatch, Message,
-    MessageDraft, ModelConfig, ModelConfigDraft, OpsAiRequest, OpsServer, OpsServerDraft,
-    OpsUploadRequest,
+    ItemPatch, McpServerConfig, McpServerDraft, Message, MessageDraft, ModelConfig,
+    ModelConfigDraft, OpsAiRequest, OpsServer, OpsServerDraft, OpsUploadRequest,
 };
 use observability::{
     ObservabilityPipeline, ObservabilitySpan, SpanContext, SpanStart, SqliteObservabilitySink,
@@ -1349,45 +1349,6 @@ async fn append_message(state: State<'_, AppState>, draft: MessageDraft) -> AppR
     });
     finish_observation(&state, span, &result, output).await;
     result
-}
-
-#[tauri::command]
-async fn list_memories(state: State<'_, AppState>) -> AppResult<Vec<Memory>> {
-    state.db.lock().await.list_memories()
-}
-
-#[tauri::command]
-async fn list_enabled_memories(state: State<'_, AppState>) -> AppResult<Vec<Memory>> {
-    state.db.lock().await.list_enabled_memories()
-}
-
-#[tauri::command]
-async fn list_relevant_memories(
-    state: State<'_, AppState>,
-    query: String,
-    limit: Option<i64>,
-) -> AppResult<Vec<Memory>> {
-    state.db.lock().await.list_relevant_memories(&query, limit)
-}
-
-#[tauri::command]
-async fn search_memories(state: State<'_, AppState>, query: String) -> AppResult<Vec<Memory>> {
-    state.db.lock().await.search_memories(&query)
-}
-
-#[tauri::command]
-async fn create_memory(state: State<'_, AppState>, draft: MemoryDraft) -> AppResult<Memory> {
-    state.db.lock().await.create_memory(draft)
-}
-
-#[tauri::command]
-async fn update_memory(state: State<'_, AppState>, patch: MemoryPatch) -> AppResult<Memory> {
-    state.db.lock().await.update_memory(patch)
-}
-
-#[tauri::command]
-async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<()> {
-    state.db.lock().await.delete_memory(&id)
 }
 
 #[tauri::command]
@@ -2949,13 +2910,13 @@ pub fn run() {
             project_index::index_project_documents,
             project_index::get_project_index_stats,
             project_index::search_project_index,
-            list_memories,
-            list_enabled_memories,
-            list_relevant_memories,
-            search_memories,
-            create_memory,
-            update_memory,
-            delete_memory,
+            memory::list_memories,
+            memory::list_enabled_memories,
+            memory::list_relevant_memories,
+            memory::search_memories,
+            memory::create_memory,
+            memory::update_memory,
+            memory::delete_memory,
             sync_anthropic_skills,
             sync_github_skills,
             list_local_skills,

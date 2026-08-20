@@ -2,7 +2,12 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
+use sqlite_vec::sqlite3_vec_init;
+use std::collections::HashMap;
+use std::ffi::{c_char, c_int};
+use std::sync::Once;
 use uuid::Uuid;
+use zerocopy::IntoBytes;
 
 use crate::error::{AppError, AppResult};
 use crate::models::{
@@ -20,6 +25,20 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: PathBuf) -> AppResult<Self> {
+        static REGISTER_SQLITE_VEC: Once = Once::new();
+        REGISTER_SQLITE_VEC.call_once(|| unsafe {
+            type SqliteExtensionEntry = unsafe extern "C" fn(
+                *mut rusqlite::ffi::sqlite3,
+                *mut *mut c_char,
+                *const rusqlite::ffi::sqlite3_api_routines,
+            ) -> c_int;
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+                *const (),
+                SqliteExtensionEntry,
+            >(
+                sqlite3_vec_init as *const ()
+            )));
+        });
         let conn = Connection::open(path)?;
         let db = Self { conn };
         db.init()?;
@@ -325,6 +344,60 @@ impl Database {
                 content,
                 tags
             );
+
+            CREATE TABLE IF NOT EXISTS memory_embeddings (
+                vector_rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                memory_id TEXT NOT NULL UNIQUE,
+                model TEXT NOT NULL,
+                dimensions INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                indexed_at TEXT NOT NULL,
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS memory_entities (
+                id TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(kind, normalized_name)
+            );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_entities_fts USING fts5(
+                id UNINDEXED,
+                name
+            );
+
+            CREATE TABLE IF NOT EXISTS memory_entity_links (
+                memory_id TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 1,
+                PRIMARY KEY (memory_id, entity_id),
+                FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE,
+                FOREIGN KEY (entity_id) REFERENCES memory_entities(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS memory_relations (
+                source_entity_id TEXT NOT NULL,
+                target_entity_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                weight REAL NOT NULL DEFAULT 1,
+                evidence_memory_id TEXT NOT NULL,
+                PRIMARY KEY (source_entity_id, target_entity_id, kind, evidence_memory_id),
+                FOREIGN KEY (source_entity_id) REFERENCES memory_entities(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_entity_id) REFERENCES memory_entities(id) ON DELETE CASCADE,
+                FOREIGN KEY (evidence_memory_id) REFERENCES memories(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_memory_embeddings_model
+                ON memory_embeddings(model, dimensions);
+            CREATE INDEX IF NOT EXISTS idx_memory_entity_links_entity
+                ON memory_entity_links(entity_id, memory_id);
+            CREATE INDEX IF NOT EXISTS idx_memory_relations_source
+                ON memory_relations(source_entity_id, target_entity_id);
+            CREATE INDEX IF NOT EXISTS idx_memory_relations_target
+                ON memory_relations(target_entity_id, source_entity_id);
             ",
         )?;
         self.ensure_column("conversations", "project_path", "TEXT")?;
@@ -362,6 +435,7 @@ impl Database {
         self.ensure_column("ops_servers", "key_path", "TEXT NOT NULL DEFAULT ''")?;
         self.ensure_column("ops_servers", "password", "TEXT NOT NULL DEFAULT ''")?;
         self.ensure_column("ops_servers", "remote_dir", "TEXT NOT NULL DEFAULT ''")?;
+        self.rebuild_missing_memory_graphs()?;
         Ok(())
     }
 
@@ -1694,6 +1768,435 @@ impl Database {
         Ok(scored.into_iter().map(|(_, memory)| memory).collect())
     }
 
+    pub fn list_memories_missing_embedding(
+        &self,
+        model: &str,
+        limit: i64,
+    ) -> AppResult<Vec<Memory>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT m.id, m.title, m.content, m.tags_json, m.enabled, m.created_at, m.updated_at
+            FROM memories m
+            WHERE m.enabled = 1
+            ORDER BY m.updated_at DESC
+            ",
+        )?;
+
+        let candidates = stmt
+            .query_map([], Self::row_to_memory)?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut missing = candidates
+            .into_iter()
+            .filter(|memory| {
+                self.memory_embedding_is_stale(memory, model)
+                    .unwrap_or(true)
+            })
+            .collect::<Vec<_>>();
+        missing.truncate(limit.clamp(1, 512) as usize);
+        Ok(missing)
+    }
+
+    pub fn upsert_memory_embedding(
+        &self,
+        memory: &Memory,
+        model: &str,
+        embedding: &[f32],
+    ) -> AppResult<()> {
+        if embedding.is_empty() || embedding.len() > 65_536 {
+            return Err(AppError::Message(
+                "memory embedding dimensions are invalid".to_string(),
+            ));
+        }
+
+        let dimensions = embedding.len() as i64;
+        let table = memory_vector_table(dimensions)?;
+        self.conn.execute_batch(&format!(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS {table} USING vec0(embedding float[{dimensions}]);"
+        ))?;
+
+        let existing = self
+            .conn
+            .query_row(
+                "SELECT vector_rowid, dimensions FROM memory_embeddings WHERE memory_id = ?1",
+                params![memory.id],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        let vector_rowid = existing.map(|value| value.0).unwrap_or_else(|| {
+            self.conn
+                .query_row(
+                    "SELECT COALESCE(MAX(vector_rowid), 0) + 1 FROM memory_embeddings",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(1)
+        });
+
+        self.conn.execute_batch("SAVEPOINT memory_vector_upsert")?;
+        let result = (|| -> AppResult<()> {
+            if let Some((_, old_dimensions)) = existing {
+                let old_table = memory_vector_table(old_dimensions)?;
+                self.conn.execute(
+                    &format!("DELETE FROM {old_table} WHERE rowid = ?1"),
+                    params![vector_rowid],
+                )?;
+            }
+            self.conn.execute(
+                &format!("INSERT INTO {table}(rowid, embedding) VALUES (?1, ?2)"),
+                params![vector_rowid, embedding.as_bytes()],
+            )?;
+            self.conn.execute(
+                "
+                INSERT INTO memory_embeddings
+                    (vector_rowid, memory_id, model, dimensions, content_hash, indexed_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(memory_id) DO UPDATE SET
+                    vector_rowid = excluded.vector_rowid,
+                    model = excluded.model,
+                    dimensions = excluded.dimensions,
+                    content_hash = excluded.content_hash,
+                    indexed_at = excluded.indexed_at
+                ",
+                params![
+                    vector_rowid,
+                    memory.id,
+                    model,
+                    dimensions,
+                    memory_content_hash(memory),
+                    Utc::now().to_rfc3339()
+                ],
+            )?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.conn.execute_batch("RELEASE memory_vector_upsert")?;
+                Ok(())
+            }
+            Err(error) => {
+                let _ = self.conn.execute_batch(
+                    "ROLLBACK TO memory_vector_upsert; RELEASE memory_vector_upsert;",
+                );
+                Err(error)
+            }
+        }
+    }
+
+    pub fn search_hybrid_memories(
+        &self,
+        query: &str,
+        query_embedding: Option<&[f32]>,
+        query_embedding_model: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<Memory>> {
+        let limit = limit.clamp(1, 30) as usize;
+        let candidate_limit = (limit * 6).clamp(24, 180);
+        let mut scores = HashMap::<String, f64>::new();
+
+        let lexical = self.list_relevant_memories(query, Some(candidate_limit as i64))?;
+        add_rrf_scores(
+            &mut scores,
+            lexical.iter().map(|memory| memory.id.as_str()),
+            1.0,
+        );
+
+        if let Some(embedding) = query_embedding.filter(|value| !value.is_empty()) {
+            let vector_ids = self.search_memory_vectors(
+                embedding,
+                query_embedding_model,
+                candidate_limit as i64,
+            )?;
+            add_rrf_scores(&mut scores, vector_ids.iter().map(String::as_str), 1.15);
+        }
+
+        let graph_ids = self.search_memory_graph(query, candidate_limit as i64)?;
+        add_rrf_scores(&mut scores, graph_ids.iter().map(String::as_str), 0.9);
+
+        if scores.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut ranked = scores.into_iter().collect::<Vec<_>>();
+        ranked.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+
+        let mut memories = Vec::with_capacity(limit);
+        for (id, _) in ranked {
+            if let Some(memory) = self.get_memory(&id)? {
+                if memory.enabled {
+                    memories.push(memory);
+                }
+            }
+            if memories.len() >= limit {
+                break;
+            }
+        }
+        Ok(memories)
+    }
+
+    fn memory_embedding_is_stale(&self, memory: &Memory, model: &str) -> AppResult<bool> {
+        let indexed = self
+            .conn
+            .query_row(
+                "SELECT model, content_hash FROM memory_embeddings WHERE memory_id = ?1",
+                params![memory.id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        Ok(match indexed {
+            Some((indexed_model, content_hash)) => {
+                indexed_model != model || content_hash != memory_content_hash(memory)
+            }
+            None => true,
+        })
+    }
+
+    fn search_memory_vectors(
+        &self,
+        query_embedding: &[f32],
+        model: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<String>> {
+        let dimensions = query_embedding.len() as i64;
+        let table = memory_vector_table(dimensions)?;
+        let exists = self
+            .conn
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                params![table],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if !exists {
+            return Ok(Vec::new());
+        }
+
+        let sql = format!(
+            "
+            SELECT e.memory_id
+            FROM {table} v
+            JOIN memory_embeddings e ON e.vector_rowid = v.rowid
+            JOIN memories m ON m.id = e.memory_id
+            WHERE v.embedding MATCH ?1
+              AND k = ?2
+              AND (?3 IS NULL OR e.model = ?3)
+              AND m.enabled = 1
+            ORDER BY v.distance
+            "
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let ids = stmt
+            .query_map(
+                params![query_embedding.as_bytes(), limit.clamp(1, 180), model],
+                |row| row.get(0),
+            )?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(ids)
+    }
+
+    fn search_memory_graph(&self, query: &str, limit: i64) -> AppResult<Vec<String>> {
+        let tokens = memory_query_tokens(query);
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        let graph_query = tokens
+            .iter()
+            .take(12)
+            .map(|token| format!("\"{}\"*", token.replace('"', "\"\"")))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let mut seed_stmt = self.conn.prepare(
+            "
+            SELECT e.id
+            FROM memory_entities_fts f
+            JOIN memory_entities e ON e.id = f.id
+            WHERE memory_entities_fts MATCH ?1
+            LIMIT 24
+            ",
+        )?;
+        let seed_ids = seed_stmt
+            .query_map([graph_query], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if seed_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut scores = HashMap::<String, f64>::new();
+        let mut direct_stmt = self
+            .conn
+            .prepare("SELECT memory_id, weight FROM memory_entity_links WHERE entity_id = ?1")?;
+        let mut neighbor_stmt = self.conn.prepare(
+            "
+            SELECT CASE WHEN source_entity_id = ?1 THEN target_entity_id ELSE source_entity_id END,
+                   weight
+            FROM memory_relations
+            WHERE source_entity_id = ?1 OR target_entity_id = ?1
+            LIMIT 64
+            ",
+        )?;
+        for seed_id in seed_ids {
+            let direct = direct_stmt
+                .query_map([&seed_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (memory_id, weight) in direct {
+                *scores.entry(memory_id).or_default() += weight;
+            }
+
+            let neighbors = neighbor_stmt
+                .query_map([&seed_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (neighbor_id, relation_weight) in neighbors {
+                let linked = direct_stmt
+                    .query_map([neighbor_id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                for (memory_id, link_weight) in linked {
+                    *scores.entry(memory_id).or_default() += relation_weight * link_weight * 0.45;
+                }
+            }
+        }
+
+        let mut ranked = scores.into_iter().collect::<Vec<_>>();
+        ranked.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ranked.truncate(limit.clamp(1, 180) as usize);
+        Ok(ranked.into_iter().map(|(id, _)| id).collect())
+    }
+
+    fn rebuild_missing_memory_graphs(&self) -> AppResult<()> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, title, content, tags_json, enabled, created_at, updated_at
+            FROM memories m
+            WHERE NOT EXISTS (
+                SELECT 1 FROM memory_entity_links l WHERE l.memory_id = m.id
+            )
+            ",
+        )?;
+        let memories = stmt
+            .query_map([], Self::row_to_memory)?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        for memory in memories {
+            self.sync_memory_graph(&memory)?;
+        }
+        Ok(())
+    }
+
+    fn sync_memory_graph(&self, memory: &Memory) -> AppResult<()> {
+        self.conn.execute(
+            "DELETE FROM memory_relations WHERE evidence_memory_id = ?1",
+            params![memory.id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM memory_entity_links WHERE memory_id = ?1",
+            params![memory.id],
+        )?;
+
+        let entities = extract_memory_entities(memory);
+        let mut entity_ids = Vec::with_capacity(entities.len());
+        for entity in entities {
+            let normalized = normalize_entity_name(&entity.name);
+            if normalized.is_empty() {
+                continue;
+            }
+            let existing_id = self
+                .conn
+                .query_row(
+                    "SELECT id FROM memory_entities WHERE kind = ?1 AND normalized_name = ?2",
+                    params![entity.kind, normalized],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            let entity_id = existing_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+            let inserted = self.conn.execute(
+                "
+                INSERT OR IGNORE INTO memory_entities
+                    (id, kind, name, normalized_name, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                ",
+                params![
+                    entity_id,
+                    entity.kind,
+                    entity.name,
+                    normalized,
+                    Utc::now().to_rfc3339()
+                ],
+            )?;
+            if inserted > 0 {
+                self.conn.execute(
+                    "INSERT INTO memory_entities_fts (id, name) VALUES (?1, ?2)",
+                    params![entity_id, entity.name],
+                )?;
+            }
+            self.conn.execute(
+                "INSERT OR REPLACE INTO memory_entity_links (memory_id, entity_id, weight) VALUES (?1, ?2, ?3)",
+                params![memory.id, entity_id, entity.weight],
+            )?;
+            entity_ids.push((entity_id, entity.weight));
+        }
+
+        for left in 0..entity_ids.len() {
+            for right in (left + 1)..entity_ids.len() {
+                let (source_id, source_weight) = &entity_ids[left];
+                let (target_id, target_weight) = &entity_ids[right];
+                self.conn.execute(
+                    "
+                    INSERT OR REPLACE INTO memory_relations
+                        (source_entity_id, target_entity_id, kind, weight, evidence_memory_id)
+                    VALUES (?1, ?2, 'co_occurs', ?3, ?4)
+                    ",
+                    params![
+                        source_id,
+                        target_id,
+                        source_weight.min(*target_weight),
+                        memory.id
+                    ],
+                )?;
+            }
+        }
+        self.remove_orphan_memory_entities()
+    }
+
+    fn remove_orphan_memory_entities(&self) -> AppResult<()> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id FROM memory_entities e
+            WHERE NOT EXISTS (SELECT 1 FROM memory_entity_links l WHERE l.entity_id = e.id)
+              AND NOT EXISTS (
+                  SELECT 1 FROM memory_relations r
+                  WHERE r.source_entity_id = e.id OR r.target_entity_id = e.id
+              )
+            ",
+        )?;
+        let ids = stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        for id in ids {
+            self.conn
+                .execute("DELETE FROM memory_entities_fts WHERE id = ?1", params![id])?;
+            self.conn
+                .execute("DELETE FROM memory_entities WHERE id = ?1", params![id])?;
+        }
+        Ok(())
+    }
+
     pub fn search_memories(&self, query: &str) -> AppResult<Vec<Memory>> {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -1759,13 +2262,30 @@ impl Database {
     }
 
     pub fn delete_memory(&self, id: &str) -> AppResult<()> {
-        self.conn
-            .execute("DELETE FROM memories_fts WHERE id = ?1", params![id])?;
-        let affected = self
-            .conn
-            .execute("DELETE FROM memories WHERE id = ?1", params![id])?;
-        ensure_affected(affected, "memory not found")?;
-        Ok(())
+        self.with_savepoint("memory_delete", || {
+            if let Some((vector_rowid, dimensions)) = self
+                .conn
+                .query_row(
+                    "SELECT vector_rowid, dimensions FROM memory_embeddings WHERE memory_id = ?1",
+                    params![id],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .optional()?
+            {
+                let table = memory_vector_table(dimensions)?;
+                self.conn.execute(
+                    &format!("DELETE FROM {table} WHERE rowid = ?1"),
+                    params![vector_rowid],
+                )?;
+            }
+            self.conn
+                .execute("DELETE FROM memories_fts WHERE id = ?1", params![id])?;
+            let affected = self
+                .conn
+                .execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+            ensure_affected(affected, "memory not found")?;
+            self.remove_orphan_memory_entities()
+        })
     }
 
     fn get_item(&self, id: &str) -> AppResult<Option<Item>> {
@@ -1832,6 +2352,10 @@ impl Database {
     }
 
     fn upsert_memory(&self, memory: &Memory) -> AppResult<()> {
+        self.with_savepoint("memory_record_upsert", || self.upsert_memory_inner(memory))
+    }
+
+    fn upsert_memory_inner(&self, memory: &Memory) -> AppResult<()> {
         let tags_json = serde_json::to_string(&memory.tags)?;
         self.conn.execute(
             "
@@ -1866,7 +2390,27 @@ impl Database {
                 memory.tags.join(" ")
             ],
         )?;
-        Ok(())
+        self.sync_memory_graph(memory)
+    }
+
+    fn with_savepoint<T>(
+        &self,
+        name: &str,
+        operation: impl FnOnce() -> AppResult<T>,
+    ) -> AppResult<T> {
+        self.conn.execute_batch(&format!("SAVEPOINT {name}"))?;
+        match operation() {
+            Ok(value) => {
+                self.conn.execute_batch(&format!("RELEASE {name}"))?;
+                Ok(value)
+            }
+            Err(error) => {
+                let _ = self
+                    .conn
+                    .execute_batch(&format!("ROLLBACK TO {name}; RELEASE {name};"));
+                Err(error)
+            }
+        }
     }
 
     fn row_to_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
@@ -2000,6 +2544,87 @@ impl Database {
 
 fn parse_time(value: &str) -> AppResult<DateTime<Utc>> {
     Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
+}
+
+#[derive(Debug)]
+struct MemoryGraphEntity {
+    kind: &'static str,
+    name: String,
+    weight: f64,
+}
+
+fn extract_memory_entities(memory: &Memory) -> Vec<MemoryGraphEntity> {
+    let mut entities = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut push = |kind: &'static str, name: &str, weight: f64| {
+        let name = name.trim().trim_matches(['#', '`', '"', '\'', '，', '。']);
+        let normalized = normalize_entity_name(name);
+        if normalized.chars().count() < 2 || !seen.insert((kind, normalized)) {
+            return;
+        }
+        entities.push(MemoryGraphEntity {
+            kind,
+            name: name.chars().take(96).collect(),
+            weight,
+        });
+    };
+
+    push("topic", &memory.title, 1.0);
+    for tag in &memory.tags {
+        push("tag", tag, 1.2);
+    }
+    for token in memory.content.split_whitespace() {
+        if token.starts_with('#') {
+            push("tag", token, 1.1);
+        }
+    }
+    for (index, segment) in memory.content.split('`').enumerate() {
+        if index % 2 == 1 && segment.chars().count() <= 96 {
+            push("concept", segment, 0.9);
+        }
+    }
+
+    entities.truncate(16);
+    entities
+}
+
+fn normalize_entity_name(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_lowercase()
+}
+
+fn memory_content_hash(memory: &Memory) -> String {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    memory.title.hash(&mut hasher);
+    memory.content.hash(&mut hasher);
+    memory.tags.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn memory_vector_table(dimensions: i64) -> AppResult<String> {
+    if !(1..=65_536).contains(&dimensions) {
+        return Err(AppError::Message(
+            "memory embedding dimensions are invalid".to_string(),
+        ));
+    }
+    Ok(format!("memory_vectors_{dimensions}"))
+}
+
+fn add_rrf_scores<'a>(
+    scores: &mut HashMap<String, f64>,
+    ids: impl Iterator<Item = &'a str>,
+    weight: f64,
+) {
+    const RRF_K: f64 = 60.0;
+    for (rank, id) in ids.enumerate() {
+        *scores.entry(id.to_string()).or_default() += weight / (RRF_K + rank as f64 + 1.0);
+    }
 }
 
 fn parse_time_for_row(value: &str) -> rusqlite::Result<DateTime<Utc>> {
@@ -2382,5 +3007,103 @@ mod tests {
     #[test]
     fn fts_prefix_query_ignores_non_searchable_input() {
         assert_eq!(build_fts_prefix_query(":: -- /"), None);
+    }
+
+    #[test]
+    fn memory_graph_expands_recall_through_shared_entities() {
+        let db = Database::open(PathBuf::from(":memory:")).expect("database should open");
+        let rust = db
+            .create_memory(MemoryDraft {
+                title: "Rust 开发偏好".to_string(),
+                content: "优先使用明确的错误类型".to_string(),
+                tags: vec!["rust".to_string()],
+                enabled: Some(true),
+            })
+            .expect("memory should be created");
+        let cargo = db
+            .create_memory(MemoryDraft {
+                title: "Cargo 缓存".to_string(),
+                content: "依赖下载使用缓存".to_string(),
+                tags: vec!["rust".to_string(), "cargo".to_string()],
+                enabled: Some(true),
+            })
+            .expect("memory should be created");
+
+        let results = db
+            .search_hybrid_memories("cargo", None, None, 10)
+            .expect("hybrid search should succeed");
+        let ids = results
+            .iter()
+            .map(|memory| memory.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&cargo.id.as_str()));
+        assert!(ids.contains(&rust.id.as_str()));
+    }
+
+    #[test]
+    fn memory_vectors_rank_nearest_embedding_first() {
+        let db = Database::open(PathBuf::from(":memory:")).expect("database should open");
+        let apple = db
+            .create_memory(MemoryDraft {
+                title: "Apple".to_string(),
+                content: "fruit".to_string(),
+                tags: vec!["food".to_string()],
+                enabled: Some(true),
+            })
+            .expect("memory should be created");
+        let car = db
+            .create_memory(MemoryDraft {
+                title: "Car".to_string(),
+                content: "vehicle".to_string(),
+                tags: vec!["transport".to_string()],
+                enabled: Some(true),
+            })
+            .expect("memory should be created");
+        db.upsert_memory_embedding(&apple, "test-model", &[1.0, 0.0])
+            .expect("apple embedding should be indexed");
+        db.upsert_memory_embedding(&car, "test-model", &[0.0, 1.0])
+            .expect("car embedding should be indexed");
+
+        let results = db
+            .search_hybrid_memories("unmatched", Some(&[0.9, 0.1]), Some("test-model"), 2)
+            .expect("vector search should succeed");
+
+        assert_eq!(
+            results.first().map(|memory| memory.id.as_str()),
+            Some(apple.id.as_str())
+        );
+    }
+
+    #[test]
+    fn updating_memory_invalidates_its_embedding_hash() {
+        let db = Database::open(PathBuf::from(":memory:")).expect("database should open");
+        let memory = db
+            .create_memory(MemoryDraft {
+                title: "Preference".to_string(),
+                content: "dark theme".to_string(),
+                tags: vec!["ui".to_string()],
+                enabled: Some(true),
+            })
+            .expect("memory should be created");
+        db.upsert_memory_embedding(&memory, "test-model", &[1.0, 0.0])
+            .expect("embedding should be indexed");
+        assert!(!db
+            .memory_embedding_is_stale(&memory, "test-model")
+            .expect("embedding state should load"));
+
+        let updated = db
+            .update_memory(MemoryPatch {
+                id: memory.id,
+                title: None,
+                content: Some("light theme".to_string()),
+                tags: None,
+                enabled: None,
+            })
+            .expect("memory should update");
+
+        assert!(db
+            .memory_embedding_is_stale(&updated, "test-model")
+            .expect("embedding state should load"));
     }
 }

@@ -10,7 +10,10 @@ export default function SettingsEmbeddingTab({ model }: SettingsEmbeddingTabProp
   return (
     <div className="settings-tab-content model-tab-content">
       <div className="model-header-row"><h3>嵌入模型</h3></div>
-      <p className="description description--tight">配置全局唯一嵌入模型 API，用于轻量 RAG 的文档向量化与匹配。</p>
+      <p className="description description--tight">配置全局唯一嵌入模型 API，用于轻量 RAG、项目索引和长期记忆的向量化与匹配。</p>
+      <div className="memory-data-flow-notice" role="note">
+        长期记忆启用后，其标题、标签和正文以及检索问题会发送到此服务；生成的向量只保存在本机。
+      </div>
       <div className="embedding-config-card">
         <div className="model-config-form embedding-config-form">
           <div className="model-form-card">

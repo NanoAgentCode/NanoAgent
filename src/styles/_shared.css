@@ -1722,6 +1722,17 @@
   animation: toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.memory-data-flow-notice {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-blue) 32%, var(--border-color));
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--accent-blue) 8%, transparent);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 @keyframes toast-slide-in {
   from {
     transform: translateY(-20px) scale(0.95);
