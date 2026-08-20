@@ -14,7 +14,8 @@ use crate::models::{
     CodeChunk, CodeEntity, CodeIndexRun, CodeIndexStats, CodeRelation, CodeSearchResult,
     Conversation, ConversationDraft, Item, ItemDraft, ItemPatch, McpServerConfig, McpServerDraft,
     Memory, MemoryDraft, MemoryPatch, Message, MessageDraft, MessageMetadata, ModelConfig,
-    ModelConfigDraft, OpsServer, OpsServerDraft, RagChunkMatch, RagFile,
+    ModelConfigDraft, OpsServer, OpsServerDraft, RagChunkMatch, RagFile, UserProfile,
+    UserProfileFact,
 };
 
 mod project_index_store;
@@ -1796,6 +1797,10 @@ impl Database {
         Ok(missing)
     }
 
+    pub fn memory_needs_embedding(&self, memory: &Memory, model: &str) -> AppResult<bool> {
+        self.memory_embedding_is_stale(memory, model)
+    }
+
     pub fn upsert_memory_embedding(
         &self,
         memory: &Memory,
@@ -1912,10 +1917,6 @@ impl Database {
         let graph_ids = self.search_memory_graph(query, candidate_limit as i64)?;
         add_rrf_scores(&mut scores, graph_ids.iter().map(String::as_str), 0.9);
 
-        if scores.is_empty() {
-            return Ok(Vec::new());
-        }
-
         let mut ranked = scores.into_iter().collect::<Vec<_>>();
         ranked.sort_by(|left, right| {
             right
@@ -1925,18 +1926,47 @@ impl Database {
                 .then_with(|| left.0.cmp(&right.0))
         });
 
-        let mut memories = Vec::with_capacity(limit);
+        let always_limit = ((limit + 2) / 3).clamp(1, 3);
+        let mut memories = self.list_always_personalization_memories(always_limit)?;
+        let mut selected_ids = memories
+            .iter()
+            .map(|memory| memory.id.clone())
+            .collect::<std::collections::HashSet<_>>();
         for (id, _) in ranked {
-            if let Some(memory) = self.get_memory(&id)? {
-                if memory.enabled {
-                    memories.push(memory);
-                }
-            }
             if memories.len() >= limit {
                 break;
             }
+            if selected_ids.contains(&id) {
+                continue;
+            }
+            if let Some(memory) = self.get_memory(&id)? {
+                if memory.enabled {
+                    selected_ids.insert(memory.id.clone());
+                    memories.push(memory);
+                }
+            }
         }
         Ok(memories)
+    }
+
+    fn list_always_personalization_memories(&self, limit: usize) -> AppResult<Vec<Memory>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT m.id, m.title, m.content, m.tags_json, m.enabled, m.created_at, m.updated_at
+            FROM memory_entities e
+            JOIN memory_entity_links l ON l.entity_id = e.id
+            JOIN memories m ON m.id = l.memory_id
+            WHERE e.kind = 'tag'
+              AND e.normalized_name = 'personalization:always'
+              AND m.enabled = 1
+            ORDER BY m.updated_at DESC
+            LIMIT ?1
+            ",
+        )?;
+        let rows = stmt
+            .query_map([limit as i64], Self::row_to_memory)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     fn memory_embedding_is_stale(&self, memory: &Memory, model: &str) -> AppResult<bool> {
@@ -2240,6 +2270,143 @@ impl Database {
 
         self.upsert_memory(&memory)?;
         Ok(memory)
+    }
+
+    pub fn upsert_personalization_memory(&self, draft: MemoryDraft) -> AppResult<Memory> {
+        let personalization_key = draft
+            .tags
+            .iter()
+            .find(|tag| {
+                tag.starts_with("personalization:") && tag.as_str() != "personalization:always"
+            })
+            .cloned();
+        let normalized_content = normalize_memory_identity(&draft.content);
+        let existing = match personalization_key.as_ref() {
+            Some(key) => match self.find_memory_by_personalization_tag(key)? {
+                Some(memory) => Some(memory),
+                None => self
+                    .list_personalization_memories()?
+                    .into_iter()
+                    .find(|memory| {
+                        !memory.tags.iter().any(|tag| {
+                            tag.starts_with("personalization:")
+                                && tag.as_str() != "personalization:always"
+                        }) && infer_legacy_personalization_key(memory).as_deref() == Some(key)
+                    }),
+            },
+            None => self
+                .list_personalization_memories()?
+                .into_iter()
+                .find(|memory| normalize_memory_identity(&memory.content) == normalized_content),
+        };
+
+        if let Some(existing) = existing {
+            if normalize_memory_identity(&existing.content) == normalized_content
+                && existing.title == draft.title
+                && existing.tags == draft.tags
+                && existing.enabled == draft.enabled.unwrap_or(true)
+            {
+                return Ok(existing);
+            }
+            return self.update_memory(MemoryPatch {
+                id: existing.id,
+                title: Some(draft.title),
+                content: Some(draft.content),
+                tags: Some(draft.tags),
+                enabled: draft.enabled.or(Some(true)),
+            });
+        }
+
+        self.create_memory(draft)
+    }
+
+    pub fn get_user_profile(&self) -> AppResult<UserProfile> {
+        let mut facts = self
+            .list_personalization_memories()?
+            .into_iter()
+            .filter(|memory| memory.enabled)
+            .map(|memory| {
+                let category = if memory.tags.iter().any(|tag| tag == "preference") {
+                    "preference"
+                } else {
+                    "profile"
+                };
+                let dimension = memory
+                    .tags
+                    .iter()
+                    .find_map(|tag| {
+                        tag.strip_prefix("personalization:")
+                            .filter(|value| *value != "always")
+                            .or_else(|| tag.strip_prefix("profile-dimension:"))
+                    })
+                    .map(str::to_string)
+                    .or_else(|| {
+                        infer_legacy_personalization_key(&memory)
+                            .map(|key| key.trim_start_matches("personalization:").to_string())
+                    })
+                    .unwrap_or_else(|| format!("{category}-general"));
+                UserProfileFact {
+                    label: user_profile_dimension_label(&dimension).to_string(),
+                    dimension,
+                    value: memory.content.clone(),
+                    category: category.to_string(),
+                    global: memory
+                        .tags
+                        .iter()
+                        .any(|tag| tag == "personalization:always"),
+                    source_memory_id: memory.id.clone(),
+                    updated_at: memory.updated_at,
+                }
+            })
+            .collect::<Vec<_>>();
+        facts.sort_by(|left, right| {
+            right
+                .global
+                .cmp(&left.global)
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+        });
+        Ok(UserProfile {
+            global_preference_count: facts.iter().filter(|fact| fact.global).count(),
+            profile_fact_count: facts
+                .iter()
+                .filter(|fact| fact.category == "profile")
+                .count(),
+            facts,
+        })
+    }
+
+    fn find_memory_by_personalization_tag(&self, tag: &str) -> AppResult<Option<Memory>> {
+        self.conn
+            .query_row(
+                "
+                SELECT m.id, m.title, m.content, m.tags_json, m.enabled, m.created_at, m.updated_at
+                FROM memory_entities e
+                JOIN memory_entity_links l ON l.entity_id = e.id
+                JOIN memories m ON m.id = l.memory_id
+                WHERE e.kind = 'tag' AND e.normalized_name = ?1
+                ORDER BY m.updated_at DESC
+                LIMIT 1
+                ",
+                params![normalize_entity_name(tag)],
+                Self::row_to_memory,
+            )
+            .optional()
+            .map_err(AppError::from)
+    }
+
+    fn list_personalization_memories(&self) -> AppResult<Vec<Memory>> {
+        let mut stmt = self.conn.prepare(
+            "
+            SELECT id, title, content, tags_json, enabled, created_at, updated_at
+            FROM memories
+            WHERE tags_json LIKE '%\"personalization\"%'
+            ORDER BY updated_at DESC
+            ",
+        )?;
+        let rows = stmt
+            .query_map([], Self::row_to_memory)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     pub fn update_memory(&self, patch: MemoryPatch) -> AppResult<Memory> {
@@ -2597,6 +2764,113 @@ fn normalize_entity_name(value: &str) -> String {
         .to_lowercase()
 }
 
+fn normalize_memory_identity(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn infer_legacy_personalization_key(memory: &Memory) -> Option<String> {
+    let value = format!("{} {}", memory.title, memory.content).to_lowercase();
+    let dimension = if contains_any(
+        &value,
+        &[
+            "中文",
+            "英文",
+            "英语",
+            "回答语言",
+            "回复语言",
+            "chinese",
+            "english",
+        ],
+    ) {
+        "response-language"
+    } else if contains_any(
+        &value,
+        &[
+            "简洁", "简短", "精简", "详细", "展开", "啰嗦", "concise", "brief", "verbose",
+        ],
+    ) {
+        "response-length"
+    } else if contains_any(
+        &value,
+        &[
+            "表格",
+            "列表",
+            "要点",
+            "分点",
+            "markdown",
+            "代码块",
+            "回答格式",
+            "回复格式",
+        ],
+    ) {
+        "response-format"
+    } else if contains_any(
+        &value,
+        &[
+            "语气",
+            "表达风格",
+            "回答风格",
+            "回复风格",
+            "正式",
+            "随意",
+            "tone",
+        ],
+    ) {
+        "response-tone"
+    } else if contains_any(&value, &["我叫", "我的名字", "my name is"]) {
+        "profile-name"
+    } else if contains_any(
+        &value,
+        &[
+            "我的工作",
+            "我的角色",
+            "我负责",
+            "工程师",
+            "开发",
+            "设计师",
+            "my role",
+        ],
+    ) {
+        "profile-role"
+    } else if contains_any(&value, &["工作目录", "项目目录", "workspace"]) {
+        "profile-workspace"
+    } else if contains_any(&value, &["操作系统", "windows", "macos", "linux"]) {
+        "profile-environment"
+    } else {
+        return None;
+    };
+    Some(format!("personalization:{dimension}"))
+}
+
+fn contains_any(value: &str, candidates: &[&str]) -> bool {
+    candidates.iter().any(|candidate| value.contains(candidate))
+}
+
+fn user_profile_dimension_label(dimension: &str) -> &str {
+    match dimension {
+        "response-language" => "回答语言",
+        "response-length" => "回答长度",
+        "response-format" => "输出格式",
+        "response-tone" => "表达语气",
+        "response-style" => "回答方式",
+        "profile-name" => "姓名",
+        "profile-role" => "角色",
+        "profile-workspace" => "工作目录",
+        "profile-environment" => "工作环境",
+        "tooling" => "常用技术",
+        "project" => "长期项目",
+        "workflow" => "工作方式",
+        "interest" => "关注领域",
+        "preference-general" => "其他偏好",
+        "profile-general" => "其他画像",
+        _ => "画像事实",
+    }
+}
+
 fn memory_content_hash(memory: &Memory) -> String {
     use std::hash::{Hash, Hasher};
 
@@ -2748,33 +3022,6 @@ fn score_memory_relevance(memory: &Memory, query_lower: &str, tokens: &[String])
     if content.contains(query_lower) {
         score += 8;
     }
-    if title.contains("偏好")
-        || title.contains("preference")
-        || tags.contains("偏好")
-        || tags.contains("preference")
-        || tags.contains("personalization")
-        || tags.contains("profile")
-        || tags.contains("workflow")
-        || tags.contains("always")
-        || tags.contains("规则")
-        || tags.contains("指令")
-    {
-        score += 8;
-    }
-    if title.contains("用户画像")
-        || title.contains("工作方式")
-        || content.contains("我喜欢")
-        || content.contains("我偏好")
-        || content.contains("我习惯")
-        || content.contains("希望你")
-        || content.contains("以后")
-        || content.contains("i prefer")
-        || content.contains("i like")
-        || content.contains("i usually")
-    {
-        score += 5;
-    }
-
     for token in tokens {
         if token.chars().count() < 2 {
             continue;
@@ -2788,6 +3035,24 @@ fn score_memory_relevance(memory: &Memory, query_lower: &str, tokens: &[String])
         if content.contains(token) {
             score += 2;
         }
+    }
+
+    let is_personalization = tags.contains("personalization")
+        || tags.contains("preference")
+        || tags.contains("profile")
+        || title.contains("用户画像")
+        || title.contains("工作方式");
+    if is_personalization && score > 0 {
+        score += 6;
+    }
+    if is_personalization
+        && (query_lower.contains("我的偏好")
+            || query_lower.contains("关于我")
+            || query_lower.contains("用户画像")
+            || query_lower.contains("my preference")
+            || query_lower.contains("about me"))
+    {
+        score += 12;
     }
 
     score
@@ -3105,5 +3370,129 @@ mod tests {
         assert!(db
             .memory_embedding_is_stale(&updated, "test-model")
             .expect("embedding state should load"));
+    }
+
+    #[test]
+    fn personalization_with_same_dimension_replaces_and_migrates_stale_value() {
+        let db = Database::open(PathBuf::from(":memory:")).expect("database should open");
+        let initial = db
+            .upsert_personalization_memory(MemoryDraft {
+                title: "回答长度偏好".to_string(),
+                content: "我喜欢详细回答".to_string(),
+                tags: vec![
+                    "auto".to_string(),
+                    "personalization".to_string(),
+                    "preference".to_string(),
+                ],
+                enabled: Some(true),
+            })
+            .expect("initial preference should be saved");
+        let updated = db
+            .upsert_personalization_memory(MemoryDraft {
+                title: "回答长度偏好".to_string(),
+                content: "我喜欢简洁回答".to_string(),
+                tags: vec![
+                    "auto".to_string(),
+                    "personalization".to_string(),
+                    "preference".to_string(),
+                    "personalization:response-length".to_string(),
+                    "personalization:always".to_string(),
+                ],
+                enabled: Some(true),
+            })
+            .expect("new preference should replace the old value");
+
+        assert_eq!(updated.id, initial.id);
+        assert_eq!(updated.content, "我喜欢简洁回答");
+        assert_eq!(db.list_memories().expect("memories should load").len(), 1);
+    }
+
+    #[test]
+    fn global_personalization_keeps_a_recall_slot_without_polluting_contextual_profile() {
+        let db = Database::open(PathBuf::from(":memory:")).expect("database should open");
+        let global = db
+            .create_memory(MemoryDraft {
+                title: "回答语言".to_string(),
+                content: "默认使用中文回答".to_string(),
+                tags: vec![
+                    "personalization".to_string(),
+                    "preference".to_string(),
+                    "personalization:response-language".to_string(),
+                    "personalization:always".to_string(),
+                ],
+                enabled: Some(true),
+            })
+            .expect("global preference should be created");
+        let contextual = db
+            .create_memory(MemoryDraft {
+                title: "Rust 项目".to_string(),
+                content: "我主要维护 Rust 桌面应用".to_string(),
+                tags: vec!["personalization".to_string(), "profile".to_string()],
+                enabled: Some(true),
+            })
+            .expect("contextual profile should be created");
+
+        let unrelated = db
+            .search_hybrid_memories("今天的天气", None, None, 8)
+            .expect("hybrid search should succeed");
+        assert_eq!(
+            unrelated
+                .iter()
+                .map(|memory| &memory.id)
+                .collect::<Vec<_>>(),
+            vec![&global.id]
+        );
+
+        let rust_query = db
+            .search_hybrid_memories("Rust 桌面应用", None, None, 8)
+            .expect("hybrid search should succeed");
+        let ids = rust_query
+            .iter()
+            .map(|memory| memory.id.as_str())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&global.id.as_str()));
+        assert!(ids.contains(&contextual.id.as_str()));
+    }
+
+    #[test]
+    fn user_profile_aggregates_labeled_facts_with_memory_sources() {
+        let db = Database::open(PathBuf::from(":memory:")).expect("database should open");
+        let language = db
+            .create_memory(MemoryDraft {
+                title: "回答语言".to_string(),
+                content: "默认使用中文回答".to_string(),
+                tags: vec![
+                    "personalization".to_string(),
+                    "preference".to_string(),
+                    "personalization:response-language".to_string(),
+                    "personalization:always".to_string(),
+                ],
+                enabled: Some(true),
+            })
+            .expect("language preference should be created");
+        let tooling = db
+            .create_memory(MemoryDraft {
+                title: "常用技术".to_string(),
+                content: "我主要使用 Rust 和 TypeScript".to_string(),
+                tags: vec![
+                    "personalization".to_string(),
+                    "profile".to_string(),
+                    "profile-dimension:tooling".to_string(),
+                ],
+                enabled: Some(true),
+            })
+            .expect("tooling profile should be created");
+
+        let profile = db.get_user_profile().expect("profile should load");
+
+        assert_eq!(profile.global_preference_count, 1);
+        assert_eq!(profile.profile_fact_count, 1);
+        assert_eq!(profile.facts.len(), 2);
+        assert_eq!(profile.facts[0].source_memory_id, language.id);
+        assert_eq!(profile.facts[0].label, "回答语言");
+        assert!(profile
+            .facts
+            .iter()
+            .any(|fact| fact.source_memory_id == tooling.id && fact.label == "常用技术"));
     }
 }

@@ -1,4 +1,4 @@
-import { createMemory, listRelevantMemories } from "../api";
+import { upsertPersonalizationMemory } from "../api";
 import { safeRecordAgentStep } from "./agentSafe";
 import type { extractPersonalizationMemoryDraft } from "./messageHelpers";
 
@@ -8,15 +8,7 @@ export async function savePersonalizationMemory(
 ) {
   if (!draft) return;
   try {
-    const existing = await listRelevantMemories(draft.content, 5);
-    const normalizedContent = normalizeMemoryText(draft.content);
-    const isDuplicate = existing.some((memory) =>
-      normalizeMemoryText(memory.content) === normalizedContent ||
-      normalizeMemoryText(memory.title) === normalizeMemoryText(draft.title)
-    );
-    if (isDuplicate) return;
-
-    const savedMemory = await createMemory(draft);
+    const savedMemory = await upsertPersonalizationMemory(draft);
     if (runId) {
       void safeRecordAgentStep({
         run_id: runId,
@@ -38,8 +30,4 @@ export async function savePersonalizationMemory(
       });
     }
   }
-}
-
-function normalizeMemoryText(value: string) {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }

@@ -300,6 +300,24 @@ pub struct RagChunkMatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserProfileFact {
+    pub dimension: String,
+    pub label: String,
+    pub value: String,
+    pub category: String,
+    pub global: bool,
+    pub source_memory_id: String,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserProfile {
+    pub facts: Vec<UserProfileFact>,
+    pub global_preference_count: usize,
+    pub profile_fact_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeIndexRun {
     pub id: String,
     pub project_path: String,

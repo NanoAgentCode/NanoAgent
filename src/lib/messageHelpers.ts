@@ -56,7 +56,14 @@ export function extractPersonalizationMemoryDraft(content: string) {
     return null;
   }
 
+  const policy = classifyPersonalization(normalized, lower, isPreference);
   const tags = ["auto", "personalization", isPreference ? "preference" : "profile"];
+  if (policy.dimension) {
+    tags.push(`${policy.multi ? "profile-dimension" : "personalization"}:${policy.dimension}`);
+  }
+  if (policy.always) {
+    tags.push("personalization:always");
+  }
   const title = buildPersonalizationTitle(normalized, isPreference ? "偏好" : "用户画像");
 
   return {
@@ -72,7 +79,55 @@ function compactPersonalizationText(content: string) {
     .replace(/!\[[^\]]*]\([^)]+\)/g, "")
     .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
     .replace(/\s+/g, " ")
+    .replace(/^(请|帮我|麻烦你|你)?\s*(记住|记一下|记到记忆|保存到记忆|加入记忆|以后记得)[：:\s,，]*/i, "")
     .trim();
+}
+
+function classifyPersonalization(content: string, lower: string, isPreference: boolean) {
+  if (isPreference) {
+    if (/(中文|英文|英语|语言).*(回答|回复)|(?:回答|回复).*(中文|英文|英语|语言)/.test(content) || /\b(chinese|english|language)\b.*\b(answer|reply|respond)/.test(lower)) {
+      return { dimension: "response-language", always: true };
+    }
+    if (/(简洁|简短|精简|详细|展开|啰嗦|回答长度|回复长度)/.test(content) || /\b(concise|brief|short|detailed|verbose)\b/.test(lower)) {
+      return { dimension: "response-length", always: true };
+    }
+    if (/(表格|列表|要点|分点|markdown|代码块|回答格式|回复格式)/i.test(content) || /\b(table|bullet|markdown|format)\b/.test(lower)) {
+      return { dimension: "response-format", always: true };
+    }
+    if (/(语气|表达风格|回答风格|回复风格|正式|随意|直接一点)/.test(content) || /\b(tone|response style|formal|casual)\b/.test(lower)) {
+      return { dimension: "response-tone", always: true };
+    }
+    if (/(希望你|以后.*(?:回答|回复)|请你以后|以后请)/.test(content) || /\b(always|want you to)\b/.test(lower)) {
+      return { dimension: "response-style", always: true };
+    }
+    if (/(工作方式|工作流程|我习惯|先.+再|每次.+先)/.test(content) || /\b(workflow|i usually)\b/.test(lower)) {
+      return { dimension: "workflow", always: false, multi: true };
+    }
+    return { dimension: null, always: false };
+  }
+
+  if (/(我叫|我的名字)/.test(content) || /\b(my name is)\b/.test(lower)) {
+    return { dimension: "profile-name", always: true };
+  }
+  if (/(我的工作|我的角色|我负责|我是.*(?:工程师|开发|设计师|产品|经理|学生|教师))/.test(content) || /\b(my role is|i'm responsible for|i am an? .*?(engineer|developer|designer|manager))\b/.test(lower)) {
+    return { dimension: "profile-role", always: true };
+  }
+  if (/(工作目录|项目目录|workspace)/i.test(content)) {
+    return { dimension: "profile-workspace", always: false };
+  }
+  if (/(我用的是|操作系统|windows|macos|linux)/i.test(content)) {
+    return { dimension: "profile-environment", always: false };
+  }
+  if (/(常用|主要使用|技术栈|开发语言|框架)/.test(content) || /\b(i use|tech stack|framework|programming language)\b/.test(lower)) {
+    return { dimension: "tooling", always: false, multi: true };
+  }
+  if (/(项目是|我正在做|我主要维护|长期项目)/.test(content) || /\b(i work on|my project|i maintain)\b/.test(lower)) {
+    return { dimension: "project", always: false, multi: true };
+  }
+  if (/(我关注|我感兴趣|研究方向)/.test(content) || /\b(i am interested in|i care about)\b/.test(lower)) {
+    return { dimension: "interest", always: false, multi: true };
+  }
+  return { dimension: null, always: false };
 }
 
 function buildPersonalizationTitle(content: string, fallback: string) {

@@ -10,6 +10,7 @@ import type {
   MemoryDraft,
   MemoryPatch,
   MessageDraft,
+  UserProfile,
   McpServerConfig,
   McpServerDraft,
   McpServerView,
@@ -222,6 +223,14 @@ export function searchMemories(query: string) {
 
 export function createMemory(draft: MemoryDraft) {
   return invoke<Memory>("create_memory", { draft });
+}
+
+export function getUserProfile() {
+  return invoke<UserProfile>("get_user_profile");
+}
+
+export function upsertPersonalizationMemory(draft: MemoryDraft) {
+  return invoke<Memory>("upsert_personalization_memory", { draft });
 }
 
 export function updateMemory(patch: MemoryPatch) {

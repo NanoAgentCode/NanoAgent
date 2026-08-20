@@ -12,7 +12,8 @@ import {
   listMessages,
   listProjectFiles,
   listRagFiles,
-  readAbsoluteFile
+  readAbsoluteFile,
+  upsertPersonalizationMemory
 } from "../api";
 import { buildSystemMessage } from "../lib/chatSystemMessage";
 import { loadProjectRetrievalContext } from "../lib/projectRetrieval";
@@ -225,6 +226,7 @@ export function useChat({
     const textContent = input.chatInput.trim();
     const content = buildMessageContentWithImageAttachments(textContent, attachments.pendingImageAttachments);
     const memoryDraft = extractMemoryDraft(content);
+    const personalizationDraft = extractPersonalizationMemoryDraft(textContent);
     const effectiveModelId = conv.resolveConversationModelId(conv.activeConversationId);
     const activeModelId = effectiveModelId;
 
@@ -266,7 +268,9 @@ export function useChat({
       setMessages(nextMessages);
 
       if (memoryDraft) {
-        const savedMemory = await createMemory(memoryDraft);
+        const savedMemory = personalizationDraft
+          ? await upsertPersonalizationMemory(personalizationDraft)
+          : await createMemory(memoryDraft);
         setNotice("已保存");
         if (agentRun) {
           void safeRecordAgentStep({
@@ -282,7 +286,6 @@ export function useChat({
         }
         return;
       }
-      const personalizationDraft = extractPersonalizationMemoryDraft(textContent);
       if (personalizationDraft) {
         void savePersonalizationMemory(personalizationDraft, agentRun?.id);
       }

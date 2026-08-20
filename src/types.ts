@@ -290,6 +290,22 @@ export interface RagChunkMatch {
   score: number;
 }
 
+export interface UserProfileFact {
+  dimension: string;
+  label: string;
+  value: string;
+  category: "preference" | "profile";
+  global: boolean;
+  source_memory_id: string;
+  updated_at: string;
+}
+
+export interface UserProfile {
+  facts: UserProfileFact[];
+  global_preference_count: number;
+  profile_fact_count: number;
+}
+
 export interface CodeIndexRun {
   id: string;
   project_path: string;
